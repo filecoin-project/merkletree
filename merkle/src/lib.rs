@@ -160,6 +160,8 @@
 
 extern crate rayon;
 
+extern crate memmap;
+
 /// Hash infrastructure for items in Merkle tree.
 pub mod hash;
 

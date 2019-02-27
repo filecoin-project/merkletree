@@ -16,6 +16,7 @@ categories    = ["data-structures", "cryptography"]
 
 [dependencies]
 rayon = "1.0.0"
+memmap = "0.6"
 ring = { version = "^0.12.1", optional = true }
 rust-crypto = { version = "^0.2.36", optional = true }
 rand = { version = "^0.3", optional = true }

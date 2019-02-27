@@ -1,4 +1,6 @@
 use hash::{Algorithm, Hashable};
+use memmap::MmapMut;
+use memmap::MmapOptions;
 use proof::Proof;
 use rayon::prelude::*;
 use std::iter::FromIterator;
@@ -172,6 +174,10 @@ impl<T: Ord + Clone + AsRef<[u8]> + Sync + Send, A: Algorithm<T>> MerkleTree<T, 
     }
 }
 
+fn anonymous_mmap(len: usize) -> MmapMut {
+    unsafe { MmapOptions::new().len(len).map_anon().unwrap() }
+}
+
 impl<T: Ord + Clone + AsRef<[u8]> + Send + Sync, A: Algorithm<T>> FromParallelIterator<T>
     for MerkleTree<T, A>
 {
@@ -182,7 +188,7 @@ impl<T: Ord + Clone + AsRef<[u8]> + Send + Sync, A: Algorithm<T>> FromParallelIt
             Some(e) => {
                 let pow = next_pow2(e);
                 let size = 2 * pow - 1;
-                Vec::with_capacity(size)
+                (*anonymous_mmap(size)).to_vec()
             }
             None => Vec::new(),
         };

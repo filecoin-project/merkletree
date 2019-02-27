@@ -152,13 +152,14 @@
     missing_copy_implementations,
     trivial_casts,
     trivial_numeric_casts,
-    unsafe_code,
     unstable_features,
     unused_import_braces
 )]
 #![cfg_attr(feature = "nightly", allow(unstable_features))]
 
 extern crate rayon;
+
+extern crate memmap;
 
 /// Hash infrastructure for items in Merkle tree.
 pub mod hash;

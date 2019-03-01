@@ -63,7 +63,8 @@ impl Algorithm<CryptoSHA256Hash> for CryptoBitcoinAlgorithm {
         leaf
     }
 
-    fn node(&mut self, left: CryptoSHA256Hash, right: CryptoSHA256Hash) -> CryptoSHA256Hash {
+    fn node(&mut self, left: CryptoSHA256Hash, right: CryptoSHA256Hash, height: usize) -> CryptoSHA256Hash {
+        height.hash(self);
         self.write(left.as_ref());
         self.write(right.as_ref());
         self.hash()
@@ -119,30 +120,30 @@ fn test_crypto_bitcoin_node() {
     let h11 = h1;
     let h12 = h2;
     let h13 = h3;
-    let h21 = a.node(h11, h12);
+    let h21 = a.node(h11, h12, 0);
     a.reset();
-    let h22 = a.node(h13, h13);
+    let h22 = a.node(h13, h13, 0);
     a.reset();
-    let h31 = a.node(h21, h22);
+    let h31 = a.node(h21, h22, 1);
     a.reset();
 
     assert_eq!(
         format!("{}", HexSlice::new(h21.as_ref())),
-        "32650049a0418e4380db0af81788635d8b65424d397170b8499cdc28c4d27006"
+        "09545bdfc187478f394589877e39b91aa6d0ea95c2defe6ce8dd3f8bf4e8e8ea"
     );
     assert_eq!(
         format!("{}", HexSlice::new(h22.as_ref())),
-        "30861db96905c8dc8b99398ca1cd5bd5b84ac3264a4e1b3e65afa1bcee7540c4"
+        "9300c41775d325ddd2d43daf268b346277edc4f744618ea19770ee310a6e04a1"
     );
     assert_eq!(
         format!("{}", HexSlice::new(h31.as_ref())),
-        "d47780c084bad3830bcdaf6eace035e4c6cbf646d103795d22104fb105014ba3"
+        "5ba580c87c9bae263e6186318d77963846ff7a3e92b45f2ed30495ccf52b4731"
     );
 
     let t: MerkleTree<CryptoSHA256Hash, CryptoBitcoinAlgorithm> =
         MerkleTree::from_iter(vec![h1, h2, h3]);
     assert_eq!(
         format!("{}", HexSlice::new(t.root().as_ref())),
-        "d47780c084bad3830bcdaf6eace035e4c6cbf646d103795d22104fb105014ba3"
+        "5ba580c87c9bae263e6186318d77963846ff7a3e92b45f2ed30495ccf52b4731"
     );
 }

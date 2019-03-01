@@ -42,7 +42,8 @@ use std::slice;
 /// TODO: Ord
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct MerkleTree<T: Ord + Clone + AsRef<[u8]> + Sync + Send, A: Algorithm<T>> {
-    data: Vec<T>,
+    data: Box<[T]>,
+    data_index: usize,
     leafs: usize,
     height: usize,
     _a: PhantomData<A>,
@@ -65,6 +66,12 @@ impl<T: Ord + Clone + AsRef<[u8]> + Sync + Send, A: Algorithm<T>> MerkleTree<T, 
     }
 
     #[inline]
+    fn push_element(&mut self, elem: T) {
+        self.data[self.data_index] = elem;
+        self.data_index+=1;
+    }
+
+    #[inline]
     fn build(&mut self) {
         let mut width = self.leafs;
 
@@ -76,7 +83,7 @@ impl<T: Ord + Clone + AsRef<[u8]> + Sync + Send, A: Algorithm<T>> MerkleTree<T, 
             // if there is odd num of elements, fill in to the even
             if width & 1 == 1 {
                 let he = self.data[self.len() - 1].clone();
-                self.data.push(he);
+                self.push_element(he);
                 width += 1;
                 j += 1;
             }
@@ -87,7 +94,10 @@ impl<T: Ord + Clone + AsRef<[u8]> + Sync + Send, A: Algorithm<T>> MerkleTree<T, 
                 .map(|v| A::default().node(v[0].clone(), v[1].clone(), height))
                 .collect();
 
-            self.data.extend(layer);
+            for element in layer {
+                self.push_element(element);
+            }
+//            self.data.extend(layer);
             i += j - i;
 
             width >>= 1;
@@ -190,12 +200,7 @@ impl<T: Ord + Clone + AsRef<[u8]> + Send + Sync, A: Algorithm<T>> FromParallelIt
             Some(e) => {
                 let pow = next_pow2(e);
                 let size = 2 * pow - 1;
-                let mmap_slice = &(*anonymous_mmap(size * 2 * mem::size_of::<T>()));
-                unsafe {
-                    let parameter_slice = mem::transmute::<&[u8], &[T]>(mmap_slice);
-                    let adjusted_slice = slice::from_raw_parts(parameter_slice.as_ptr(), size);
-                    adjusted_slice.to_vec()
-                }
+                Vec::with_capacity(size)
             }
             None => Vec::new(),
         };
@@ -211,8 +216,24 @@ impl<T: Ord + Clone + AsRef<[u8]> + Send + Sync, A: Algorithm<T>> FromParallelIt
         let size = 2 * pow - 1;
 
         assert!(leafs > 1);
+
+//        let mmap_slice = &(*anonymous_mmap(size * mem::size_of::<T>()));
+//        unsafe {
+//            let parameter_slice = mem::transmute::<&[u8], &[T]>(mmap_slice);
+//            let adjusted_slice = slice::from_raw_parts(parameter_slice.as_ptr(), size);
+//            adjusted_slice.to_vec()
+//        }
+        // FIXME: pass contents of data into the `mmap` box/slice.
+
+
+        // FIXME: `into_boxed_slice` will drop the excess, temporarily fill it.
+        let original_len = data.len();
+        let capacity = data.capacity();
+        unsafe {data.set_len(capacity );}
+
         let mut mt: MerkleTree<T, A> = MerkleTree {
-            data,
+            data_index: original_len,
+            data: data.into_boxed_slice(),
             leafs,
             height: log2_pow2(size + 1),
             _a: PhantomData,
@@ -252,8 +273,14 @@ impl<T: Ord + Clone + AsRef<[u8]> + Send + Sync, A: Algorithm<T>> FromIterator<T
 
         assert!(leafs > 1);
 
+        // FIXME: `into_boxed_slice` will drop the excess, temporarily fill it.
+        let original_len = data.len();
+        let capacity = data.capacity();
+        unsafe {data.set_len(capacity );}
+
         let mut mt: MerkleTree<T, A> = MerkleTree {
-            data,
+            data_index: original_len,
+            data: data.into_boxed_slice(),
             leafs,
             height: log2_pow2(size + 1),
             _a: PhantomData,

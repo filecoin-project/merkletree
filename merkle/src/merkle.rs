@@ -53,7 +53,7 @@ where
 }
 
 /// Element stored in the merkle tree.
-pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send {
+pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Default + std::fmt::Debug {
     /// Returns the length of an element when serialized as a byte slice.
     fn byte_len() -> usize;
 
@@ -62,11 +62,14 @@ pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send {
 }
 
 /// Backing store of the merkle tree.
-pub trait Store<E: Element>: ops::Deref<Target = [E]> {
+pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug {
     /// Creates a new store which can store up to `size` elements.
     fn new(size: usize) -> Self;
 
+    fn new_from_slice(size: usize, data: &[u8]) -> Self;
+
     fn write_at(&mut self, el: E, i: usize);
+
     fn read_at(&self, i: usize) -> E;
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E>;
 
@@ -92,7 +95,22 @@ impl<E: Element> Store<E> for VecStore<E> {
     }
 
     fn write_at(&mut self, el: E, i: usize) {
+        if self.0.len() <= i {
+            self.0.resize(i + 1, E::default());
+        }
+
         self.0[i] = el;
+    }
+
+    fn new_from_slice(size: usize, data: &[u8]) -> Self {
+        let mut v: Vec<_> = data
+            .chunks_exact(E::byte_len())
+            .map(E::from_slice)
+            .collect();
+        let additional = size - v.len();
+        v.reserve(additional);
+
+        VecStore(v)
     }
 
     fn read_at(&self, i: usize) -> E {
@@ -133,14 +151,26 @@ impl<E: Element> ops::Deref for MmapStore<E> {
 
 impl<E: Element> Store<E> for MmapStore<E> {
     #[allow(unsafe_code)]
-    fn new(len: usize) -> Self {
-        let byte_len = E::byte_len() * len;
-        println!("store: {} {} {}", len, byte_len, E::byte_len());
+    fn new(size: usize) -> Self {
+        let byte_len = E::byte_len() * size;
+
         MmapStore {
             store: MmapOptions::new().len(byte_len).map_anon().unwrap(),
             len: 0,
             _e: Default::default(),
         }
+    }
+
+    fn new_from_slice(size: usize, data: &[u8]) -> Self {
+        assert_eq!(data.len() % E::byte_len(), 0);
+
+        let mut res = Self::new(size);
+
+        let end = data.len();
+        res.store[..end].copy_from_slice(data);
+        res.len = data.len() / E::byte_len();
+
+        res
     }
 
     fn write_at(&mut self, el: E, i: usize) {
@@ -333,6 +363,36 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     pub fn as_slice(&self) -> &[T] {
         self
     }
+
+    /// Build the tree given a slice of all leafs, in bytes form.
+    pub fn from_byte_slice(leafs: &[u8]) -> Self {
+        assert_eq!(
+            leafs.len() % T::byte_len(),
+            0,
+            "{} not a multiple of {}",
+            leafs.len(),
+            T::byte_len()
+        );
+
+        let leafs_count = leafs.len() / T::byte_len();
+        let pow = next_pow2(leafs_count);
+        let size = 2 * pow - 1;
+
+        let data = K::new_from_slice(size, leafs);
+
+        assert!(leafs_count > 1);
+        let mut mt: MerkleTree<T, A, K> = MerkleTree {
+            data,
+            leafs: leafs_count,
+            height: log2_pow2(size + 1),
+            _a: PhantomData,
+            _t: PhantomData,
+        };
+
+        mt.build();
+
+        mt
+    }
 }
 
 impl<T: Element, A: Algorithm<T>, K: Store<T>> FromParallelIterator<T> for MerkleTree<T, A, K> {
@@ -384,7 +444,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T,
         let pow = next_pow2(leafs);
         let size = 2 * pow - 1;
 
-        println!("p {}, {}, {}", leafs, pow, size);
         let mut data = K::new(size);
 
         // leafs

@@ -53,18 +53,22 @@ where
 }
 
 /// Element stored in the merkle tree.
-pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send /* Into<Vec<u8>> + From<Vec<u8>>*/ {
+pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send {
     /// Returns the length of an element when serialized as a byte slice.
     fn byte_len() -> usize;
+
+    /// Creates the element from its byte form. Panics if the slice is not appropriately sized.
+    fn from_slice(bytes: &[u8]) -> Self;
 }
 
 /// Backing store of the merkle tree.
 pub trait Store<E: Element>: ops::Deref<Target = [E]> {
+    /// Creates a new store which can store up to `size` elements.
     fn new(size: usize) -> Self;
 
     fn write_at(&mut self, el: E, i: usize);
-    fn read_at(&self, i: usize) -> &E;
-    fn read_range(&self, r: ops::Range<usize>) -> &[E];
+    fn read_at(&self, i: usize) -> E;
+    fn read_range(&self, r: ops::Range<usize>) -> Vec<E>;
 
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
@@ -91,12 +95,12 @@ impl<E: Element> Store<E> for VecStore<E> {
         self.0[i] = el;
     }
 
-    fn read_at(&self, i: usize) -> &E {
-        &self.0[i]
+    fn read_at(&self, i: usize) -> E {
+        self.0[i].clone()
     }
 
-    fn read_range(&self, r: ops::Range<usize>) -> &[E] {
-        self.0.index(r)
+    fn read_range(&self, r: ops::Range<usize>) -> Vec<E> {
+        self.0.index(r).to_vec()
     }
 
     fn len(&self) -> usize {
@@ -130,23 +134,44 @@ impl<E: Element> ops::Deref for MmapStore<E> {
 impl<E: Element> Store<E> for MmapStore<E> {
     #[allow(unsafe_code)]
     fn new(len: usize) -> Self {
+        let byte_len = E::byte_len() * len;
+        println!("store: {} {} {}", len, byte_len, E::byte_len());
         MmapStore {
-            store: MmapOptions::new().len(len).map_anon().unwrap(),
+            store: MmapOptions::new().len(byte_len).map_anon().unwrap(),
             len: 0,
             _e: Default::default(),
         }
     }
 
     fn write_at(&mut self, el: E, i: usize) {
-        unimplemented!()
+        let b = E::byte_len();
+        self.store[i * b..(i + 1) * b].copy_from_slice(el.as_ref());
+        self.len += 1;
     }
 
-    fn read_at(&self, i: usize) -> &E {
-        unimplemented!()
+    fn read_at(&self, i: usize) -> E {
+        let b = E::byte_len();
+        let start = i * b;
+        let end = (i + 1) * b;
+        let len = self.len * b;
+        assert!(start < len, "start out of range {} >= {}", start, len);
+        assert!(end <= len, "end out of range {} > {}", end, len);
+
+        E::from_slice(&self.store[start..end])
     }
 
-    fn read_range(&self, r: ops::Range<usize>) -> &[E] {
-        unimplemented!()
+    fn read_range(&self, r: ops::Range<usize>) -> Vec<E> {
+        let b = E::byte_len();
+        let start = r.start * b;
+        let end = r.end * b;
+        let len = self.len * b;
+        assert!(start < len, "start out of range {} >= {}", start, len);
+        assert!(end <= len, "end out of range {} > {}", end, len);
+
+        self.store[start..end]
+            .chunks(b)
+            .map(E::from_slice)
+            .collect()
     }
 
     fn len(&self) -> usize {
@@ -159,7 +184,10 @@ impl<E: Element> Store<E> for MmapStore<E> {
 
     fn push(&mut self, el: E) {
         let l = self.len;
-        assert!(l + 1 <= self.store.len(), "not enough space");
+        assert!(
+            (l + 1) * E::byte_len() <= self.store.len(),
+            "not enough space"
+        );
 
         self.write_at(el, l);
     }
@@ -196,7 +224,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         while width > 1 {
             // if there is odd num of elements, fill in to the even
             if width & 1 == 1 {
-                let el = self.data.read_at(self.data.len() - 1).clone();
+                let el = self.data.read_at(self.data.len() - 1);
                 self.data.push(el);
 
                 width += 1;
@@ -208,7 +236,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 .data
                 .read_range(i..j)
                 .par_chunks(2)
-                .map(|v| A::default().node(v[0].clone(), v[1].clone(), height))
+                .map(|v| {
+                    let lhs = v[0].to_owned();
+                    let rhs = v[1].to_owned();
+                    A::default().node(lhs, rhs, height)
+                })
                 .collect();
 
             // TODO: avoid collecting into a vec and write the results direclty if possible.
@@ -240,14 +272,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             width += 1;
         }
 
-        lemma.push(self.data.read_at(j).clone());
+        lemma.push(self.data.read_at(j));
         while base + 1 < self.len() {
             lemma.push(if j & 1 == 0 {
                 // j is left
-                self.data.read_at(base + j + 1).clone()
+                self.data.read_at(base + j + 1)
             } else {
                 // j is right
-                self.data.read_at(base + j - 1).clone()
+                self.data.read_at(base + j - 1)
             });
             path.push(j & 1 == 0);
 
@@ -267,7 +299,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     /// Returns merkle root
     #[inline]
     pub fn root(&self) -> T {
-        self.data.read_at(self.data.len() - 1).clone()
+        self.data.read_at(self.data.len() - 1)
     }
 
     /// Returns number of elements in the tree.
@@ -352,6 +384,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T,
         let pow = next_pow2(leafs);
         let size = 2 * pow - 1;
 
+        println!("p {}, {}, {}", leafs, pow, size);
         let mut data = K::new(size);
 
         // leafs

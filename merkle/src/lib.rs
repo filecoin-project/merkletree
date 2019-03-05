@@ -174,6 +174,9 @@ pub mod proof;
 /// Merkle tree abstractions, implementation and algorithms.
 pub mod merkle;
 
+#[cfg(test)]
+extern crate byteorder;
+
 /// Tests data.
 #[cfg(test)]
 mod test_item;

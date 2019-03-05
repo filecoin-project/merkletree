@@ -58,6 +58,7 @@ pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Into<Vec<u8>> + Fro
 }
 
 pub trait Store: AsRef<[u8]> + AsMut<[u8]> + ops::Deref<Target = [u8]> {}
+impl<T: AsRef<[u8]> + AsMut<[u8]> + ops::Deref<Target = [u8]>> Store for T {}
 
 impl<T: Element, A: Algorithm<T>, K: Store> MerkleTree<T, A, K> {
     /// Creates new merkle from a sequence of hashes.
@@ -217,31 +218,27 @@ fn anonymous_mmap(len: usize) -> MmapMut {
     unsafe { MmapOptions::new().len(len).map_anon().unwrap() }
 }
 
-impl<T: Element, A: Algorithm<T>, K: Store> FromParallelIterator<T> for MerkleTree<T, A, K> {
+impl<T: Element, A: Algorithm<T>> FromParallelIterator<T> for MerkleTree<T, A, MmapMut> {
     /// Creates new merkle tree from an iterator over hashable objects.
     fn from_par_iter<I: IntoParallelIterator<Item = T>>(into: I) -> Self {
         let iter = into.into_par_iter();
-        let mut data: Vec<T> = match iter.opt_len() {
-            Some(e) => {
-                let pow = next_pow2(e);
-                let size = 2 * pow - 1;
-                (*anonymous_mmap(size)).to_vec()
-            }
-            None => Vec::new(),
-        };
 
-        // leafs
-        data.par_extend(iter.map(|item| {
-            let mut a = A::default();
-            a.leaf(item)
-        }));
-
-        let leafs = data.len();
+        let leafs = iter.opt_len().expect("must be sized");
         let pow = next_pow2(leafs);
         let size = 2 * pow - 1;
 
+        // TODO: allocated size needs to be the whole merkle tree, as bytes.
+        let data = anonymous_mmap(size);
+        let elem_width = T::byte_len();
+
+        // leafs
+        data.chunks_mut(elem_width).take(leafs).for_each(|chunk| {
+            let mut a = A::default();
+            chunk.copy_from_slice(&a.leaf(chunk.to_vec().into()).into()[..]);
+        });
+
         assert!(leafs > 1);
-        let mut mt: MerkleTree<T, A> = MerkleTree {
+        let mut mt: MerkleTree<T, A, MmapMut> = MerkleTree {
             data,
             leafs,
             height: log2_pow2(size + 1),

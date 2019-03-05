@@ -145,8 +145,8 @@
 //! }
 //! ```
 
+// missing_docs,
 #![deny(
-    missing_docs,
     unused_qualifications,
     missing_debug_implementations,
     missing_copy_implementations,

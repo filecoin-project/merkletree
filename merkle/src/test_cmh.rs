@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use hash::{Hashable, Algorithm};
-use merkle::MerkleTree;
+use hash::{Algorithm, Hashable};
+use merkle::{MerkleTree, VecStore};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::iter::FromIterator;
@@ -58,11 +58,12 @@ impl Algorithm<Item> for CMH {
 #[test]
 fn test_custom_merkle_hasher() {
     let mut a = CMH::new();
-    let mt: MerkleTree<Item, CMH> = MerkleTree::from_iter([1, 2, 3, 4, 5].iter().map(|x| {
-        a.reset();
-        x.hash(&mut a);
-        a.hash()
-    }));
+    let mt: MerkleTree<Item, CMH, VecStore<_>> =
+        MerkleTree::from_iter([1, 2, 3, 4, 5].iter().map(|x| {
+            a.reset();
+            x.hash(&mut a);
+            a.hash()
+        }));
 
     assert_eq!(
         mt.as_slice()

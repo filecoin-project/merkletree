@@ -1,12 +1,19 @@
 #![cfg(test)]
 #![allow(unsafe_code)]
 
-use std::slice;
+use hash::{Algorithm, Hashable};
+use merkle::Element;
 use std::mem;
-use hash::{Hashable, Algorithm};
+use std::slice;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Debug)]
 pub struct Item(pub u64);
+
+impl Element for Item {
+    fn byte_len() -> usize {
+        8
+    }
+}
 
 impl AsRef<[u8]> for Item {
     fn as_ref(&self) -> &[u8] {

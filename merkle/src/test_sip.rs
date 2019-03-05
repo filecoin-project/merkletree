@@ -1,9 +1,9 @@
 #![cfg(test)]
 
-use hash::{Hashable, Algorithm};
-use merkle::MerkleTree;
-use merkle::next_pow2;
+use hash::{Algorithm, Hashable};
 use merkle::log2_pow2;
+use merkle::next_pow2;
+use merkle::{MerkleTree, VecStore};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::iter::FromIterator;
@@ -97,7 +97,7 @@ fn test_simple_tree() {
     ];
     for items in 2..8 {
         let mut a = DefaultHasher::new();
-        let mt: MerkleTree<Item, DefaultHasher> = MerkleTree::from_iter(
+        let mt: MerkleTree<Item, DefaultHasher, VecStore<_>> = MerkleTree::from_iter(
             [1, 2, 3, 4, 5, 6, 7, 8]
                 .iter()
                 .map(|x| {

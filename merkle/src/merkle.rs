@@ -5,7 +5,7 @@ use proof::Proof;
 use rayon::prelude::*;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
-use std::ops;
+use std::ops::{self, Index};
 
 /// Merkle Tree.
 ///
@@ -43,7 +43,7 @@ pub struct MerkleTree<T, A, K>
 where
     T: Element,
     A: Algorithm<T>,
-    K: Store,
+    K: Store<T>,
 {
     data: K,
     leafs: usize,
@@ -52,15 +52,120 @@ where
     _t: PhantomData<T>,
 }
 
-pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Into<Vec<u8>> + From<Vec<u8>> {
+/// Element stored in the merkle tree.
+pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send /* Into<Vec<u8>> + From<Vec<u8>>*/ {
     /// Returns the length of an element when serialized as a byte slice.
     fn byte_len() -> usize;
 }
 
-pub trait Store: AsRef<[u8]> + AsMut<[u8]> + ops::Deref<Target = [u8]> {}
-impl<T: AsRef<[u8]> + AsMut<[u8]> + ops::Deref<Target = [u8]>> Store for T {}
+/// Backing store of the merkle tree.
+pub trait Store<E: Element>: ops::Deref<Target = [E]> {
+    fn new(size: usize) -> Self;
 
-impl<T: Element, A: Algorithm<T>, K: Store> MerkleTree<T, A, K> {
+    fn write_at(&mut self, el: E, i: usize);
+    fn read_at(&self, i: usize) -> &E;
+    fn read_range(&self, r: ops::Range<usize>) -> &[E];
+
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
+    fn push(&mut self, el: E);
+}
+
+#[derive(Debug)]
+pub struct VecStore<E: Element>(Vec<E>);
+
+impl<E: Element> ops::Deref for VecStore<E> {
+    type Target = [E];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<E: Element> Store<E> for VecStore<E> {
+    fn new(size: usize) -> Self {
+        VecStore(Vec::with_capacity(size))
+    }
+
+    fn write_at(&mut self, el: E, i: usize) {
+        self.0[i] = el;
+    }
+
+    fn read_at(&self, i: usize) -> &E {
+        &self.0[i]
+    }
+
+    fn read_range(&self, r: ops::Range<usize>) -> &[E] {
+        self.0.index(r)
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn push(&mut self, el: E) {
+        self.0.push(el);
+    }
+}
+
+#[derive(Debug)]
+pub struct MmapStore<E: Element> {
+    store: MmapMut,
+    len: usize,
+    _e: PhantomData<E>,
+}
+
+impl<E: Element> ops::Deref for MmapStore<E> {
+    type Target = [E];
+
+    fn deref(&self) -> &Self::Target {
+        unimplemented!()
+    }
+}
+
+impl<E: Element> Store<E> for MmapStore<E> {
+    #[allow(unsafe_code)]
+    fn new(len: usize) -> Self {
+        MmapStore {
+            store: MmapOptions::new().len(len).map_anon().unwrap(),
+            len: 0,
+            _e: Default::default(),
+        }
+    }
+
+    fn write_at(&mut self, el: E, i: usize) {
+        unimplemented!()
+    }
+
+    fn read_at(&self, i: usize) -> &E {
+        unimplemented!()
+    }
+
+    fn read_range(&self, r: ops::Range<usize>) -> &[E] {
+        unimplemented!()
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    fn push(&mut self, el: E) {
+        let l = self.len;
+        assert!(l + 1 <= self.store.len(), "not enough space");
+
+        self.write_at(el, l);
+    }
+}
+
+impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     /// Creates new merkle from a sequence of hashes.
     pub fn new<I: IntoIterator<Item = T>>(data: I) -> MerkleTree<T, A, K> {
         Self::from_iter(data)
@@ -82,7 +187,6 @@ impl<T: Element, A: Algorithm<T>, K: Store> MerkleTree<T, A, K> {
         // TODO: add an assert here to ensure this is the case.
 
         let mut width = self.leafs;
-        let elem_width = T::byte_len();
 
         // build tree
         let mut i: usize = 0;
@@ -92,44 +196,30 @@ impl<T: Element, A: Algorithm<T>, K: Store> MerkleTree<T, A, K> {
         while width > 1 {
             // if there is odd num of elements, fill in to the even
             if width & 1 == 1 {
-                let data = self.data.as_mut();
-                let start = width * elem_width - 2 * elem_width;
-                let mid = width * elem_width;
-                let end = width * elem_width - elem_width;
-
-                data[mid..end].copy_from_slice(&data[start..mid]);
+                let el = self.data.read_at(self.data.len() - 1).clone();
+                self.data.push(el);
 
                 width += 1;
                 j += 1;
             }
 
             // elements are in [i..j] and they are even
-            // TODO: parallelsim
-            let layer: Vec<u8> = self
+            let layer: Vec<_> = self
                 .data
-                .get(i * elem_width..j * elem_width)
-                .expect("out of bounds")
-                .chunks(2 * elem_width)
-                .flat_map(|v| {
-                    let (lhs, rhs) = v.split_at(elem_width);
-                    let h = A::default().node(lhs.to_vec().into(), rhs.to_vec().into(), height);
-                    h.into()
-                })
+                .read_range(i..j)
+                .par_chunks(2)
+                .map(|v| A::default().node(v[0].clone(), v[1].clone(), height))
                 .collect();
 
-            width >>= 1;
-            let next_i = j;
-            let next_j = j + width;
-            height += 1;
-
-            {
-                let data = self.data.as_mut();
-                // TODO: avoid collecting into a vec and write the results direclty if possible.
-                data[j * elem_width..next_j * elem_width].copy_from_slice(&layer[..]);
+            // TODO: avoid collecting into a vec and write the results direclty if possible.
+            for el in layer.into_iter() {
+                self.data.push(el);
             }
 
-            i = next_i;
-            j = next_j;
+            width >>= 1;
+            i = j;
+            j = j + width;
+            height += 1;
         }
     }
 
@@ -150,14 +240,14 @@ impl<T: Element, A: Algorithm<T>, K: Store> MerkleTree<T, A, K> {
             width += 1;
         }
 
-        lemma.push(self.data[j].clone());
+        lemma.push(self.data.read_at(j).clone());
         while base + 1 < self.len() {
             lemma.push(if j & 1 == 0 {
                 // j is left
-                self.data[base + j + 1].clone()
+                self.data.read_at(base + j + 1).clone()
             } else {
                 // j is right
-                self.data[base + j - 1].clone()
+                self.data.read_at(base + j - 1).clone()
             });
             path.push(j & 1 == 0);
 
@@ -177,7 +267,7 @@ impl<T: Element, A: Algorithm<T>, K: Store> MerkleTree<T, A, K> {
     /// Returns merkle root
     #[inline]
     pub fn root(&self) -> T {
-        self.data[self.data.len() - 1].clone()
+        self.data.read_at(self.data.len() - 1).clone()
     }
 
     /// Returns number of elements in the tree.
@@ -213,12 +303,7 @@ impl<T: Element, A: Algorithm<T>, K: Store> MerkleTree<T, A, K> {
     }
 }
 
-#[allow(unsafe_code)]
-fn anonymous_mmap(len: usize) -> MmapMut {
-    unsafe { MmapOptions::new().len(len).map_anon().unwrap() }
-}
-
-impl<T: Element, A: Algorithm<T>> FromParallelIterator<T> for MerkleTree<T, A, MmapMut> {
+impl<T: Element, A: Algorithm<T>, K: Store<T>> FromParallelIterator<T> for MerkleTree<T, A, K> {
     /// Creates new merkle tree from an iterator over hashable objects.
     fn from_par_iter<I: IntoParallelIterator<Item = T>>(into: I) -> Self {
         let iter = into.into_par_iter();
@@ -227,18 +312,22 @@ impl<T: Element, A: Algorithm<T>> FromParallelIterator<T> for MerkleTree<T, A, M
         let pow = next_pow2(leafs);
         let size = 2 * pow - 1;
 
-        // TODO: allocated size needs to be the whole merkle tree, as bytes.
-        let data = anonymous_mmap(size);
-        let elem_width = T::byte_len();
+        let mut data = K::new(size);
 
         // leafs
-        data.chunks_mut(elem_width).take(leafs).for_each(|chunk| {
-            let mut a = A::default();
-            chunk.copy_from_slice(&a.leaf(chunk.to_vec().into()).into()[..]);
-        });
+        let vs = iter
+            .map(|item| {
+                let mut a = A::default();
+                a.leaf(item)
+            })
+            .collect::<Vec<_>>();
+
+        for v in vs.into_iter() {
+            data.push(v);
+        }
 
         assert!(leafs > 1);
-        let mut mt: MerkleTree<T, A, MmapMut> = MerkleTree {
+        let mut mt: MerkleTree<T, A, K> = MerkleTree {
             data,
             leafs,
             height: log2_pow2(size + 1),
@@ -252,18 +341,18 @@ impl<T: Element, A: Algorithm<T>> FromParallelIterator<T> for MerkleTree<T, A, M
     }
 }
 
-impl<T: Element, A: Algorithm<T>, K: Store> FromIterator<T> for MerkleTree<T, A, K> {
+impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T, A, K> {
     /// Creates new merkle tree from an iterator over hashable objects.
     fn from_iter<I: IntoIterator<Item = T>>(into: I) -> Self {
         let iter = into.into_iter();
-        let mut data: Vec<T> = match iter.size_hint().1 {
-            Some(e) => {
-                let pow = next_pow2(e);
-                let size = 2 * pow - 1;
-                Vec::with_capacity(size)
-            }
-            None => Vec::new(),
-        };
+
+        let leafs = iter.size_hint().1.unwrap();
+        assert!(leafs > 1);
+
+        let pow = next_pow2(leafs);
+        let size = 2 * pow - 1;
+
+        let mut data = K::new(size);
 
         // leafs
         let mut a = A::default();
@@ -272,13 +361,7 @@ impl<T: Element, A: Algorithm<T>, K: Store> FromIterator<T> for MerkleTree<T, A,
             data.push(a.leaf(item));
         }
 
-        let leafs = data.len();
-        let pow = next_pow2(leafs);
-        let size = 2 * pow - 1;
-
-        assert!(leafs > 1);
-
-        let mut mt: MerkleTree<T, A> = MerkleTree {
+        let mut mt: MerkleTree<T, A, K> = MerkleTree {
             data,
             leafs,
             height: log2_pow2(size + 1),
@@ -291,7 +374,7 @@ impl<T: Element, A: Algorithm<T>, K: Store> FromIterator<T> for MerkleTree<T, A,
     }
 }
 
-impl<T: Element, A: Algorithm<T>, K: Store> ops::Deref for MerkleTree<T, A, K> {
+impl<T: Element, A: Algorithm<T>, K: Store<T>> ops::Deref for MerkleTree<T, A, K> {
     type Target = [T];
 
     fn deref(&self) -> &[T] {

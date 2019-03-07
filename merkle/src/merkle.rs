@@ -62,7 +62,7 @@ pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Default + std::fmt:
 }
 
 /// Backing store of the merkle tree.
-pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug {
+pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug + Clone {
     /// Creates a new store which can store up to `size` elements.
     fn new(size: usize) -> Self;
 
@@ -78,7 +78,7 @@ pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug {
     fn push(&mut self, el: E);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VecStore<E: Element>(Vec<E>);
 
 impl<E: Element> ops::Deref for VecStore<E> {
@@ -220,6 +220,12 @@ impl<E: Element> Store<E> for MmapStore<E> {
         );
 
         self.write_at(el, l);
+    }
+}
+
+impl<E: Element> Clone for MmapStore<E> {
+    fn clone(&self) -> MmapStore<E> {
+        MmapStore::new_from_slice(self.store.len(), &self.store)
     }
 }
 

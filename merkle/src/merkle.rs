@@ -45,7 +45,8 @@ where
     A: Algorithm<T>,
     K: Store<T>,
 {
-    data: K,
+    pub data: K,
+    // FIXME: How to expose access to the internal data?
     leafs: usize,
     height: usize,
     _a: PhantomData<A>,
@@ -62,7 +63,7 @@ pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Default + std::fmt:
 }
 
 /// Backing store of the merkle tree.
-pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug + Clone {
+pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug + Clone + AsRef<[u8]> {
     /// Creates a new store which can store up to `size` elements.
     fn new(size: usize) -> Self;
 
@@ -131,6 +132,13 @@ impl<E: Element> Store<E> for VecStore<E> {
 
     fn push(&mut self, el: E) {
         self.0.push(el);
+    }
+}
+
+impl<E: Element> AsRef<[u8]> for VecStore<E> {
+    fn as_ref(&self) -> &[u8] {
+        unimplemented!()
+        // FIXME: The `Element` trait needs to be extended with a `to_slice` method.
     }
 }
 
@@ -220,6 +228,12 @@ impl<E: Element> Store<E> for MmapStore<E> {
         );
 
         self.write_at(el, l);
+    }
+}
+
+impl<E: Element> AsRef<[u8]> for MmapStore<E> {
+    fn as_ref(&self) -> &[u8] {
+        &self.store
     }
 }
 

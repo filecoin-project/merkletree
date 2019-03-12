@@ -343,6 +343,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         // root is final
         lemma.push(self.root());
+
+        // Sanity check: if the `MerkleTree` lost its integrity and `data` doesn't match the
+        // expected values for `leafs` and `height` this can get ugly.
+        debug_assert!(lemma.len() == self.height + 1);
+        debug_assert!(path.len() == self.height - 1);
+
         Proof::new(lemma, path)
     }
 

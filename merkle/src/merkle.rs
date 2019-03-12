@@ -239,7 +239,7 @@ impl<E: Element> AsRef<[u8]> for MmapStore<E> {
 
 impl<E: Element> Clone for MmapStore<E> {
     fn clone(&self) -> MmapStore<E> {
-        MmapStore::new_from_slice(self.store.len(), &self.store)
+        MmapStore::new_from_slice(self.store.len() / E::byte_len(), &self.store)
     }
 }
 

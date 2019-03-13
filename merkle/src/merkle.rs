@@ -45,8 +45,7 @@ where
     A: Algorithm<T>,
     K: Store<T>,
 {
-    pub data: K,
-    // FIXME: How to expose access to the internal data?
+    data: K,
     leafs: usize,
     height: usize,
     _a: PhantomData<A>,
@@ -503,6 +502,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> ops::Deref for MerkleTree<T, A, K
 
     fn deref(&self) -> &[T] {
         self.data.deref()
+    }
+}
+
+impl<T: Element, A: Algorithm<T>, K: Store<T>> AsRef<[u8]> for MerkleTree<T, A, K> {
+    fn as_ref(&self) -> &[u8] {
+        self.data.as_ref()
     }
 }
 

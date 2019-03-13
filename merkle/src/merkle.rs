@@ -62,7 +62,9 @@ pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Default + std::fmt:
 }
 
 /// Backing store of the merkle tree.
-pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug + Clone + AsRef<[u8]> {
+pub trait Store<E: Element>:
+    ops::Deref<Target = [E]> + std::fmt::Debug + Clone + AsRef<[u8]>
+{
     /// Creates a new store which can store up to `size` elements.
     fn new(size: usize) -> Self;
 
@@ -137,7 +139,8 @@ impl<E: Element> Store<E> for VecStore<E> {
 impl<E: Element> AsRef<[u8]> for VecStore<E> {
     fn as_ref(&self) -> &[u8] {
         unimplemented!()
-        // FIXME: The `Element` trait needs to be extended with a `to_slice` method.
+        // FIXME: The `Element` trait needs to be extended with a `to_slice` method
+        // (levering `Domain::into_bytes`).
     }
 }
 
@@ -238,7 +241,10 @@ impl<E: Element> AsRef<[u8]> for MmapStore<E> {
 
 impl<E: Element> Clone for MmapStore<E> {
     fn clone(&self) -> MmapStore<E> {
-        MmapStore::new_from_slice(self.store.len() / E::byte_len(), &self.store[..(self.len()*E::byte_len())])
+        MmapStore::new_from_slice(
+            self.store.len() / E::byte_len(),
+            &self.store[..(self.len() * E::byte_len())],
+        )
     }
 }
 

@@ -382,6 +382,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         self.leafs
     }
 
+    /// Returns merkle root
+    #[inline]
+    pub fn read_at(&self, i: usize) -> T {
+        self.data.read_at(i)
+    }
+
     /// Extracts a slice containing the entire vector.
     ///
     /// Equivalent to `&s[..]`.

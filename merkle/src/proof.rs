@@ -1,5 +1,4 @@
 use hash::{Algorithm, Hashable};
-use merkle::log2_pow2;
 
 /// Merkle tree inclusion proof for data element, for which item = Leaf(Hash(Data Item)).
 ///

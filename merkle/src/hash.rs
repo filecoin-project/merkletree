@@ -116,7 +116,6 @@ where
     T: Clone + AsRef<[u8]>,
 {
     /// Returns the hash value for the data stream written so far.
-    #[inline]
     fn hash(&mut self) -> T;
 
     /// Reset Hasher state.

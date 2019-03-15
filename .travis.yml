@@ -3,22 +3,14 @@ cache: cargo
 
 env:
   global:
-    - CLIPPY_VERSION=0.0.172
+    - CLIPPY_VERSION=0.0.212
 
 rust:
   - stable
-  - beta
-  - nightly
-  - nightly-2017-11-20
-
-matrix:
-  allow_failures:
-    - rust:
-      - nightly
-      - nightly-2017-11-20
+  - nightly-2019-02-26
 
 before_script:
-  - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "nightly-2017-11-20" ]]; then
+  - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "nightly-2019-02-26" ]]; then
       cargo install clippy --vers $CLIPPY_VERSION --force;
     fi'
 
@@ -29,4 +21,4 @@ script:
   - cargo build --all-features
   - cargo test --all-features
   - cargo doc --all-features --no-deps
-  - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "nightly-2017-10-08" ]]; then cargo clippy -- -A blacklisted-name -A unreadable-literal -D warnings --all; fi'
+  - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "nightly-2019-02-26 ]]; then cargo clippy -- -D warnings --all; fi'

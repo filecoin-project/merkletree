@@ -7,7 +7,7 @@ rust:
 
 before_script:
   - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "nightly-2019-02-26" ]]; then
-      cargo install clippy --force;
+     rustup component add clippy-preview;
     fi'
 
 script:

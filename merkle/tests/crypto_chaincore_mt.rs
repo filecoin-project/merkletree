@@ -4,14 +4,15 @@
 extern crate crypto;
 extern crate merkle_light;
 
+use crypto::digest::Digest;
+use crypto::sha3::{Sha3, Sha3Mode};
+use merkle_light::hash::Algorithm;
+use merkle_light::merkle::MerkleTree;
+use merkle_light::merkle::VecStore;
+use merkle_light::proof::Proof;
 use std::fmt;
 use std::hash::Hasher;
 use std::iter::FromIterator;
-use merkle_light::hash::Algorithm;
-use merkle_light::merkle::MerkleTree;
-use merkle_light::proof::Proof;
-use crypto::sha3::{Sha3, Sha3Mode};
-use crypto::digest::Digest;
 
 #[derive(Clone)]
 struct CryptoChainCoreAlgorithm(Sha3);
@@ -88,7 +89,7 @@ fn test_crypto_chaincore_node() {
     h2[0] = 0x11;
     h3[0] = 0x22;
 
-    let t: MerkleTree<CryptoSHA256Hash, CryptoChainCoreAlgorithm> =
+    let t: MerkleTree<CryptoSHA256Hash, CryptoChainCoreAlgorithm, VecStore<_>> =
         MerkleTree::from_iter(vec![h1, h2, h3]);
     assert_eq!(
         format!("{}", HexSlice::new(t.root().as_ref())),
@@ -101,7 +102,8 @@ fn test_merkle_tree_validate_data() {
     let data = vec![1, 2, 3, 4];
     let proof_item = data[0];
 
-    let t: MerkleTree<CryptoSHA256Hash, CryptoChainCoreAlgorithm> = MerkleTree::from_data(data);
+    let t: MerkleTree<CryptoSHA256Hash, CryptoChainCoreAlgorithm, VecStore<_>> =
+        MerkleTree::from_data(data);
     let generated_proof = t.gen_proof(0);
 
     let proof = Proof::new(

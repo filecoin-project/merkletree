@@ -4,12 +4,11 @@
 //! [`Context`] acquired state `reset` thing.
 
 #![cfg(feature = "crypto_bench")]
-
 #![allow(dead_code)]
 
-extern crate test;
 extern crate rand;
 extern crate ring;
+extern crate test;
 
 mod init;
 
@@ -19,8 +18,9 @@ use std::fmt;
 // https://github.com/rust-lang/rust/issues/24111
 #[cfg(target_endian = "little")]
 macro_rules! u32x2 {
-    ( $first:expr, $second:expr ) =>
-    ( ((($second as u64) << 32) | ($first as u64)) )
+    ( $first:expr, $second:expr ) => {
+        ((($second as u64) << 32) | ($first as u64))
+    };
 }
 
 /// A context for multi-step (Init-Update-Finish) digest calculations.
@@ -91,15 +91,14 @@ impl Context {
             unsafe {
                 (self.algorithm.block_data_order)(&mut self.state, remaining.as_ptr(), num_blocks);
             }
-            self.completed_data_blocks = self.completed_data_blocks
+            self.completed_data_blocks = self
+                .completed_data_blocks
                 .checked_add(polyfill::slice::u64_from_usize(num_blocks))
                 .unwrap();
         }
         if num_to_save_for_later > 0 {
-            self.pending[..num_to_save_for_later].copy_from_slice(
-                &remaining
-                    [(remaining.len() - num_to_save_for_later)..],
-            );
+            self.pending[..num_to_save_for_later]
+                .copy_from_slice(&remaining[(remaining.len() - num_to_save_for_later)..]);
             self.num_pending = num_to_save_for_later;
         }
     }
@@ -133,7 +132,8 @@ impl Context {
         );
 
         // Output the length, in bits, in big endian order.
-        let mut completed_data_bits: u64 = self.completed_data_blocks
+        let mut completed_data_bits: u64 = self
+            .completed_data_blocks
             .checked_mul(polyfill::slice::u64_from_usize(self.algorithm.block_len))
             .unwrap()
             .checked_add(polyfill::slice::u64_from_usize(self.num_pending))

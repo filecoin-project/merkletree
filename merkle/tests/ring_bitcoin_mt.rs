@@ -1,11 +1,11 @@
 #![cfg(test)]
 #![cfg(feature = "bitcoin")]
 
-extern crate ring;
 extern crate merkle_light;
-
+extern crate ring;
 use merkle_light::hash::{Algorithm, Hashable};
 use merkle_light::merkle::MerkleTree;
+use merkle_light::merkle::VecStore;
 use ring::digest::{Context, SHA256};
 use std::fmt;
 use std::hash::Hasher;
@@ -73,7 +73,12 @@ impl Algorithm<RingSHA256Hash> for RingBitcoinAlgorithm {
         leaf
     }
 
-    fn node(&mut self, left: RingSHA256Hash, right: RingSHA256Hash, height: usize) -> RingSHA256Hash {
+    fn node(
+        &mut self,
+        left: RingSHA256Hash,
+        right: RingSHA256Hash,
+        height: usize,
+    ) -> RingSHA256Hash {
         height.hash(self);
 
         left.hash(self);
@@ -151,7 +156,7 @@ fn test_ring_bitcoin_node() {
         "5ba580c87c9bae263e6186318d77963846ff7a3e92b45f2ed30495ccf52b4731"
     );
 
-    let t: MerkleTree<RingSHA256Hash, RingBitcoinAlgorithm> =
+    let t: MerkleTree<RingSHA256Hash, RingBitcoinAlgorithm, VecStore<_>> =
         MerkleTree::from_iter(vec![h1, h2, h3]);
     assert_eq!(
         format!("{}", HexSlice::new(t.root().as_ref())),

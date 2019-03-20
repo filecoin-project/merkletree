@@ -129,7 +129,7 @@
 //! #[cfg(feature = "chaincore")]
 //! {
 //!     use example::ExampleAlgorithm;
-//!     use merkle_light::merkle::MerkleTree;
+//!     use merkle_light::merkle::{MerkleTree,VecStore};
 //!     use std::iter::FromIterator;
 //!
 //!     let mut h1 = [0u8; 32];
@@ -139,7 +139,7 @@
 //!     h2[0] = 0x22;
 //!     h3[0] = 0x33;
 //!
-//!     let t: MerkleTree<[u8; 32], ExampleAlgorithm> = MerkleTree::from_iter(vec![h1, h2, h3]);
+//!     let t: MerkleTree<[u8; 32], ExampleAlgorithm, VecStore<_>> = MerkleTree::from_iter(vec![h1, h2, h3]);
 //!     println!("{:?}", t.root());
 //! }
 //! }
@@ -192,3 +192,6 @@ mod test_sip;
 /// Tests for Merkle Hasher Customization
 #[cfg(test)]
 mod test_cmh;
+
+#[macro_use]
+extern crate arrayref;

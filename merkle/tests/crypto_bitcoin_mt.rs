@@ -4,13 +4,14 @@
 extern crate crypto;
 extern crate merkle_light;
 
+use crypto::digest::Digest;
+use crypto::sha2::Sha256;
+use merkle_light::hash::{Algorithm, Hashable};
+use merkle_light::merkle::MerkleTree;
+use merkle_light::merkle::VecStore;
 use std::fmt;
 use std::hash::Hasher;
 use std::iter::FromIterator;
-use merkle_light::hash::{Algorithm, Hashable};
-use merkle_light::merkle::MerkleTree;
-use crypto::sha2::Sha256;
-use crypto::digest::Digest;
 
 #[derive(Clone)]
 struct CryptoBitcoinAlgorithm(Sha256);
@@ -63,7 +64,12 @@ impl Algorithm<CryptoSHA256Hash> for CryptoBitcoinAlgorithm {
         leaf
     }
 
-    fn node(&mut self, left: CryptoSHA256Hash, right: CryptoSHA256Hash, height: usize) -> CryptoSHA256Hash {
+    fn node(
+        &mut self,
+        left: CryptoSHA256Hash,
+        right: CryptoSHA256Hash,
+        height: usize,
+    ) -> CryptoSHA256Hash {
         height.hash(self);
         self.write(left.as_ref());
         self.write(right.as_ref());
@@ -140,7 +146,7 @@ fn test_crypto_bitcoin_node() {
         "5ba580c87c9bae263e6186318d77963846ff7a3e92b45f2ed30495ccf52b4731"
     );
 
-    let t: MerkleTree<CryptoSHA256Hash, CryptoBitcoinAlgorithm> =
+    let t: MerkleTree<CryptoSHA256Hash, CryptoBitcoinAlgorithm, VecStore<_>> =
         MerkleTree::from_iter(vec![h1, h2, h3]);
     assert_eq!(
         format!("{}", HexSlice::new(t.root().as_ref())),

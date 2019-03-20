@@ -517,6 +517,19 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> AsRef<[u8]> for MerkleTree<T, A, 
     }
 }
 
+impl Element for [u8; 32] {
+    fn byte_len() -> usize {
+        32
+    }
+
+    fn from_slice(bytes: &[u8]) -> Self {
+        if bytes.len() != 32 {
+            panic!("invalid length {}, expected 32", bytes.len());
+        }
+        *array_ref!(bytes, 0, 32)
+    }
+}
+
 /// `next_pow2` returns next highest power of two from a given number if
 /// it is not already a power of two.
 ///

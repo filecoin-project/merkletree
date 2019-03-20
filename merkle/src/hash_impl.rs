@@ -120,7 +120,7 @@ macro_rules! last_type {
     ($a:ident, $($rest_a:ident,)+) => { last_type!($($rest_a,)+) };
 }
 
-impl_hash_tuple!{}
+impl_hash_tuple! {}
 impl_hash_tuple! { A }
 impl_hash_tuple! { A B }
 impl_hash_tuple! { A B C }

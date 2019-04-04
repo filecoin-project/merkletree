@@ -3,9 +3,13 @@ use memmap::MmapMut;
 use memmap::MmapOptions;
 use proof::Proof;
 use rayon::prelude::*;
+use std::fs::File;
+use std::fs::OpenOptions;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::ops::{self, Index};
+use std::path::Path;
+use tempfile::tempfile;
 
 /// Merkle Tree.
 ///
@@ -248,6 +252,158 @@ impl<E: Element> Clone for MmapStore<E> {
     }
 }
 
+/// File-mapping version of `MmapStore` with the added `new_with_path` method
+/// that allows to set its path (otherwise a temporary file is used which is
+/// cleaned up after we drop this structure).
+#[derive(Debug)]
+pub struct DiskMmapStore<E: Element> {
+    store: MmapMut,
+    len: usize,
+    _e: PhantomData<E>,
+    file: File,
+    // We need to save the `File` in case we're creating a `tempfile()`
+    // otherwise it will get cleaned after we return from `new()`.
+}
+
+impl<E: Element> ops::Deref for DiskMmapStore<E> {
+    type Target = [E];
+
+    fn deref(&self) -> &Self::Target {
+        unimplemented!()
+    }
+}
+
+impl<E: Element> Store<E> for DiskMmapStore<E> {
+    #[allow(unsafe_code)]
+    fn new(size: usize) -> Self {
+
+        // FIXME: CROSSING API BOUNDARIES HERE.
+        // This is used by `rust-fil-proofs` code when it allocates a `Store`
+        // to use it with `MerkleTree::from_data_with_store`, but the `Store`
+        // created there has an assigned size of *only* the leaves (the data,
+        // as it's seen there), not the *entire* tree, which is expected since
+        // the consumer shouldn't need to know how big the final `Store` is
+        // going to be. To *temporarily* accommodate this we *mangle* the
+        // received `size` (in a similar way to `MerkleTree::from_iter`) to
+        // expand it to the entire tree.
+        let pow = next_pow2(size);
+        let size = 2 * pow - 1;
+
+        let byte_len = E::byte_len() * size;
+        let file: File = tempfile().expect("couldn't create temp file");
+        file.set_len(byte_len as u64)
+            .expect(&format!("couldn't set len of {}", byte_len));
+
+        DiskMmapStore {
+            store: unsafe { MmapMut::map_mut(&file).expect("couldn't create map_mut") },
+            len: 0,
+            _e: Default::default(),
+            file,
+        }
+    }
+
+    fn new_from_slice(size: usize, data: &[u8]) -> Self {
+        assert_eq!(data.len() % E::byte_len(), 0);
+
+        let mut res = Self::new(size);
+
+        let end = data.len();
+        res.store[..end].copy_from_slice(data);
+        res.len = data.len() / E::byte_len();
+
+        res
+    }
+
+    fn write_at(&mut self, el: E, i: usize) {
+        let b = E::byte_len();
+        self.store[i * b..(i + 1) * b].copy_from_slice(el.as_ref());
+        self.len += 1;
+    }
+
+    fn read_at(&self, i: usize) -> E {
+        let b = E::byte_len();
+        let start = i * b;
+        let end = (i + 1) * b;
+        let len = self.len * b;
+        assert!(start < len, "start out of range {} >= {}", start, len);
+        assert!(end <= len, "end out of range {} > {}", end, len);
+
+        E::from_slice(&self.store[start..end])
+    }
+
+    fn read_range(&self, r: ops::Range<usize>) -> Vec<E> {
+        let b = E::byte_len();
+        let start = r.start * b;
+        let end = r.end * b;
+        let len = self.len * b;
+        assert!(start < len, "start out of range {} >= {}", start, len);
+        assert!(end <= len, "end out of range {} > {}", end, len);
+
+        self.store[start..end]
+            .chunks(b)
+            .map(E::from_slice)
+            .collect()
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    fn push(&mut self, el: E) {
+        let l = self.len;
+        assert!(
+            (l + 1) * E::byte_len() <= self.store.len(),
+            format!(
+                "not enough space, l: {}, E size {}, store len {}",
+                l,
+                E::byte_len(),
+                self.store.len()
+            )
+        );
+
+        self.write_at(el, l);
+    }
+}
+
+impl<E: Element> DiskMmapStore<E> {
+    pub fn new_with_path(size: usize, path: &Path) -> Self {
+        let byte_len = E::byte_len() * size;
+        let file: File = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&path)
+            .unwrap();
+        file.set_len(byte_len as u64).unwrap();
+
+        DiskMmapStore {
+            store: unsafe { MmapMut::map_mut(&file).unwrap() },
+            len: 0,
+            _e: Default::default(),
+            file,
+        }
+    }
+}
+
+impl<E: Element> AsRef<[u8]> for DiskMmapStore<E> {
+    fn as_ref(&self) -> &[u8] {
+        &self.store
+    }
+}
+
+impl<E: Element> Clone for DiskMmapStore<E> {
+    fn clone(&self) -> DiskMmapStore<E> {
+        DiskMmapStore::new_from_slice(
+            self.store.len() / E::byte_len(),
+            &self.store[..(self.len() * E::byte_len())],
+        )
+    }
+}
+
 impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     /// Creates new merkle from a sequence of hashes.
     pub fn new<I: IntoIterator<Item = T>>(data: I) -> MerkleTree<T, A, K> {
@@ -262,6 +418,46 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             x.hash(&mut a);
             a.hash()
         }))
+    }
+
+    /// Creates new merkle from an already allocated `Store` (used with
+    /// `DiskMmapStore::new_with_path` to set its path before instantiating
+    /// the MT, which would otherwise just call `DiskMmapStore::new`).
+    // FIXME: Taken from `MerkleTree::from_iter` to avoid adding more complexity,
+    //  it should use the parallel version instead.
+    pub fn from_data_with_store<I: IntoIterator<Item = T>>(
+        into: I,
+        data: K,
+    ) -> MerkleTree<T, A, K> {
+        let iter = into.into_iter();
+
+        let leafs = iter.size_hint().1.unwrap();
+        assert!(leafs > 1);
+
+        let pow = next_pow2(leafs);
+        let size = 2 * pow - 1;
+
+        let mut data = data.clone();
+        // FIXME: Should we use references here? (that may need some
+        //  modifications in the consumer code).
+
+        // leafs
+        let mut a = A::default();
+        for item in iter {
+            a.reset();
+            data.push(a.leaf(item));
+        }
+
+        let mut mt: MerkleTree<T, A, K> = MerkleTree {
+            data,
+            leafs,
+            height: log2_pow2(size + 1),
+            _a: PhantomData,
+            _t: PhantomData,
+        };
+
+        mt.build();
+        mt
     }
 
     #[inline]

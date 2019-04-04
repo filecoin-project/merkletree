@@ -152,7 +152,7 @@
     missing_copy_implementations,
     trivial_casts,
     trivial_numeric_casts,
-    unsafe_code,
+// FIXME: Removing `unsafe_code`, used in DiskMmapStore::new(), is this correct?
     unstable_features,
     unused_import_braces
 )]
@@ -161,6 +161,8 @@
 extern crate rayon;
 
 extern crate memmap;
+
+extern crate tempfile;
 
 /// Hash infrastructure for items in Merkle tree.
 pub mod hash;

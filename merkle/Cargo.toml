@@ -25,6 +25,7 @@ ring = { version = "^0.14.1", optional = true }
 rust-crypto = { version = "^0.2.36", optional = true }
 rand = { version = "^0.3", optional = true }
 arrayref = "0.3.5"
+tempfile = "3.0.7"
 
 [dev-dependencies]
 byteorder = "1.3.1"

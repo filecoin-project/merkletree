@@ -424,7 +424,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     /// `DiskMmapStore::new_with_path` to set its path before instantiating
     /// the MT, which would otherwise just call `DiskMmapStore::new`).
     // FIXME: Taken from `MerkleTree::from_iter` to avoid adding more complexity,
-    //  it should use the parallel version instead.
+    //  it should receive a `parallel` flag to decide what to do.
+    // FIXME: We're repeating too much code here, `from_iter` (and
+    //  `from_par_iter`) should be extended to handled a pre-allocated `Store`.
     pub fn from_data_with_store<I: IntoIterator<Item = T>>(
         into: I,
         data: K,

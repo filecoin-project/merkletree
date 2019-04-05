@@ -277,18 +277,6 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
     #[allow(unsafe_code)]
     fn new(size: usize) -> Self {
 
-        // FIXME: CROSSING API BOUNDARIES HERE.
-        // This is used by `rust-fil-proofs` code when it allocates a `Store`
-        // to use it with `MerkleTree::from_data_with_store`, but the `Store`
-        // created there has an assigned size of *only* the leaves (the data,
-        // as it's seen there), not the *entire* tree, which is expected since
-        // the consumer shouldn't need to know how big the final `Store` is
-        // going to be. To *temporarily* accommodate this we *mangle* the
-        // received `size` (in a similar way to `MerkleTree::from_iter`) to
-        // expand it to the entire tree.
-        let pow = next_pow2(size);
-        let size = 2 * pow - 1;
-
         let byte_len = E::byte_len() * size;
         let file: File = tempfile().expect("couldn't create temp file");
         file.set_len(byte_len as u64)
@@ -371,6 +359,19 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
 
 impl<E: Element> DiskMmapStore<E> {
     pub fn new_with_path(size: usize, path: &Path) -> Self {
+
+        // FIXME: CROSSING API BOUNDARIES HERE.
+        // This is used by `rust-fil-proofs` code when it allocates a `Store`
+        // to use it with `MerkleTree::from_data_with_store`, but the `Store`
+        // created there has an assigned size of *only* the leaves (the data,
+        // as it's seen there), not the *entire* tree, which is expected since
+        // the consumer shouldn't need to know how big the final `Store` is
+        // going to be. To *temporarily* accommodate this we *mangle* the
+        // received `size` (in a similar way to `MerkleTree::from_iter`) to
+        // expand it to the entire tree.
+        let pow = next_pow2(size);
+        let size = 2 * pow - 1;
+
         let byte_len = E::byte_len() * size;
         let file: File = OpenOptions::new()
             .read(true)
@@ -429,7 +430,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     //  `from_par_iter`) should be extended to handled a pre-allocated `Store`.
     pub fn from_data_with_store<I: IntoIterator<Item = T>>(
         into: I,
-        data: K,
+        data: &mut K,
     ) -> MerkleTree<T, A, K> {
         let iter = into.into_iter();
 
@@ -440,8 +441,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let size = 2 * pow - 1;
 
         let mut data = data.clone();
-        // FIXME: Should we use references here? (that may need some
-        //  modifications in the consumer code).
+        // FIXME: We shouldn't clone here (which would reallocate), instead use
+        //  a mutable reference, that will make necessary to change also the
+        //  `MerkleTree::data` to a reference.
 
         // leafs
         let mut a = A::default();

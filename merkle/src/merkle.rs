@@ -9,6 +9,7 @@ use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::ops::{self, Index};
 use std::path::Path;
+use std::sync::{Arc, RwLock};
 use tempfile::tempfile;
 
 /// Merkle Tree.
@@ -66,9 +67,7 @@ pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Default + std::fmt:
 }
 
 /// Backing store of the merkle tree.
-pub trait Store<E: Element>:
-    ops::Deref<Target = [E]> + std::fmt::Debug + Clone + AsRef<[u8]>
-{
+pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug + Clone {
     /// Creates a new store which can store up to `size` elements.
     fn new(size: usize) -> Self;
 
@@ -82,6 +81,14 @@ pub trait Store<E: Element>:
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
     fn push(&mut self, el: E);
+
+    // Signal to offload the `data` from memory if possible (`DiskMmapStore`
+    // case). When the `data` is read/written again it should be automatically
+    // reloaded. This function is only a hint with an optional implementation
+    // (its mechanism should be transparent to the user who doesn't need to
+    // manually reload).
+    // Returns `true` if it was able to comply.
+    fn offload(&mut self) -> bool;
 }
 
 #[derive(Debug, Clone)]
@@ -138,13 +145,9 @@ impl<E: Element> Store<E> for VecStore<E> {
     fn push(&mut self, el: E) {
         self.0.push(el);
     }
-}
 
-impl<E: Element> AsRef<[u8]> for VecStore<E> {
-    fn as_ref(&self) -> &[u8] {
-        unimplemented!()
-        // FIXME: The `Element` trait needs to be extended with a `to_slice` method
-        // (levering `Domain::into_bytes`).
+    fn offload(&mut self) -> bool {
+        return false;
     }
 }
 
@@ -235,11 +238,9 @@ impl<E: Element> Store<E> for MmapStore<E> {
 
         self.write_at(el, l);
     }
-}
 
-impl<E: Element> AsRef<[u8]> for MmapStore<E> {
-    fn as_ref(&self) -> &[u8] {
-        &self.store
+    fn offload(&mut self) -> bool {
+        return false;
     }
 }
 
@@ -257,12 +258,35 @@ impl<E: Element> Clone for MmapStore<E> {
 /// cleaned up after we drop this structure).
 #[derive(Debug)]
 pub struct DiskMmapStore<E: Element> {
-    store: MmapMut,
+    // Implementing the `store` with `Arc`/`RwLock` to avoid adding lifetimes
+    // parameters to the struct (which might have larger repercussions in the
+    // definitions of the `MerkleTree` and its consumers. Also used for its
+    // coordination mechanisms, but it's not clearly defined if `MerkleTree`
+    // (and `Store`) should be thread-safe (so they might be removed later).
+    store: Arc<RwLock<Option<MmapMut>>>,
+
     len: usize,
     _e: PhantomData<E>,
     file: File,
     // We need to save the `File` in case we're creating a `tempfile()`
     // otherwise it will get cleaned after we return from `new()`.
+
+    // We cache the `store.len()` call to avoid accessing the store when
+    // it's offloaded. Not to be confused with `len`, this saves the total
+    // size of the `store` and the other one keeps track of used `E` slots
+    // in the `DiskMmapStore`.
+    store_size: usize,
+
+    // We save the arguments of `new_with_path` to reconstruct it and reload
+    // the `MmapMut` after offload has been called.
+    path: String,
+    // FIXME: Using `String` instead of `&Path` to avoid using lifetimes
+    //  or errors like "the size for values of type `[u8]` cannot be known
+    //  at compilation time" (with `Option<Box<Path>>` or similar).
+    size: Option<usize>,
+    // FIXME: Needed to reconstruct the `new_with_path` call, especially
+    //  since we are adjusting the size there. Ideally this value should
+    //  be deduced from the MT settings and not stored here.
 }
 
 impl<E: Element> ops::Deref for DiskMmapStore<E> {
@@ -276,17 +300,21 @@ impl<E: Element> ops::Deref for DiskMmapStore<E> {
 impl<E: Element> Store<E> for DiskMmapStore<E> {
     #[allow(unsafe_code)]
     fn new(size: usize) -> Self {
-
         let byte_len = E::byte_len() * size;
         let file: File = tempfile().expect("couldn't create temp file");
         file.set_len(byte_len as u64)
             .expect(&format!("couldn't set len of {}", byte_len));
 
+        let mmap = unsafe { MmapMut::map_mut(&file).expect("couldn't create map_mut") };
+        let mmap_size = mmap.len();
         DiskMmapStore {
-            store: unsafe { MmapMut::map_mut(&file).expect("couldn't create map_mut") },
+            store: Arc::new(RwLock::new(Some(mmap))),
             len: 0,
             _e: Default::default(),
             file,
+            store_size: mmap_size,
+            path: "".to_string(),
+            size: None,
         }
     }
 
@@ -296,7 +324,7 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
         let mut res = Self::new(size);
 
         let end = data.len();
-        res.store[..end].copy_from_slice(data);
+        res.store_copy_from_slice(0, end, data);
         res.len = data.len() / E::byte_len();
 
         res
@@ -304,7 +332,7 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
 
     fn write_at(&mut self, el: E, i: usize) {
         let b = E::byte_len();
-        self.store[i * b..(i + 1) * b].copy_from_slice(el.as_ref());
+        self.store_copy_from_slice(i * b, (i + 1) * b, el.as_ref());
         self.len += 1;
     }
 
@@ -316,7 +344,7 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
         assert!(start < len, "start out of range {} >= {}", start, len);
         assert!(end <= len, "end out of range {} > {}", end, len);
 
-        E::from_slice(&self.store[start..end])
+        E::from_slice(&self.store_read_range(start, end))
     }
 
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E> {
@@ -327,7 +355,7 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
         assert!(start < len, "start out of range {} >= {}", start, len);
         assert!(end <= len, "end out of range {} > {}", end, len);
 
-        self.store[start..end]
+        self.store_read_range(start, end)
             .chunks(b)
             .map(E::from_slice)
             .collect()
@@ -344,22 +372,34 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
     fn push(&mut self, el: E) {
         let l = self.len;
         assert!(
-            (l + 1) * E::byte_len() <= self.store.len(),
+            (l + 1) * E::byte_len() <= self.store_size(),
             format!(
                 "not enough space, l: {}, E size {}, store len {}",
                 l,
                 E::byte_len(),
-                self.store.len()
+                self.store_size()
             )
         );
 
         self.write_at(el, l);
     }
+
+    // Offload the `store` in the case it was constructed with `new_with_path`.
+    // Temporary files with no path (created from `new`) can't be offloaded.
+    fn offload(&mut self) -> bool {
+        if self.path.is_empty() {
+            // Temporary file.
+            return false;
+        }
+
+        *self.store.write().unwrap() = None;
+
+        return true;
+    }
 }
 
 impl<E: Element> DiskMmapStore<E> {
     pub fn new_with_path(size: usize, path: &Path) -> Self {
-
         // FIXME: CROSSING API BOUNDARIES HERE.
         // This is used by `rust-fil-proofs` code when it allocates a `Store`
         // to use it with `MerkleTree::from_data_with_store`, but the `Store`
@@ -381,27 +421,88 @@ impl<E: Element> DiskMmapStore<E> {
             .unwrap();
         file.set_len(byte_len as u64).unwrap();
 
+        let mmap = unsafe { MmapMut::map_mut(&file).expect("couldn't create map_mut") };
+        let mmap_size = mmap.len();
         DiskMmapStore {
-            store: unsafe { MmapMut::map_mut(&file).unwrap() },
+            store: Arc::new(RwLock::new(Some(mmap))),
             len: 0,
             _e: Default::default(),
             file,
+            store_size: mmap_size,
+            path: path.to_str().expect("couldn't find path").to_string(),
+            size: Some(size),
+        }
+    }
+
+    pub fn store_size(&self) -> usize {
+        return self.store_size;
+    }
+
+    pub fn store_read_range(&self, start: usize, end: usize) -> Vec<u8> {
+        self.reload_store();
+        // FIXME: Not actually thread safe, the `store` could have been offloaded
+        //  after this call (but we're not striving for thread-safety at the moment).
+
+        match *self.store.read().unwrap() {
+            Some(ref mmap) => return mmap[start..end].to_vec(),
+            None => panic!("The store has not been reloaded"),
+        }
+        // FIXME: Remove clone, this is duplicating lots of data.
+    }
+
+    pub fn store_copy_from_slice(&self, start: usize, end: usize, slice: &[u8]) {
+        self.reload_store();
+        match *self.store.write().unwrap() {
+            Some(ref mut mmap) => return mmap[start..end].copy_from_slice(slice),
+            None => panic!("The store has not been reloaded"),
+        }
+    }
+
+    // Checks if the `store` is loaded and reloads it if necessary.
+    // FIXME: Check how to compact this logic.
+    fn reload_store(&self) {
+        let mut need_to_reload_store = false;
+        {
+            if self.store.read().unwrap().is_none() {
+                need_to_reload_store = true;
+            }
+        }
+        if need_to_reload_store {
+            let mmap = self.store.write().unwrap();
+
+            //        let new_store: DiskMmapStore<E> = DiskMmapStore::new_with_path(self.size.expect("couldn't find size"), Path::new(&self.path));
+            //        self.store = Arc::new(RwLock::new(*new_store.store()));
+            //        // FIXME: Extract part of the `MmapMut` creation logic to avoid
+            //        //  recreating the entire `DiskMmapStore`.
         }
     }
 }
 
-impl<E: Element> AsRef<[u8]> for DiskMmapStore<E> {
-    fn as_ref(&self) -> &[u8] {
-        &self.store
-    }
-}
-
+// FIXME: Fake `Clone` implementation to accomodate the artificial call in
+//  `from_data_with_store`, we won't actually duplicate the mmap memory,
+//  just recreate the same object (as the original will be dropped).
 impl<E: Element> Clone for DiskMmapStore<E> {
     fn clone(&self) -> DiskMmapStore<E> {
-        DiskMmapStore::new_from_slice(
-            self.store.len() / E::byte_len(),
-            &self.store[..(self.len() * E::byte_len())],
-        )
+        if self.path.is_empty() {
+            panic!("We don't allow cloning non-temporary files at the moment");
+        }
+
+        // FIXME: How to implement the clone? (the clone itself shouldn't
+        //  actually be used).
+        match *self.store.read().unwrap() {
+            Some(ref mmap) => {
+                return DiskMmapStore {
+                    store: Arc::new(RwLock::new(Some(*self.store.read().unwrap()))),
+                    len: self.len(),
+                    _e: Default::default(),
+                    file: self.file,
+                    store_size: self.store_size,
+                    path: self.path,
+                    size: self.size,
+                };
+            }
+            None => panic!("Trying to copy an unloaded store"),
+        }
     }
 }
 
@@ -462,6 +563,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         mt.build();
         mt
+    }
+
+    #[inline]
+    pub fn offload_store(&mut self) -> bool {
+        return self.data.offload();
     }
 
     #[inline]
@@ -708,12 +814,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> ops::Deref for MerkleTree<T, A, K
 
     fn deref(&self) -> &[T] {
         self.data.deref()
-    }
-}
-
-impl<T: Element, A: Algorithm<T>, K: Store<T>> AsRef<[u8]> for MerkleTree<T, A, K> {
-    fn as_ref(&self) -> &[u8] {
-        self.data.as_ref()
     }
 }
 

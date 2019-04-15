@@ -468,10 +468,11 @@ impl<E: Element> DiskMmapStore<E> {
             }
         }
         if need_to_reload_store {
-            let mut mmap = self.store.write().unwrap();
-
-            let new_store: DiskMmapStore<E> = DiskMmapStore::new_with_path(self.size.expect("couldn't find size"), Path::new(&self.path));
-//            self.store = Arc::new(RwLock::new();
+            let new_store: DiskMmapStore<E> = DiskMmapStore::new_with_path(
+                self.size.expect("couldn't find size"),
+                Path::new(&self.path),
+            );
+            //            self.store = Arc::new(RwLock::new();
             // FIXME: Extract part of the `MmapMut` creation logic to avoid
             //  recreating the entire `DiskMmapStore`.
 
@@ -479,14 +480,20 @@ impl<E: Element> DiskMmapStore<E> {
             //  failing.
 
             // Option 1:
-            let new_mmap_lock = new_store.store.read().unwrap();
-            *mmap = Some(new_mmap_lock.unwrap());
+            let mut store = self.store.write().unwrap();
+            let new_store = Arc::try_unwrap(new_store.store)
+                .unwrap()
+                .into_inner()
+                .unwrap();
 
-            // Option 2:
-            match *new_store.store.read().unwrap() {
-                Some(ref new_mmap) => {*mmap = Some(*new_mmap)},
-                None => panic!("The store has not been reloaded"),
-            }
+            std::mem::replace(&mut *store, new_store);
+            // *self.store.write().unwrap() = new_store.store.into_inner().unwrap();
+
+            // // Option 2:
+            // match *new_store.store.read().unwrap() {
+            //     Some(ref new_mmap) => {*mmap = Some(*new_mmap)},
+            //     None => panic!("The store has not been reloaded"),
+            // }
         }
     }
 }

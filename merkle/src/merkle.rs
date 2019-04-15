@@ -483,26 +483,7 @@ impl<E: Element> DiskMmapStore<E> {
 //  just recreate the same object (as the original will be dropped).
 impl<E: Element> Clone for DiskMmapStore<E> {
     fn clone(&self) -> DiskMmapStore<E> {
-        if self.path.is_empty() {
-            panic!("We don't allow cloning non-temporary files at the moment");
-        }
-
-        // FIXME: How to implement the clone? (the clone itself shouldn't
-        //  actually be used).
-        match *self.store.read().unwrap() {
-            Some(ref mmap) => {
-                return DiskMmapStore {
-                    store: Arc::new(RwLock::new(Some(*self.store.read().unwrap()))),
-                    len: self.len(),
-                    _e: Default::default(),
-                    file: self.file,
-                    store_size: self.store_size,
-                    path: self.path,
-                    size: self.size,
-                };
-            }
-            None => panic!("Trying to copy an unloaded store"),
-        }
+        unimplemented!("We can't clone a mmap with an already associated file");
     }
 }
 
@@ -531,7 +512,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     //  `from_par_iter`) should be extended to handled a pre-allocated `Store`.
     pub fn from_data_with_store<I: IntoIterator<Item = T>>(
         into: I,
-        data: &mut K,
+        mut data: K,
     ) -> MerkleTree<T, A, K> {
         let iter = into.into_iter();
 
@@ -540,11 +521,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         let pow = next_pow2(leafs);
         let size = 2 * pow - 1;
-
-        let mut data = data.clone();
-        // FIXME: We shouldn't clone here (which would reallocate), instead use
-        //  a mutable reference, that will make necessary to change also the
-        //  `MerkleTree::data` to a reference.
 
         // leafs
         let mut a = A::default();

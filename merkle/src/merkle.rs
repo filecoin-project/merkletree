@@ -53,6 +53,11 @@ where
     data: K,
     leafs: usize,
     height: usize,
+
+    // Cache with the `root` of the tree built from `data`. This allows to
+    // not access the `Store` when offloaded (`DiskMmapStore` case).
+    root: T,
+
     _a: PhantomData<A>,
     _t: PhantomData<T>,
 }
@@ -394,6 +399,8 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
 
         *self.store.write().unwrap() = None;
 
+        println!("\n[LOG][(remove)] Offloaded mmap file: {}", self.path);
+
         return true;
     }
 }
@@ -494,6 +501,8 @@ impl<E: Element> DiskMmapStore<E> {
             //     Some(ref new_mmap) => {*mmap = Some(*new_mmap)},
             //     None => panic!("The store has not been reloaded"),
             // }
+
+            println!("\n[LOG][(remove)] Reloaded mmap file: {}", self.path);
         }
     }
 }
@@ -553,6 +562,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             data,
             leafs,
             height: log2_pow2(size + 1),
+            root: T::default(),
             _a: PhantomData,
             _t: PhantomData,
         };
@@ -610,6 +620,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             j = j + width;
             height += 1;
         }
+
+        self.root = self.data.read_at(self.data.len() - 1);
     }
 
     /// Generate merkle tree inclusion proof for leaf `i`
@@ -662,7 +674,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     /// Returns merkle root
     #[inline]
     pub fn root(&self) -> T {
-        self.data.read_at(self.data.len() - 1)
+        self.root.clone()
     }
 
     /// Returns number of elements in the tree.
@@ -724,6 +736,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             data,
             leafs: leafs_count,
             height: log2_pow2(size + 1),
+            root: T::default(),
             _a: PhantomData,
             _t: PhantomData,
         };
@@ -762,6 +775,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromParallelIterator<T> for Merkl
             data,
             leafs,
             height: log2_pow2(size + 1),
+            root: T::default(),
             _a: PhantomData,
             _t: PhantomData,
         };
@@ -796,6 +810,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T,
             data,
             leafs,
             height: log2_pow2(size + 1),
+            root: T::default(),
             _a: PhantomData,
             _t: PhantomData,
         };

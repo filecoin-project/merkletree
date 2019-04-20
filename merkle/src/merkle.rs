@@ -93,7 +93,7 @@ pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug + Clone 
     // (its mechanism should be transparent to the user who doesn't need to
     // manually reload).
     // Returns `true` if it was able to comply.
-    fn offload(&mut self) -> bool;
+    fn offload(&self) -> bool;
 }
 
 #[derive(Debug, Clone)]
@@ -151,7 +151,7 @@ impl<E: Element> Store<E> for VecStore<E> {
         self.0.push(el);
     }
 
-    fn offload(&mut self) -> bool {
+    fn offload(&self) -> bool {
         return false;
     }
 }
@@ -244,7 +244,7 @@ impl<E: Element> Store<E> for MmapStore<E> {
         self.write_at(el, l);
     }
 
-    fn offload(&mut self) -> bool {
+    fn offload(&self) -> bool {
         return false;
     }
 }
@@ -391,7 +391,7 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
 
     // Offload the `store` in the case it was constructed with `new_with_path`.
     // Temporary files with no path (created from `new`) can't be offloaded.
-    fn offload(&mut self) -> bool {
+    fn offload(&self) -> bool {
         if self.path.is_empty() {
             // Temporary file.
             return false;
@@ -572,7 +572,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 
     #[inline]
-    pub fn offload_store(&mut self) -> bool {
+    pub fn offload_store(&self) -> bool {
         return self.data.offload();
     }
 

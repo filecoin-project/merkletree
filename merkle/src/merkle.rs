@@ -50,8 +50,11 @@ where
     A: Algorithm<T>,
     K: Store<T>,
 {
-    data: K,
+    leaves: K,
+    top_half: K,
+    // FIXME: Is there a more technical/appropriate term?
     leafs: usize,
+    // FIXME: Replace with `self.leaves.len()`.
     height: usize,
 
     // Cache with the `root` of the tree built from `data`. This allows to
@@ -508,7 +511,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     //  `from_par_iter`) should be extended to handled a pre-allocated `Store`.
     pub fn from_data_with_store<I: IntoIterator<Item = T>>(
         into: I,
-        mut data: K,
+        mut leaves: K,
+        mut top_half: K,
     ) -> MerkleTree<T, A, K> {
         let iter = into.into_iter();
 
@@ -522,13 +526,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let mut a = A::default();
         for item in iter {
             a.reset();
-            data.push(a.leaf(item));
+            leaves.push(a.leaf(item));
         }
 
         let mut mt: MerkleTree<T, A, K> = MerkleTree {
-            data,
+            leaves,
+            top_half,
             leafs,
-            height: log2_pow2(size + 1),
+            height: log2_pow2(2 * pow),
             root: T::default(),
             _a: PhantomData,
             _t: PhantomData,
@@ -540,7 +545,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
     #[inline]
     pub fn try_offload_store(&self) -> bool {
-        self.data.try_offload()
+        return self.leaves.try_offload() && self.top_half.try_offload();
     }
 
     #[inline]
@@ -558,28 +563,46 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         while width > 1 {
             // if there is odd num of elements, fill in to the even
             if width & 1 == 1 {
-                let el = self.data.read_at(self.data.len() - 1);
-                self.data.push(el);
+                let el = self.read_at(self.len() - 1);
+                if width == self.leafs {
+                    self.leaves.push(el);
+                } else {
+                    self.top_half.push(el);
+                }
 
                 width += 1;
                 j += 1;
             }
 
             // elements are in [i..j] and they are even
-            let layer: Vec<_> = self
-                .data
-                .read_range(i..j)
-                .par_chunks(2)
-                .map(|v| {
-                    let lhs = v[0].to_owned();
-                    let rhs = v[1].to_owned();
-                    A::default().node(lhs, rhs, height)
-                })
-                .collect();
+            let layer: Vec<_> = if j == self.leaves.len() {
+                self.leaves
+                    .read_range(i..j)
+                    .par_chunks(2)
+                    .map(|v| {
+                        let lhs = v[0].to_owned();
+                        let rhs = v[1].to_owned();
+                        A::default().node(lhs, rhs, height)
+                    })
+                    .collect()
+            } else if i >= self.leaves.len() {
+                self.top_half
+                    .read_range(i - self.leaves.len()..j - self.leaves.len())
+                    // FIXME: Add a `MerkleTree.read_range`.
+                    .par_chunks(2)
+                    .map(|v| {
+                        let lhs = v[0].to_owned();
+                        let rhs = v[1].to_owned();
+                        A::default().node(lhs, rhs, height)
+                    })
+                    .collect()
+            } else {
+                panic!("MT build: inconsistent i: {} and j: {}", i, j);
+            };
 
             // TODO: avoid collecting into a vec and write the results direclty if possible.
             for el in layer.into_iter() {
-                self.data.push(el);
+                self.top_half.push(el);
             }
 
             width >>= 1;
@@ -588,7 +611,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             height += 1;
         }
 
-        self.root = self.data.read_at(self.data.len() - 1);
+        assert_eq!(self.height, height + 1);
+        // The root isn't part of the previous loop so `height` is
+        // missing one level.
+
+        self.root = self.read_at(self.len() - 1);
     }
 
     /// Generate merkle tree inclusion proof for leaf `i`
@@ -608,14 +635,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             width += 1;
         }
 
-        lemma.push(self.data.read_at(j));
+        lemma.push(self.read_at(j));
         while base + 1 < self.len() {
             lemma.push(if j & 1 == 0 {
                 // j is left
-                self.data.read_at(base + j + 1)
+                self.read_at(base + j + 1)
             } else {
                 // j is right
-                self.data.read_at(base + j - 1)
+                self.read_at(base + j - 1)
             });
             path.push(j & 1 == 0);
 
@@ -647,13 +674,13 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     /// Returns number of elements in the tree.
     #[inline]
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.leaves.len() + self.top_half.len()
     }
 
     /// Returns `true` if the vector contains no elements.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.leaves.is_empty() && self.top_half.is_empty()
     }
 
     /// Returns height of the tree
@@ -671,15 +698,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     /// Returns merkle root
     #[inline]
     pub fn read_at(&self, i: usize) -> T {
-        self.data.read_at(i)
-    }
-
-    /// Extracts a slice containing the entire vector.
-    ///
-    /// Equivalent to `&s[..]`.
-    #[inline]
-    pub fn as_slice(&self) -> &[T] {
-        self
+        if i < self.leaves.len() {
+            return self.leaves.read_at(i);
+        } else {
+            return self.top_half.read_at(i - self.leaves.len());
+        }
     }
 
     /// Build the tree given a slice of all leafs, in bytes form.
@@ -694,15 +717,16 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         let leafs_count = leafs.len() / T::byte_len();
         let pow = next_pow2(leafs_count);
-        let size = 2 * pow - 1;
 
-        let data = K::new_from_slice(size, leafs);
+        let leaves = K::new_from_slice(pow, leafs);
+        let top_half = K::new(pow);
 
         assert!(leafs_count > 1);
         let mut mt: MerkleTree<T, A, K> = MerkleTree {
-            data,
+            leaves,
+            top_half,
             leafs: leafs_count,
-            height: log2_pow2(size + 1),
+            height: log2_pow2(2 * pow),
             root: T::default(),
             _a: PhantomData,
             _t: PhantomData,
@@ -721,9 +745,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromParallelIterator<T> for Merkl
 
         let leafs = iter.opt_len().expect("must be sized");
         let pow = next_pow2(leafs);
-        let size = 2 * pow - 1;
 
-        let mut data = K::new(size);
+        let mut leaves = K::new(pow);
+        let mut top_half = K::new(pow);
 
         // leafs
         let vs = iter
@@ -734,14 +758,15 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromParallelIterator<T> for Merkl
             .collect::<Vec<_>>();
 
         for v in vs.into_iter() {
-            data.push(v);
+            leaves.push(v);
         }
 
         assert!(leafs > 1);
         let mut mt: MerkleTree<T, A, K> = MerkleTree {
-            data,
+            leaves,
+            top_half,
             leafs,
-            height: log2_pow2(size + 1),
+            height: log2_pow2(2 * pow),
             root: T::default(),
             _a: PhantomData,
             _t: PhantomData,
@@ -764,19 +789,21 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T,
         let pow = next_pow2(leafs);
         let size = 2 * pow - 1;
 
-        let mut data = K::new(size);
+        let mut leaves = K::new(pow);
+        let mut top_half = K::new(pow);
 
         // leafs
         let mut a = A::default();
         for item in iter {
             a.reset();
-            data.push(a.leaf(item));
+            leaves.push(a.leaf(item));
         }
 
         let mut mt: MerkleTree<T, A, K> = MerkleTree {
-            data,
+            leaves,
+            top_half,
             leafs,
-            height: log2_pow2(size + 1),
+            height: log2_pow2(2 * pow),
             root: T::default(),
             _a: PhantomData,
             _t: PhantomData,
@@ -784,14 +811,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T,
 
         mt.build();
         mt
-    }
-}
-
-impl<T: Element, A: Algorithm<T>, K: Store<T>> ops::Deref for MerkleTree<T, A, K> {
-    type Target = [T];
-
-    fn deref(&self) -> &[T] {
-        self.data.deref()
     }
 }
 

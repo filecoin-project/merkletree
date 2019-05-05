@@ -93,7 +93,7 @@ pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug + Clone 
     // (its mechanism should be transparent to the user who doesn't need to
     // manually reload).
     // Returns `true` if it was able to comply.
-    fn offload(&self) -> bool;
+    fn try_offload(&self) -> bool;
 }
 
 #[derive(Debug, Clone)]
@@ -151,8 +151,8 @@ impl<E: Element> Store<E> for VecStore<E> {
         self.0.push(el);
     }
 
-    fn offload(&self) -> bool {
-        return false;
+    fn try_offload(&self) -> bool {
+        false
     }
 }
 
@@ -244,8 +244,8 @@ impl<E: Element> Store<E> for MmapStore<E> {
         self.write_at(el, l);
     }
 
-    fn offload(&self) -> bool {
-        return false;
+    fn try_offload(&self) -> bool {
+        false
     }
 }
 
@@ -391,7 +391,7 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
 
     // Offload the `store` in the case it was constructed with `new_with_path`.
     // Temporary files with no path (created from `new`) can't be offloaded.
-    fn offload(&self) -> bool {
+    fn try_offload(&self) -> bool {
         if self.path.is_empty() {
             // Temporary file.
             return false;
@@ -399,13 +399,14 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
 
         *self.store.write().unwrap() = None;
 
-        println!("\n[LOG][(remove)] Offloaded mmap file: {}", self.path);
+//        println!("\n[LOG] Offloaded mmap file: {}", self.path);
 
-        return true;
+        true
     }
 }
 
 impl<E: Element> DiskMmapStore<E> {
+    #[allow(unsafe_code)]
     pub fn new_with_path(size: usize, path: &Path) -> Self {
         let byte_len = E::byte_len() * size;
         let file: File = OpenOptions::new()
@@ -433,16 +434,15 @@ impl<E: Element> DiskMmapStore<E> {
         return self.store_size;
     }
 
-    pub fn store_read_range(&self, start: usize, end: usize) -> Vec<u8> {
+    pub fn store_read_range<'a>(&'a self, start: usize, end: usize) -> &'a [u8] {
         self.reload_store();
         // FIXME: Not actually thread safe, the `store` could have been offloaded
         //  after this call (but we're not striving for thread-safety at the moment).
 
         match *self.store.read().unwrap() {
-            Some(ref mmap) => return mmap[start..end].to_vec(),
+            Some(ref mmap) => return &mmap[start..end],
             None => panic!("The store has not been reloaded"),
         }
-        // FIXME: Remove clone, this is duplicating lots of data.
     }
 
     pub fn store_copy_from_slice(&self, start: usize, end: usize, slice: &[u8]) {
@@ -471,10 +471,6 @@ impl<E: Element> DiskMmapStore<E> {
             // FIXME: Extract part of the `MmapMut` creation logic to avoid
             //  recreating the entire `DiskMmapStore`.
 
-            // FIXME: How to store the new mmap structure? Both options are
-            //  failing.
-
-            // Option 1:
             let mut store = self.store.write().unwrap();
             let new_store = Arc::try_unwrap(new_store.store)
                 .unwrap()
@@ -482,15 +478,8 @@ impl<E: Element> DiskMmapStore<E> {
                 .unwrap();
 
             std::mem::replace(&mut *store, new_store);
-            // *self.store.write().unwrap() = new_store.store.into_inner().unwrap();
 
-            // // Option 2:
-            // match *new_store.store.read().unwrap() {
-            //     Some(ref new_mmap) => {*mmap = Some(*new_mmap)},
-            //     None => panic!("The store has not been reloaded"),
-            // }
-
-            println!("\n[LOG][(remove)] Reloaded mmap file: {}", self.path);
+//            println!("\n[LOG] Reloaded mmap file: {}", self.path);
         }
     }
 }
@@ -560,8 +549,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 
     #[inline]
-    pub fn offload_store(&self) -> bool {
-        return self.data.offload();
+    pub fn try_offload_store(&self) -> bool {
+        return self.data.try_offload();
     }
 
     #[inline]

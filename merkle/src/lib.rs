@@ -152,7 +152,7 @@
     missing_copy_implementations,
     trivial_casts,
     trivial_numeric_casts,
-// FIXME: Removing `unsafe_code`, used in DiskMmapStore::new(), is this correct?
+    unsafe_code,
     unstable_features,
     unused_import_braces
 )]

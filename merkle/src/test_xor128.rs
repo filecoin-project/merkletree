@@ -100,7 +100,7 @@ fn test_from_slice() {
     let x = [String::from("ars"), String::from("zxc")];
     let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> = MerkleTree::from_data(&x);
     assert_eq!(
-        mt.as_slice(),
+        mt.read_range(0, 3),
         [
             [0, 97, 114, 115, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             [0, 122, 120, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -219,8 +219,8 @@ fn test_simple_tree() {
 
         assert_eq!(mt_base.leafs(), items);
         assert_eq!(mt_base.height(), log2_pow2(next_pow2(mt_base.len())));
-        assert_eq!(mt_base.as_slice(), answer[items - 2].as_slice());
-        assert_eq!(mt_base[0], mt_base[0]);
+        assert_eq!(mt_base.read_range(0, mt_base.len()), answer[items - 2].as_slice());
+        assert_eq!(mt_base.read_at(0), mt_base.read_at(0));
 
         for i in 0..mt_base.leafs() {
             let p = mt_base.gen_proof(i);
@@ -268,7 +268,7 @@ fn test_simple_tree() {
                 MerkleTree::from_byte_slice(&leafs);
             assert_eq!(mt1.leafs(), items);
             assert_eq!(mt1.height(), log2_pow2(next_pow2(mt1.len())));
-            assert_eq!(mt_base.as_slice(), answer[items - 2].as_slice());
+            assert_eq!(mt_base.read_range(0, mt_base.len()), answer[items - 2].as_slice());
 
             for i in 0..mt1.leafs() {
                 let p = mt1.gen_proof(i);

@@ -110,7 +110,7 @@ fn test_simple_tree() {
 
         assert_eq!(mt.leafs(), items);
         assert_eq!(mt.height(), log2_pow2(next_pow2(mt.len())));
-        assert_eq!(mt.as_slice(), answer[items - 2].as_slice());
+        assert_eq!(mt.read_range(0, mt.len()), answer[items - 2].as_slice());
 
         for i in 0..mt.leafs() {
             let p = mt.gen_proof(i);

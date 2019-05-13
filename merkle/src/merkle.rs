@@ -705,6 +705,36 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         }
     }
 
+    // With the leaves decoupled from the rest of the tree we need to split
+    // the range if necessary. If the range is covered by a single `Store`
+    // we just call its `read_range`, if not, we need to form a new `Vec`
+    // to hold both parts.
+    // FIXME: The second mechanism can be *very* expensive with big sectors,
+    // should the consumer be aware of this to avoid memory bloats?
+    pub fn read_range(&self, start: usize, end: usize) -> Vec<T> {
+        if start > end{
+            panic!("read_range: start > end ({} > {})", start, end);
+            // FIXME: Do we need to check this? The implementations of
+            // `Store` don't (does `Range` take care of it?).
+        }
+
+        let leaves_len = self.leaves.len();
+        // FIXME: The index handling should be encapsulated in a separate
+        //  function.
+
+        if end <= self.leaves.len() {
+            self.leaves.read_range(std::ops::Range { start, end })
+        } else if start >= self.leaves.len() {
+            self.top_half.read_range(std::ops::Range { start: start-leaves_len, end: end - leaves_len })
+        } else {
+            println!("Entered 3rd case, start/end/leaves_len: {}/{}/{}", start, end, leaves_len);
+            let mut joined = Vec::with_capacity(end - start);
+            joined.append(&mut self.leaves.read_range(std::ops::Range { start, end: leaves_len }));
+            joined.append(&mut self.top_half.read_range(std::ops::Range { start: 0, end: end- leaves_len }));
+            joined
+        }
+    }
+
     /// Build the tree given a slice of all leafs, in bytes form.
     pub fn from_byte_slice(leafs: &[u8]) -> Self {
         assert_eq!(

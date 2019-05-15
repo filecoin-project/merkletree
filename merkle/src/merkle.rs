@@ -456,12 +456,8 @@ impl<E: Element> DiskMmapStore<E> {
     // Checks if the `store` is loaded and reloads it if necessary.
     // FIXME: Check how to compact this logic.
     fn reload_store(&self) {
-        let mut need_to_reload_store = false;
-        {
-            if self.store.read().unwrap().is_none() {
-                need_to_reload_store = true;
-            }
-        }
+        let need_to_reload_store = self.store.read().unwrap().is_none();
+
         if need_to_reload_store {
             let new_store: DiskMmapStore<E> = DiskMmapStore::new_with_path(
                 self.size.expect("couldn't find size"),

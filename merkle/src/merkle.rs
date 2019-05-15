@@ -8,7 +8,7 @@ use std::fs::OpenOptions;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::ops::{self, Index};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tempfile::tempfile;
 
@@ -284,14 +284,8 @@ pub struct DiskMmapStore<E: Element> {
 
     // We save the arguments of `new_with_path` to reconstruct it and reload
     // the `MmapMut` after offload has been called.
-    path: String,
-    // FIXME: Using `String` instead of `&Path` to avoid using lifetimes
-    //  or errors like "the size for values of type `[u8]` cannot be known
-    //  at compilation time" (with `Option<Box<Path>>` or similar).
+    path: PathBuf,
     size: Option<usize>,
-    // FIXME: Needed to reconstruct the `new_with_path` call, especially
-    //  since we are adjusting the size there. Ideally this value should
-    //  be deduced from the MT settings and not stored here.
 }
 
 impl<E: Element> ops::Deref for DiskMmapStore<E> {
@@ -318,7 +312,7 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
             _e: Default::default(),
             file,
             store_size: mmap_size,
-            path: "".to_string(),
+            path: PathBuf::new(),
             size: None,
         }
     }
@@ -392,14 +386,14 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
     // Offload the `store` in the case it was constructed with `new_with_path`.
     // Temporary files with no path (created from `new`) can't be offloaded.
     fn try_offload(&self) -> bool {
-        if self.path.is_empty() {
+        if self.path.as_os_str().is_empty() {
             // Temporary file.
             return false;
         }
 
         *self.store.write().unwrap() = None;
 
-//        println!("\n[LOG] Offloaded mmap file: {}", self.path);
+        //        println!("\n[LOG] Offloaded mmap file: {}", self.path);
 
         true
     }
@@ -425,7 +419,7 @@ impl<E: Element> DiskMmapStore<E> {
             _e: Default::default(),
             file,
             store_size: mmap_size,
-            path: path.to_str().expect("couldn't find path").to_string(),
+            path: path.to_path_buf(),
             size: Some(size),
         }
     }
@@ -475,7 +469,7 @@ impl<E: Element> DiskMmapStore<E> {
 
             std::mem::replace(&mut *store, new_store);
 
-//            println!("\n[LOG] Reloaded mmap file: {}", self.path);
+            // println!("\n[LOG] Reloaded mmap file: {}", self.path);
         }
     }
 }

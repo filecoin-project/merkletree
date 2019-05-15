@@ -434,13 +434,13 @@ impl<E: Element> DiskMmapStore<E> {
         return self.store_size;
     }
 
-    pub fn store_read_range<'a>(&'a self, start: usize, end: usize) -> &'a [u8] {
+    pub fn store_read_range(&self, start: usize, end: usize) -> Vec<u8> {
         self.reload_store();
         // FIXME: Not actually thread safe, the `store` could have been offloaded
         //  after this call (but we're not striving for thread-safety at the moment).
 
         match *self.store.read().unwrap() {
-            Some(ref mmap) => return &mmap[start..end],
+            Some(ref mmap) => return mmap[start..end].to_vec(),
             None => panic!("The store has not been reloaded"),
         }
     }

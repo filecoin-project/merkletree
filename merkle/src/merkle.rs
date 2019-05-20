@@ -425,7 +425,7 @@ impl<E: Element> DiskMmapStore<E> {
     }
 
     pub fn store_size(&self) -> usize {
-        return self.store_size;
+        self.store_size
     }
 
     pub fn store_read_range(&self, start: usize, end: usize) -> Vec<u8> {
@@ -434,7 +434,7 @@ impl<E: Element> DiskMmapStore<E> {
         //  after this call (but we're not striving for thread-safety at the moment).
 
         match *self.store.read().unwrap() {
-            Some(ref mmap) => return mmap[start..end].to_vec(),
+            Some(ref mmap) => mmap[start..end].to_vec(),
             None => panic!("The store has not been reloaded"),
         }
     }
@@ -442,7 +442,7 @@ impl<E: Element> DiskMmapStore<E> {
     pub fn store_copy_from_slice(&self, start: usize, end: usize, slice: &[u8]) {
         self.reload_store();
         match *self.store.write().unwrap() {
-            Some(ref mut mmap) => return mmap[start..end].copy_from_slice(slice),
+            Some(ref mut mmap) => mmap[start..end].copy_from_slice(slice),
             None => panic!("The store has not been reloaded"),
         }
     }
@@ -540,7 +540,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
     #[inline]
     pub fn try_offload_store(&self) -> bool {
-        return self.data.try_offload();
+        self.data.try_offload()
     }
 
     #[inline]

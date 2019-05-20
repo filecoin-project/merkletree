@@ -302,7 +302,7 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
         let byte_len = E::byte_len() * size;
         let file: File = tempfile().expect("couldn't create temp file");
         file.set_len(byte_len as u64)
-            .expect(&format!("couldn't set len of {}", byte_len));
+            .unwrap_or_else(|_| panic!("couldn't set len of {}", byte_len));
 
         let mmap = unsafe { MmapMut::map_mut(&file).expect("couldn't create map_mut") };
         let mmap_size = mmap.len();
@@ -584,7 +584,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
             width >>= 1;
             i = j;
-            j = j + width;
+            j += width;
             height += 1;
         }
 

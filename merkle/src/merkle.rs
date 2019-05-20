@@ -408,7 +408,7 @@ impl<E: Element> DiskMmapStore<E> {
             .write(true)
             .create(true)
             .open(&path)
-            .unwrap();
+            .expect("cannot create file");
         file.set_len(byte_len as u64).unwrap();
 
         let mmap = unsafe { MmapMut::map_mut(&file).expect("couldn't create map_mut") };

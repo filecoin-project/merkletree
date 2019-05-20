@@ -3,10 +3,11 @@
 use hash::*;
 use merkle::log2_pow2;
 use merkle::next_pow2;
-use merkle::{Element, MerkleTree, MmapStore, VecStore};
+use merkle::{DiskMmapStore, Element, MerkleTree, MmapStore, VecStore};
 use std::fmt;
 use std::hash::Hasher;
 use std::iter::FromIterator;
+use tempfile;
 
 const SIZE: usize = 0x10;
 
@@ -282,6 +283,38 @@ fn test_simple_tree() {
             assert_eq!(mt2.height(), log2_pow2(next_pow2(mt2.len())));
             for i in 0..mt2.leafs() {
                 let p = mt2.gen_proof(i);
+                assert!(p.validate::<XOR128>());
+            }
+        }
+
+        {
+            let temp_dir = tempfile::tempdir().unwrap();
+            // Hold on to the directory to avoid losing the created file-mmap inside.
+
+            let disk_mmap: DiskMmapStore<[u8; 16]> = DiskMmapStore::new_with_path(
+                next_pow2(leafs.len()),
+                &temp_dir
+                    .path()
+                    .to_owned()
+                    .join("test-xor-128-disk-mmap"),
+            );
+
+            let mt3: MerkleTree<_, XOR128, DiskMmapStore<_>> = MerkleTree::from_data_with_store(
+                leafs.chunks_exact(16).map(|chunk| {
+                    let mut array: [u8; 16] = Default::default();
+                    array.copy_from_slice(chunk);
+                    array
+                }),
+                disk_mmap,
+            );
+
+            // Signal an offload before reloading when accessed later.
+            assert!(mt3.try_offload_store());
+
+            assert_eq!(mt3.leafs(), items);
+            assert_eq!(mt3.height(), log2_pow2(next_pow2(mt3.len())));
+            for i in 0..mt3.leafs() {
+                let p = mt3.gen_proof(i);
                 assert!(p.validate::<XOR128>());
             }
         }

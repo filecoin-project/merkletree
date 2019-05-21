@@ -74,6 +74,8 @@ pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Default + std::fmt:
 /// Backing store of the merkle tree.
 pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug + Clone {
     /// Creates a new store which can store up to `size` elements.
+    // FIXME: Return errors on failure instead of panicking
+    //  (see https://github.com/filecoin-project/merkle_light/issues/19).
     fn new(size: usize) -> Self;
 
     fn new_from_slice(size: usize, data: &[u8]) -> Self;
@@ -393,14 +395,14 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
 
         *self.store.write().unwrap() = None;
 
-        //        println!("\n[LOG] Offloaded mmap file: {}", self.path);
-
         true
     }
 }
 
 impl<E: Element> DiskMmapStore<E> {
     #[allow(unsafe_code)]
+    // FIXME: Return errors on failure instead of panicking
+    //  (see https://github.com/filecoin-project/merkle_light/issues/19).
     pub fn new_with_path(size: usize, path: &Path) -> Self {
         let byte_len = E::byte_len() * size;
         let file: File = OpenOptions::new()
@@ -468,8 +470,6 @@ impl<E: Element> DiskMmapStore<E> {
                 .unwrap();
 
             std::mem::replace(&mut *store, new_store);
-
-            // println!("\n[LOG] Reloaded mmap file: {}", self.path);
         }
     }
 }

@@ -73,5 +73,8 @@ fn test_custom_merkle_hasher() {
             .count(),
         0
     );
-    assert_eq!(mt.read_range(0, 3).iter().filter(|&&x| x.0 > 65535).count(), 0);
+    assert_eq!(
+        mt.read_range(0, 3).iter().filter(|&&x| x.0 > 65535).count(),
+        0
+    );
 }

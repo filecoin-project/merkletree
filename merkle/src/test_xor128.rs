@@ -291,12 +291,20 @@ fn test_simple_tree() {
             let temp_dir = tempfile::tempdir().unwrap();
             // Hold on to the directory to avoid losing the created file-mmap inside.
 
-            let disk_mmap: DiskMmapStore<[u8; 16]> = DiskMmapStore::new_with_path(
+            let disk_mmap_leaves: DiskMmapStore<[u8; 16]> = DiskMmapStore::new_with_path(
                 next_pow2(leafs.len()),
                 &temp_dir
                     .path()
                     .to_owned()
-                    .join("test-xor-128-disk-mmap"),
+                    .join("test-xor-128-disk-mmap-leaves"),
+            );
+
+            let disk_mmap_top_half: DiskMmapStore<[u8; 16]> = DiskMmapStore::new_with_path(
+                next_pow2(leafs.len())-1,
+                &temp_dir
+                    .path()
+                    .to_owned()
+                    .join("test-xor-128-disk-mmap-top-half"),
             );
 
             let mt3: MerkleTree<_, XOR128, DiskMmapStore<_>> = MerkleTree::from_data_with_store(
@@ -305,7 +313,8 @@ fn test_simple_tree() {
                     array.copy_from_slice(chunk);
                     array
                 }),
-                disk_mmap,
+                disk_mmap_leaves,
+                disk_mmap_top_half,
             );
 
             // Signal an offload before reloading when accessed later.

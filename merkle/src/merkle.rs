@@ -512,7 +512,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     pub fn from_data_with_store<I: IntoIterator<Item = T>>(
         into: I,
         mut leaves: K,
-        mut top_half: K,
+        top_half: K,
     ) -> MerkleTree<T, A, K> {
         let iter = into.into_iter();
 
@@ -520,7 +520,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         assert!(leafs > 1);
 
         let pow = next_pow2(leafs);
-        let size = 2 * pow - 1;
 
         // leafs
         let mut a = A::default();
@@ -727,7 +726,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         } else if start >= self.leaves.len() {
             self.top_half.read_range(std::ops::Range { start: start-leaves_len, end: end - leaves_len })
         } else {
-            println!("Entered 3rd case, start/end/leaves_len: {}/{}/{}", start, end, leaves_len);
             let mut joined = Vec::with_capacity(end - start);
             joined.append(&mut self.leaves.read_range(std::ops::Range { start, end: leaves_len }));
             joined.append(&mut self.top_half.read_range(std::ops::Range { start: 0, end: end- leaves_len }));
@@ -777,7 +775,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromParallelIterator<T> for Merkl
         let pow = next_pow2(leafs);
 
         let mut leaves = K::new(pow);
-        let mut top_half = K::new(pow);
+        let top_half = K::new(pow);
 
         // leafs
         let vs = iter
@@ -817,10 +815,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T,
         assert!(leafs > 1);
 
         let pow = next_pow2(leafs);
-        let size = 2 * pow - 1;
 
         let mut leaves = K::new(pow);
-        let mut top_half = K::new(pow);
+        let top_half = K::new(pow);
 
         // leafs
         let mut a = A::default();

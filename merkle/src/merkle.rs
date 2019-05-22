@@ -714,18 +714,15 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             // `Store` don't (does `Range` take care of it?).
         }
 
-        let top_half_start = start - self.leaves.len();
-        let top_half_end = end - self.leaves.len();
-
+        let leaves_len = self.leaves.len();
         if end <= self.leaves.len() {
             self.leaves.read_range(std::ops::Range { start, end })
         } else if start >= self.leaves.len() {
-            self.top_half.read_range(std::ops::Range { start: top_half_start, end: top_half_end })
+            self.top_half.read_range(std::ops::Range { start: start-leaves_len, end: end - leaves_len })
         } else {
-            // Reading across `leaves` and `top_half`.
             let mut joined = Vec::with_capacity(end - start);
-            joined.append(&mut self.leaves.read_range(std::ops::Range { start, end: self.leaves.len() }));
-            joined.append(&mut self.top_half.read_range(std::ops::Range { start: 0, end: top_half_end }));
+            joined.append(&mut self.leaves.read_range(std::ops::Range { start, end: leaves_len }));
+            joined.append(&mut self.top_half.read_range(std::ops::Range { start: 0, end: end- leaves_len }));
             joined
         }
     }

@@ -542,7 +542,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
     #[inline]
     pub fn try_offload_store(&self) -> bool {
-        return self.leaves.try_offload() && self.top_half.try_offload();
+        self.leaves.try_offload() && self.top_half.try_offload()
     }
 
     #[inline]
@@ -695,9 +695,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     #[inline]
     pub fn read_at(&self, i: usize) -> T {
         if i < self.leaves.len() {
-            return self.leaves.read_at(i);
+            self.leaves.read_at(i)
         } else {
-            return self.top_half.read_at(i - self.leaves.len());
+            self.top_half.read_at(i - self.leaves.len())
         }
     }
 

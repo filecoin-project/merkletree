@@ -93,6 +93,10 @@ impl Element for [u8; 16] {
         el[..].copy_from_slice(bytes);
         el
     }
+
+    fn copy_to_slice(&self, bytes: &mut [u8]) {
+        bytes.copy_from_slice(self);
+    }
 }
 
 #[test]

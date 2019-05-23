@@ -70,6 +70,8 @@ pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Default + std::fmt:
 
     /// Creates the element from its byte form. Panics if the slice is not appropriately sized.
     fn from_slice(bytes: &[u8]) -> Self;
+
+    fn copy_to_slice(&self, bytes: &mut [u8]);
 }
 
 /// Backing store of the merkle tree.
@@ -85,6 +87,7 @@ pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug + Clone 
 
     fn read_at(&self, i: usize) -> E;
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E>;
+    fn read_into(&self, pos: usize, buf: &mut [u8]);
 
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
@@ -136,6 +139,10 @@ impl<E: Element> Store<E> for VecStore<E> {
 
     fn read_at(&self, i: usize) -> E {
         self.0[i].clone()
+    }
+
+    fn read_into(&self, i: usize, buf: &mut [u8]) {
+        self.0[i].copy_to_slice(buf);
     }
 
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E> {
@@ -213,6 +220,17 @@ impl<E: Element> Store<E> for MmapStore<E> {
         assert!(end <= len, "end out of range {} > {}", end, len);
 
         E::from_slice(&self.store[start..end])
+    }
+
+    fn read_into(&self, i: usize, buf: &mut [u8]) {
+        let b = E::byte_len();
+        let start = i * b;
+        let end = (i + 1) * b;
+        let len = self.len * b;
+        assert!(start < len, "start out of range {} >= {}", start, len);
+        assert!(end <= len, "end out of range {} > {}", end, len);
+
+        buf.copy_from_slice(&self.store[start..end]);
     }
 
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E> {
@@ -349,6 +367,17 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
         E::from_slice(&self.store_read_range(start, end))
     }
 
+    fn read_into(&self, i: usize, buf: &mut [u8]) {
+        let b = E::byte_len();
+        let start = i * b;
+        let end = (i + 1) * b;
+        let len = self.len * b;
+        assert!(start < len, "start out of range {} >= {}", start, len);
+        assert!(end <= len, "end out of range {} > {}", end, len);
+
+        self.store_read_into(start, end, buf);
+    }
+
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E> {
         let b = E::byte_len();
         let start = r.start * b;
@@ -438,6 +467,17 @@ impl<E: Element> DiskMmapStore<E> {
 
         match *self.store.read().unwrap() {
             Some(ref mmap) => mmap[start..end].to_vec(),
+            None => panic!("The store has not been reloaded"),
+        }
+    }
+
+    pub fn store_read_into(&self, start: usize, end: usize, buf: &mut [u8]) {
+        self.reload_store();
+        // FIXME: Not actually thread safe, the `store` could have been offloaded
+        //  after this call (but we're not striving for thread-safety at the moment).
+
+        match *self.store.read().unwrap() {
+            Some(ref mmap) => buf.copy_from_slice(&mmap[start..end]),
             None => panic!("The store has not been reloaded"),
         }
     }
@@ -736,6 +776,15 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         }
     }
 
+    /// Reads into a pre-allocated slice (for optimization purposes).
+    pub fn read_into(&self, pos: usize, buf: &mut [u8]) {
+        if pos < self.leaves.len() {
+            self.leaves.read_into(pos, buf);
+        } else {
+            self.top_half.read_into(pos - self.leaves.len(), buf);
+        }
+    }
+
     /// Build the tree given a slice of all leafs, in bytes form.
     pub fn from_byte_slice(leafs: &[u8]) -> Self {
         assert_eq!(
@@ -854,6 +903,10 @@ impl Element for [u8; 32] {
             panic!("invalid length {}, expected 32", bytes.len());
         }
         *array_ref!(bytes, 0, 32)
+    }
+
+    fn copy_to_slice(&self, bytes: &mut [u8]) {
+        bytes.copy_from_slice(self);
     }
 }
 

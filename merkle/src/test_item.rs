@@ -18,6 +18,10 @@ impl Element for Item {
     fn from_slice(bytes: &[u8]) -> Self {
         Item(NativeEndian::read_u64(bytes))
     }
+
+    fn copy_to_slice(&self, bytes: &mut [u8]) {
+        NativeEndian::write_u64(bytes, 1);
+    }
 }
 
 impl AsRef<[u8]> for Item {

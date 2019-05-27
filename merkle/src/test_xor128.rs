@@ -121,6 +121,23 @@ fn test_from_slice() {
 }
 
 #[test]
+fn test_read_into() {
+    let x = [String::from("ars"), String::from("zxc")];
+    let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> = MerkleTree::from_data(&x);
+    let target_data = [
+            [0, 97, 114, 115, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 122, 120, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 27, 10, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ];
+
+    let mut read_buffer: [u8; 16] = [0; 16];
+    for (pos, &data) in target_data.iter().enumerate() {
+        mt.read_into(pos, &mut read_buffer);
+        assert_eq!(read_buffer, data);
+    }
+}
+
+#[test]
 fn test_from_iter() {
     let mut a = XOR128::new();
     let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> =

@@ -75,7 +75,7 @@ pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Default + std::fmt:
 }
 
 /// Backing store of the merkle tree.
-pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug + Clone {
+pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug + Clone + Send + Sync {
     /// Creates a new store which can store up to `size` elements.
     // FIXME: Return errors on failure instead of panicking
     //  (see https://github.com/filecoin-project/merkle_light/issues/19).
@@ -580,9 +580,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 
     #[inline]
-    fn build(mut leaves: K, mut top_half: K, leafs: usize, height: usize) -> Self {
+    fn build(leaves: K, top_half: K, leafs: usize, height: usize) -> Self {
         // This algorithms assumes that the underlying store has preallocated enough space.
         // TODO: add an assert here to ensure this is the case.
+
+        let leaves_lock: Arc<RwLock<K>> = Arc::new(RwLock::new(leaves));
+        let top_half_lock: Arc<RwLock<K>> = Arc::new(RwLock::new(top_half));
 
         // Process one `level` at a time of `width` nodes each. We guarantee an even number
         // of nodes per `level`, duplicating the last node if necessary. We always write to
@@ -594,30 +597,37 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         while width > 1 {
             if width & 1 == 1 {
                 // Odd number of nodes, duplicate last.
-                // FIXME: Compact this construction.
-                if level == 0 {
-                    leaves.write_at(leaves.read_at(leaves.len() - 1), leaves.len());
+                let mut active_store = if level == 0 {
+                    leaves_lock.write().unwrap()
                 } else {
-                    top_half.write_at(top_half.read_at(top_half.len() - 1), top_half.len());
-                }
+                    top_half_lock.write().unwrap()
+                };
+                let len = active_store.len();
+                let last_node = active_store.read_at(len - 1);
+                active_store.write_at(last_node, len);
+
                 width += 1;
             }
 
             if level == 0 {
-                let layer: Vec<_> = leaves
-                    .read_range(0..width)
+                let nodes_range: Vec<_> = (0..width).collect();
+                nodes_range
                     .par_chunks(2)
-                    .map(|v| {
-                        let lhs = v[0].to_owned();
-                        let rhs = v[1].to_owned();
-                        A::default().node(lhs, rhs, level)
-                    })
-                    .collect();
-                for (i, node) in layer.into_iter().enumerate() {
-                    top_half.write_at(node, 0 + i);
-                }
+                    .for_each(|pair| {
+
+                        let (pair_index, lhs, rhs) = {
+                            let leaves = leaves_lock.read().unwrap();
+                            (pair[0], leaves.read_at(pair[0]), leaves.read_at(pair[1]))
+                            // FIXME: Use read_range.
+                        };
+                        let h = A::default().node(lhs, rhs, height);
+                        top_half_lock.write().unwrap().write_at(h, pair_index/2);
+                    });
+                    // FIXME: Batch node hashing.
             } else {
-                let top_half_index = level_node_index - leaves.len();
+                // FIXME: Once the other branch works use that pattern.
+                let mut top_half = top_half_lock.write().unwrap();
+                let top_half_index = level_node_index - leaves_lock.read().unwrap().len();
                 let layer: Vec<_> = top_half
                     .read_range(top_half_index..top_half_index + width)
                     .par_chunks(2)
@@ -641,11 +651,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 
-        let root = top_half.read_at(top_half.len() - 1);
+        let root = {
+            let top_half = top_half_lock.read().unwrap();
+            top_half.read_at(top_half.len() - 1)
+        };
 
         MerkleTree {
-            leaves,
-            top_half,
+            leaves: Arc::try_unwrap(leaves_lock).unwrap().into_inner().unwrap(),
+            top_half: Arc::try_unwrap(top_half_lock).unwrap().into_inner().unwrap(),
             leafs,
             height,
             root,

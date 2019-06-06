@@ -566,18 +566,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             leaves.push(a.leaf(item));
         }
 
-        let mut mt: MerkleTree<T, A, K> = MerkleTree {
+        Self::build(
             leaves,
             top_half,
             leafs,
-            height: log2_pow2(2 * pow),
-            root: T::default(),
-            _a: PhantomData,
-            _t: PhantomData,
-        };
-
-        mt.build();
-        mt
+            log2_pow2(2 * pow),
+        )
     }
 
     #[inline]
@@ -586,7 +580,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 
     #[inline]
-    fn build(&mut self) {
+    fn build(mut leaves: K, mut top_half: K, leafs: usize, height: usize) -> Self {
         // This algorithms assumes that the underlying store has preallocated enough space.
         // TODO: add an assert here to ensure this is the case.
 
@@ -595,22 +589,22 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // the `top_half` of the tree and only read from the `leaves` in the first iteration
         // (at 0 `level`).
         let mut level: usize = 0;
-        let mut width = self.leafs;
+        let mut width = leafs;
         let mut level_node_index = 0;
         while width > 1 {
             if width & 1 == 1 {
                 // Odd number of nodes, duplicate last.
-                let el = self.read_at(self.len() - 1);
+                // FIXME: Compact this construction.
                 if level == 0 {
-                    self.leaves.write_at(el, self.leaves.len());
+                    leaves.write_at(leaves.read_at(leaves.len() - 1), leaves.len());
                 } else {
-                    self.top_half.write_at(el, self.top_half.len());
+                    top_half.write_at(top_half.read_at(top_half.len() - 1), top_half.len());
                 }
                 width += 1;
             }
 
             if level == 0 {
-                let layer: Vec<_> = self.leaves
+                let layer: Vec<_> = leaves
                     .read_range(0..width)
                     .par_chunks(2)
                     .map(|v| {
@@ -620,11 +614,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                     })
                     .collect();
                 for (i, node) in layer.into_iter().enumerate() {
-                    self.top_half.write_at(node, 0 + i);
+                    top_half.write_at(node, 0 + i);
                 }
             } else {
-                let top_half_index = level_node_index - self.leaves.len();
-                let layer: Vec<_> = self.top_half
+                let top_half_index = level_node_index - leaves.len();
+                let layer: Vec<_> = top_half
                     .read_range(top_half_index..top_half_index + width)
                     .par_chunks(2)
                     .map(|v| {
@@ -634,7 +628,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                     })
                     .collect();
                 for (i, node) in layer.into_iter().enumerate() {
-                    self.top_half.write_at(node, top_half_index + width + i);
+                    top_half.write_at(node, top_half_index + width + i);
                 }
             };
 
@@ -643,13 +637,21 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             width >>= 1;
         }
 
-        assert_eq!(self.height, level + 1);
+        assert_eq!(height, level + 1);
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 
-        debug_assert_eq!(self.height, log2_pow2(next_pow2(self.len())));
+        let root = top_half.read_at(top_half.len() - 1);
 
-        self.root = self.read_at(self.len() - 1);
+        MerkleTree {
+            leaves,
+            top_half,
+            leafs,
+            height,
+            root,
+            _a: PhantomData,
+            _t: PhantomData,
+        }
     }
 
     /// Generate merkle tree inclusion proof for leaf `i`
@@ -800,19 +802,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let top_half = K::new(pow);
 
         assert!(leafs_count > 1);
-        let mut mt: MerkleTree<T, A, K> = MerkleTree {
+        Self::build(
             leaves,
             top_half,
-            leafs: leafs_count,
-            height: log2_pow2(2 * pow),
-            root: T::default(),
-            _a: PhantomData,
-            _t: PhantomData,
-        };
-
-        mt.build();
-
-        mt
+            leafs_count,
+            log2_pow2(2 * pow),
+        )
     }
 }
 
@@ -840,19 +835,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromParallelIterator<T> for Merkl
         }
 
         assert!(leafs > 1);
-        let mut mt: MerkleTree<T, A, K> = MerkleTree {
+        Self::build(
             leaves,
             top_half,
             leafs,
-            height: log2_pow2(2 * pow),
-            root: T::default(),
-            _a: PhantomData,
-            _t: PhantomData,
-        };
-
-        mt.build();
-
-        mt
+            log2_pow2(2 * pow),
+        )
     }
 }
 
@@ -876,18 +864,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T,
             leaves.push(a.leaf(item));
         }
 
-        let mut mt: MerkleTree<T, A, K> = MerkleTree {
+        Self::build(
             leaves,
             top_half,
             leafs,
-            height: log2_pow2(2 * pow),
-            root: T::default(),
-            _a: PhantomData,
-            _t: PhantomData,
-        };
-
-        mt.build();
-        mt
+            log2_pow2(2 * pow),
+        )
     }
 }
 

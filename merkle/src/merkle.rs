@@ -590,7 +590,10 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // Process one `level` at a time of `width` nodes each. We guarantee an even number
         // of nodes per `level`, duplicating the last node if necessary. We always write to
         // the `top_half` of the tree and only read from the `leaves` in the first iteration
-        // (at 0 `level`).
+        // (at `level` 0). `level_node_index` keeps the "global" index of the first node of
+        // the current level: what we would have if the `leaves` and `top_half` were unified
+        // in the same `Store`, it is later converted to the "local" index to access each
+        // individual `Store` (according to which `level` we're processing at the moment).
         let mut level: usize = 0;
         let mut width = leafs;
         let mut level_node_index = 0;
@@ -610,31 +613,36 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             }
 
             // FIXME: Document that read_index is with respect to leaves/top_half and write only with top_half.
-            let (read_store_lock, write_store_lock, read_index, write_index, top_half_index) = if level == 0 {
-                (leaves_lock.clone(), top_half_lock.clone(), 0, 0, 0)
+            // We read the `width` nodes of the current `level` from `read_store` and write half of it (each pair
+            // of one level is converted to a single node of the next one) in the `write_store`. Depending on
+            // which level are we currently on the locks and indexes we take will vary to distinguish between
+            // `leaves` and `top_half`.
+            let (read_store_lock, write_store_lock, read_start, write_start) = if level == 0 {
+                (leaves_lock.clone(), top_half_lock.clone(),
+                0, 0)
+                // FIXME: Document, read and start at zero because the reference different stores.
             } else {
-                let top_half_index = level_node_index - leaves_lock.read().unwrap().len();
-                (top_half_lock.clone(), top_half_lock.clone(), level_node_index - leaves_lock.read().unwrap().len(), top_half_index + width, top_half_index)
-            };                
-            // FIXME: top_half_index shouldn't be needed, needs to be absorbed in the other index computations.
+                let read_start = level_node_index - leaves_lock.read().unwrap().len();
 
-            let nodes_range: Vec<_> = (read_index..read_index + width).collect();
+                (top_half_lock.clone(), top_half_lock.clone(),
+                read_start,
+                read_start + width)
+                // FIXME: This can be compacted some more.
+            };                
+
+            let nodes_range: Vec<_> = (read_start..read_start + width).collect();
             nodes_range
                 .par_chunks(2)
                 .for_each(|pair| {
-
-                    let (pair_index, lhs, rhs) = {
+                    // FIXME: Rename and document the tree terms, `pair_index` is a local index.
+                    let (left, right) = {
                         let read_store = read_store_lock.read().unwrap();
-                        let pair_index =  if level == 0 {
-                            pair[0]
-                        } else {
-                            pair[0] - top_half_index   
-                        };
-                        (pair_index, read_store.read_at(pair[0]), read_store.read_at(pair[1]))
+                        (read_store.read_at(pair[0]), read_store.read_at(pair[1]))
                         // FIXME: Use read_range.
                     };
-                    let h = A::default().node(lhs, rhs, level);
-                    write_store_lock.write().unwrap().write_at(h, write_index + pair_index/2);
+                    let h = A::default().node(left, right, level);
+                    let pair_index = pair[0] - read_start;
+                    write_store_lock.write().unwrap().write_at(h, write_start + pair_index/2);
                 });
                 // FIXME: Batch node hashing.
 

@@ -620,26 +620,27 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                             (pair[0], leaves.read_at(pair[0]), leaves.read_at(pair[1]))
                             // FIXME: Use read_range.
                         };
-                        let h = A::default().node(lhs, rhs, height);
+                        let h = A::default().node(lhs, rhs, level);
                         top_half_lock.write().unwrap().write_at(h, pair_index/2);
                     });
                     // FIXME: Batch node hashing.
             } else {
-                // FIXME: Once the other branch works use that pattern.
-                let mut top_half = top_half_lock.write().unwrap();
-                let top_half_index = level_node_index - leaves_lock.read().unwrap().len();
-                let layer: Vec<_> = top_half
-                    .read_range(top_half_index..top_half_index + width)
+                let top_half_index = {
+                    level_node_index - leaves_lock.read().unwrap().len()
+                };
+
+                let nodes_range: Vec<_> = (top_half_index..top_half_index + width).collect();
+                nodes_range
                     .par_chunks(2)
-                    .map(|v| {
-                        let lhs = v[0].to_owned();
-                        let rhs = v[1].to_owned();
-                        A::default().node(lhs, rhs, level)
-                    })
-                    .collect();
-                for (i, node) in layer.into_iter().enumerate() {
-                    top_half.write_at(node, top_half_index + width + i);
-                }
+                    .for_each(|pair| {
+
+                        let (pair_index, lhs, rhs) = {
+                            let top_half = top_half_lock.read().unwrap();
+                            (pair[0] - top_half_index, top_half.read_at(pair[0]), top_half.read_at(pair[1]))
+                        };
+                        let h = A::default().node(lhs, rhs, level);
+                        top_half_lock.write().unwrap().write_at(h, top_half_index + width + pair_index/2);
+                    });
             };
 
             level_node_index += width;

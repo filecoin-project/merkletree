@@ -609,39 +609,34 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 width += 1;
             }
 
-            if level == 0 {
-                let nodes_range: Vec<_> = (0..width).collect();
-                nodes_range
-                    .par_chunks(2)
-                    .for_each(|pair| {
-
-                        let (pair_index, lhs, rhs) = {
-                            let leaves = leaves_lock.read().unwrap();
-                            (pair[0], leaves.read_at(pair[0]), leaves.read_at(pair[1]))
-                            // FIXME: Use read_range.
-                        };
-                        let h = A::default().node(lhs, rhs, level);
-                        top_half_lock.write().unwrap().write_at(h, pair_index/2);
-                    });
-                    // FIXME: Batch node hashing.
+            // FIXME: Document that read_index is with respect to leaves/top_half and write only with top_half.
+            let (read_store_lock, write_store_lock, read_index, write_index, top_half_index) = if level == 0 {
+                (leaves_lock.clone(), top_half_lock.clone(), 0, 0, 0)
             } else {
-                let top_half_index = {
-                    level_node_index - leaves_lock.read().unwrap().len()
-                };
+                let top_half_index = level_node_index - leaves_lock.read().unwrap().len();
+                (top_half_lock.clone(), top_half_lock.clone(), level_node_index - leaves_lock.read().unwrap().len(), top_half_index + width, top_half_index)
+            };                
+            // FIXME: top_half_index shouldn't be needed, needs to be absorbed in the other index computations.
 
-                let nodes_range: Vec<_> = (top_half_index..top_half_index + width).collect();
-                nodes_range
-                    .par_chunks(2)
-                    .for_each(|pair| {
+            let nodes_range: Vec<_> = (read_index..read_index + width).collect();
+            nodes_range
+                .par_chunks(2)
+                .for_each(|pair| {
 
-                        let (pair_index, lhs, rhs) = {
-                            let top_half = top_half_lock.read().unwrap();
-                            (pair[0] - top_half_index, top_half.read_at(pair[0]), top_half.read_at(pair[1]))
+                    let (pair_index, lhs, rhs) = {
+                        let read_store = read_store_lock.read().unwrap();
+                        let pair_index =  if level == 0 {
+                            pair[0]
+                        } else {
+                            pair[0] - top_half_index   
                         };
-                        let h = A::default().node(lhs, rhs, level);
-                        top_half_lock.write().unwrap().write_at(h, top_half_index + width + pair_index/2);
-                    });
-            };
+                        (pair_index, read_store.read_at(pair[0]), read_store.read_at(pair[1]))
+                        // FIXME: Use read_range.
+                    };
+                    let h = A::default().node(lhs, rhs, level);
+                    write_store_lock.write().unwrap().write_at(h, write_index + pair_index/2);
+                });
+                // FIXME: Batch node hashing.
 
             level_node_index += width;
             level += 1;

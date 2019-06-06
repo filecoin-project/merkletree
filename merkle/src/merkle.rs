@@ -590,66 +590,64 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // This algorithms assumes that the underlying store has preallocated enough space.
         // TODO: add an assert here to ensure this is the case.
 
+        // Process one `level` at a time of `width` nodes each. We guarantee an even number
+        // of nodes per `level`, duplicating the last node if necessary. We always write to
+        // the `top_half` of the tree and only read from the `leaves` in the first iteration
+        // (at 0 `level`).
+        let mut level: usize = 0;
         let mut width = self.leafs;
-
-        // build tree
-        let mut i: usize = 0;
-        let mut j: usize = width;
-        let mut height: usize = 0;
-
+        let mut level_node_index = 0;
         while width > 1 {
-            // if there is odd num of elements, fill in to the even
             if width & 1 == 1 {
+                // Odd number of nodes, duplicate last.
                 let el = self.read_at(self.len() - 1);
-                if width == self.leafs {
-                    self.leaves.push(el);
+                if level == 0 {
+                    self.leaves.write_at(el, self.leaves.len());
                 } else {
-                    self.top_half.push(el);
+                    self.top_half.write_at(el, self.top_half.len());
                 }
-
                 width += 1;
-                j += 1;
             }
 
-            // elements are in [i..j] and they are even
-            let layer: Vec<_> = if j == self.leaves.len() {
-                self.leaves
-                    .read_range(i..j)
+            if level == 0 {
+                let layer: Vec<_> = self.leaves
+                    .read_range(0..width)
                     .par_chunks(2)
                     .map(|v| {
                         let lhs = v[0].to_owned();
                         let rhs = v[1].to_owned();
-                        A::default().node(lhs, rhs, height)
+                        A::default().node(lhs, rhs, level)
                     })
-                    .collect()
-            } else if i >= self.leaves.len() {
-                self.top_half
-                    .read_range(i - self.leaves.len()..j - self.leaves.len())
-                    .par_chunks(2)
-                    .map(|v| {
-                        let lhs = v[0].to_owned();
-                        let rhs = v[1].to_owned();
-                        A::default().node(lhs, rhs, height)
-                    })
-                    .collect()
+                    .collect();
+                for (i, node) in layer.into_iter().enumerate() {
+                    self.top_half.write_at(node, 0 + i);
+                }
             } else {
-                panic!("MT build: inconsistent i: {} and j: {}", i, j);
+                let top_half_index = level_node_index - self.leaves.len();
+                let layer: Vec<_> = self.top_half
+                    .read_range(top_half_index..top_half_index + width)
+                    .par_chunks(2)
+                    .map(|v| {
+                        let lhs = v[0].to_owned();
+                        let rhs = v[1].to_owned();
+                        A::default().node(lhs, rhs, level)
+                    })
+                    .collect();
+                for (i, node) in layer.into_iter().enumerate() {
+                    self.top_half.write_at(node, top_half_index + width + i);
+                }
             };
 
-            // TODO: avoid collecting into a vec and write the results direclty if possible.
-            for el in layer.into_iter() {
-                self.top_half.push(el);
-            }
-
+            level_node_index += width;
+            level += 1;
             width >>= 1;
-            i = j;
-            j += width;
-            height += 1;
         }
 
-        assert_eq!(self.height, height + 1);
+        assert_eq!(self.height, level + 1);
         // The root isn't part of the previous loop so `height` is
         // missing one level.
+
+        debug_assert_eq!(self.height, log2_pow2(next_pow2(self.len())));
 
         self.root = self.read_at(self.len() - 1);
     }

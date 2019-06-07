@@ -642,7 +642,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             // and writing to the same `Store`, `top_half`).
             // FIXME: Process more than 2 nodes at a time to reduce contention (changing the
             // "pair" terminology to the more general "chunk" and removing the hard-coded 2's).
-            let chunk_size = 128;
+            let chunk_size = 1024;
             debug_assert_eq!(chunk_size % 2, 0);
             Vec::from_iter((read_start..read_start + width).step_by(chunk_size))
                 .par_chunks(1)

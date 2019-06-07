@@ -642,30 +642,39 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             // and writing to the same `Store`, `top_half`).
             // FIXME: Process more than 2 nodes at a time to reduce contention (changing the
             // "pair" terminology to the more general "chunk" and removing the hard-coded 2's).
-            Vec::from_iter((read_start..read_start + width).step_by(2))
+            let chunk_size = 128;
+            debug_assert_eq!(chunk_size % 2, 0);
+            Vec::from_iter((read_start..read_start + width).step_by(chunk_size))
                 .par_chunks(1)
-                .for_each(|pair_index| {
-                    let pair_index = pair_index[0];
-                    let node_pair = {
+                .for_each(|chunk_index| {
+                    let chunk_index = chunk_index[0];
+                    let chunk_size = std::cmp::min(chunk_size, read_start + width - chunk_index);
+
+                    let chunk_nodes = {
                         // Read everything taking the lock once.
                         let read_store = read_store_lock.read().unwrap();
                         read_store.read_range(std::ops::Range {
-                            start: pair_index,
-                            end: pair_index + 2,
+                            start: chunk_index,
+                            end: chunk_index + chunk_size,
                         })
                     };
-                    let hashed_nodes =
-                        A::default().node(node_pair[0].clone(), node_pair[1].clone(), level);
-                    // FIXME: Change `node()` to receive references to avoid the `clone` here,
-                    //  this might be an API-breaking change.
+
+                    let hashed_nodes = chunk_nodes.chunks(2).map(|node_pair| {
+                        A::default().node(node_pair[0].clone(), node_pair[1].clone(), level)
+                        // FIXME: Change `node()` to receive references to avoid the `clone` here,
+                        //  this might be an API-breaking change.
+                    });
 
                     // We write the hashed nodes to the next level in the position that
                     // would be "in the middle" of the previous pair (dividing it by 2).
-                    let write_delta = (pair_index - read_start) / 2;
-                    write_store_lock
-                        .write()
-                        .unwrap()
-                        .write_at(hashed_nodes, write_start + write_delta);
+                    let write_delta = (chunk_index - read_start) / 2;
+                    
+                    let mut write_store = write_store_lock.write().unwrap();
+                    hashed_nodes.enumerate().for_each(|(i, hashed_node)| {
+                        write_store.write_at(hashed_node, write_start + write_delta + i);
+                        // FIXME: Add a method that writes everything together.
+                        // fn write_range(&mut self, elements: &[E], start: usize);
+                    });
                 });
 
             level_node_index += width;

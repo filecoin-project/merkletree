@@ -75,7 +75,9 @@ pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Default + std::fmt:
 }
 
 /// Backing store of the merkle tree.
-pub trait Store<E: Element>: ops::Deref<Target = [E]> + std::fmt::Debug + Clone + Send + Sync {
+pub trait Store<E: Element>:
+    ops::Deref<Target = [E]> + std::fmt::Debug + Clone + Send + Sync
+{
     /// Creates a new store which can store up to `size` elements.
     // FIXME: Return errors on failure instead of panicking
     //  (see https://github.com/filecoin-project/merkle_light/issues/19).
@@ -566,12 +568,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             leaves.push(a.leaf(item));
         }
 
-        Self::build(
-            leaves,
-            top_half,
-            leafs,
-            log2_pow2(2 * pow),
-        )
+        Self::build(leaves, top_half, leafs, log2_pow2(2 * pow))
     }
 
     #[inline]
@@ -587,13 +584,17 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let leaves_lock: Arc<RwLock<K>> = Arc::new(RwLock::new(leaves));
         let top_half_lock: Arc<RwLock<K>> = Arc::new(RwLock::new(top_half));
 
-        // Process one `level` at a time of `width` nodes each. We guarantee an even number
-        // of nodes per `level`, duplicating the last node if necessary. We always write to
-        // the `top_half` of the tree and only read from the `leaves` in the first iteration
-        // (at `level` 0). `level_node_index` keeps the "global" index of the first node of
-        // the current level: what we would have if the `leaves` and `top_half` were unified
-        // in the same `Store`, it is later converted to the "local" index to access each
+        // Process one `level` at a time of `width` nodes. Each level has half the nodes
+        // as the previous one; the first level, completely stored in `leaves`, has `leafs`
+        // nodes. We guarantee an even number of nodes per `level`, duplicating the last
+        // node if necessary.
+        // `level_node_index` keeps the "global" index of the first node of the current
+        // level: the index we would have if the `leaves` and `top_half` were unified
+        // in the same `Store`; it is later converted to the "local" index to access each
         // individual `Store` (according to which `level` we're processing at the moment).
+        // We always write to the `top_half` (which contains all the levels but the first
+        // one) of the tree and only read from the `leaves` in the first iteration
+        // (at `level` 0).
         let mut level: usize = 0;
         let mut width = leafs;
         let mut level_node_index = 0;
@@ -605,46 +606,67 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 } else {
                     top_half_lock.write().unwrap()
                 };
-                let len = active_store.len();
-                let last_node = active_store.read_at(len - 1);
-                active_store.write_at(last_node, len);
+                let last_node = active_store.read_at(active_store.len() - 1);
+                active_store.push(last_node);
 
                 width += 1;
             }
 
-            // FIXME: Document that read_index is with respect to leaves/top_half and write only with top_half.
-            // We read the `width` nodes of the current `level` from `read_store` and write half of it (each pair
-            // of one level is converted to a single node of the next one) in the `write_store`. Depending on
-            // which level are we currently on the locks and indexes we take will vary to distinguish between
-            // `leaves` and `top_half`.
+            // We read the `width` nodes of the current `level` from `read_store` and
+            // write (half of it) in the `write_store` (which contains the next level).
+            // Both `read_start` and `write_start` are "local" indexes with respect to
+            // the `read_store` and `write_store` they are accessing.
             let (read_store_lock, write_store_lock, read_start, write_start) = if level == 0 {
-                (leaves_lock.clone(), top_half_lock.clone(),
-                0, 0)
-                // FIXME: Document, read and start at zero because the reference different stores.
+                // The first level is in the `leaves`, which is all it contains so the
+                // next level to write to will be in the `top_half`. Since we are "jumping"
+                // from one `Store` to the other both read/write start indexes start at zero.
+                (leaves_lock.clone(), top_half_lock.clone(), 0, 0)
             } else {
+                // For all other levels we'll read/write from/to the `top_half` adjusting the
+                // "global" index to access this `Store` (offsetting `leaves` length). All levels
+                // are contiguous so we read/write `width` nodes apart.
                 let read_start = level_node_index - leaves_lock.read().unwrap().len();
 
-                (top_half_lock.clone(), top_half_lock.clone(),
-                read_start,
-                read_start + width)
-                // FIXME: This can be compacted some more.
-            };                
+                (
+                    top_half_lock.clone(),
+                    top_half_lock.clone(),
+                    read_start,
+                    read_start + width,
+                )
+            };
 
-            let nodes_range: Vec<_> = (read_start..read_start + width).collect();
-            nodes_range
-                .par_chunks(2)
-                .for_each(|pair| {
-                    // FIXME: Rename and document the tree terms, `pair_index` is a local index.
-                    let (left, right) = {
+            // Allocate `width` indexes during operation (which is a negligible memory bloat
+            // compared to the 32-bytes size of the nodes stored in the `Store`s) and hash each
+            // pair of nodes to write them to the next level in concurrent threads.
+            // NOTE: This may lead to *considerable* lock contention (especially when reading
+            // and writing to the same `Store`, `top_half`).
+            // FIXME: Process more than 2 nodes at a time to reduce contention (changing the
+            // "pair" terminology to the more general "chunk" and removing the hard-coded 2's).
+            Vec::from_iter((read_start..read_start + width).step_by(2))
+                .par_chunks(1)
+                .for_each(|pair_index| {
+                    let pair_index = pair_index[0];
+                    let node_pair = {
+                        // Read everything taking the lock once.
                         let read_store = read_store_lock.read().unwrap();
-                        (read_store.read_at(pair[0]), read_store.read_at(pair[1]))
-                        // FIXME: Use read_range.
+                        read_store.read_range(std::ops::Range {
+                            start: pair_index,
+                            end: pair_index + 2,
+                        })
                     };
-                    let h = A::default().node(left, right, level);
-                    let pair_index = pair[0] - read_start;
-                    write_store_lock.write().unwrap().write_at(h, write_start + pair_index/2);
+                    let hashed_nodes =
+                        A::default().node(node_pair[0].clone(), node_pair[1].clone(), level);
+                    // FIXME: Change `node()` to receive references to avoid the `clone` here,
+                    //  this might be an API-breaking change.
+
+                    // We write the hashed nodes to the next level in the position that
+                    // would be "in the middle" of the previous pair (dividing it by 2).
+                    let write_delta = (pair_index - read_start) / 2;
+                    write_store_lock
+                        .write()
+                        .unwrap()
+                        .write_at(hashed_nodes, write_start + write_delta);
                 });
-                // FIXME: Batch node hashing.
 
             level_node_index += width;
             level += 1;
@@ -662,7 +684,10 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         MerkleTree {
             leaves: Arc::try_unwrap(leaves_lock).unwrap().into_inner().unwrap(),
-            top_half: Arc::try_unwrap(top_half_lock).unwrap().into_inner().unwrap(),
+            top_half: Arc::try_unwrap(top_half_lock)
+                .unwrap()
+                .into_inner()
+                .unwrap(),
             leafs,
             height,
             root,
@@ -819,12 +844,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let top_half = K::new(pow);
 
         assert!(leafs_count > 1);
-        Self::build(
-            leaves,
-            top_half,
-            leafs_count,
-            log2_pow2(2 * pow),
-        )
+        Self::build(leaves, top_half, leafs_count, log2_pow2(2 * pow))
     }
 }
 
@@ -852,12 +872,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromParallelIterator<T> for Merkl
         }
 
         assert!(leafs > 1);
-        Self::build(
-            leaves,
-            top_half,
-            leafs,
-            log2_pow2(2 * pow),
-        )
+        Self::build(leaves, top_half, leafs, log2_pow2(2 * pow))
     }
 }
 
@@ -881,12 +896,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T,
             leaves.push(a.leaf(item));
         }
 
-        Self::build(
-            leaves,
-            top_half,
-            leafs,
-            log2_pow2(2 * pow),
-        )
+        Self::build(leaves, top_half, leafs, log2_pow2(2 * pow))
     }
 }
 

@@ -87,6 +87,13 @@ pub trait Store<E: Element>:
 
     fn write_at(&mut self, el: E, i: usize);
 
+    // Used to reduce lock contention and do the `E` to `u8`
+    // *outside* the lock.
+    // FIXME: `start` is the position of the elements even though
+    // we're dealing with bytes here.
+    // FIXME: Do we really want to expose writing `u8`?
+    fn write_range(&mut self, buf: &[u8], start: usize);
+
     fn read_at(&self, i: usize) -> E;
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E>;
     fn read_into(&self, pos: usize, buf: &mut [u8]);
@@ -126,6 +133,12 @@ impl<E: Element> Store<E> for VecStore<E> {
         }
 
         self.0[i] = el;
+    }
+
+    fn write_range(&mut self, _buf: &[u8], _start: usize) {
+        unimplemented!("");
+        // FIXME: Implement before landing PR. Giving priority to `DiskMmapStore`
+        // for tests purposes.
     }
 
     fn new_from_slice(size: usize, data: &[u8]) -> Self {
@@ -211,6 +224,12 @@ impl<E: Element> Store<E> for MmapStore<E> {
         let b = E::byte_len();
         self.store[i * b..(i + 1) * b].copy_from_slice(el.as_ref());
         self.len += 1;
+    }
+
+    fn write_range(&mut self, _buf: &[u8], _start: usize) {
+        unimplemented!("");
+        // FIXME: Implement before landing PR. Giving priority to `DiskMmapStore`
+        // for tests purposes.
     }
 
     fn read_at(&self, i: usize) -> E {
@@ -356,6 +375,16 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
         let b = E::byte_len();
         self.store_copy_from_slice(i * b, (i + 1) * b, el.as_ref());
         self.len += 1;
+    }
+
+    fn write_range(&mut self, buf: &[u8], start: usize) {
+        let b = E::byte_len();
+        self.store_copy_from_slice(start * b, start * b + buf.len(), buf);
+        self.len += buf.len()/ b;
+        // FIXME: is it safe to increment `len` here? we may not be necessarily 
+        // writing to the end of the `Store`. Although this function is used at
+        // the moment in `build` which guarantees we're writing *all* the
+        // elements only *once* (so `len` will be correct at the end).
     }
 
     fn read_at(&self, i: usize) -> E {
@@ -668,13 +697,15 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                     // We write the hashed nodes to the next level in the position that
                     // would be "in the middle" of the previous pair (dividing it by 2).
                     let write_delta = (chunk_index - read_start) / 2;
+
+                    let mut tmp: Vec<u8> = Vec::with_capacity(hashed_nodes.len() * T::byte_len());
+                    hashed_nodes.for_each(|node| { tmp.append(&mut node.as_ref().to_vec()) });
+                    debug_assert_eq!(tmp.len(), chunk_size/2 * T::byte_len());
+                    let hashed_nodes_as_bytes: &[u8] = tmp.as_slice();
+                    // FIXME: Pre-allocate slice. Simplify this conversion.
                     
                     let mut write_store = write_store_lock.write().unwrap();
-                    hashed_nodes.enumerate().for_each(|(i, hashed_node)| {
-                        write_store.write_at(hashed_node, write_start + write_delta + i);
-                        // FIXME: Add a method that writes everything together.
-                        // fn write_range(&mut self, elements: &[E], start: usize);
-                    });
+                    write_store.write_range(hashed_nodes_as_bytes, write_start + write_delta);
                 });
 
             level_node_index += width;

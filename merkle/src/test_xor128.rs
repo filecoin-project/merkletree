@@ -227,7 +227,7 @@ fn test_simple_tree() {
 
     for items in 2..8 {
         let mut a = XOR128::new();
-        let mt_base: MerkleTree<[u8; 16], XOR128, VecStore<_>> = MerkleTree::from_iter(
+        let mt_base: MerkleTree<[u8; 16], XOR128, DiskMmapStore<_>> = MerkleTree::from_iter(
             [1, 2, 3, 4, 5, 6, 7, 8]
                 .iter()
                 .map(|x| {
@@ -251,7 +251,7 @@ fn test_simple_tree() {
             assert!(p.validate::<XOR128>());
         }
 
-        let mt0: MerkleTree<[u8; 16], XOR128, MmapStore<_>> = MerkleTree::from_iter(
+        let mt0: MerkleTree<[u8; 16], XOR128, DiskMmapStore<_>> = MerkleTree::from_iter(
             [1, 2, 3, 4, 5, 6, 7, 8]
                 .iter()
                 .map(|x| {
@@ -288,7 +288,7 @@ fn test_simple_tree() {
             .flatten()
             .collect();
         {
-            let mt1: MerkleTree<[u8; 16], XOR128, VecStore<_>> =
+            let mt1: MerkleTree<[u8; 16], XOR128, DiskMmapStore<_>> =
                 MerkleTree::from_byte_slice(&leafs);
             assert_eq!(mt1.leafs(), items);
             assert_eq!(mt1.height(), log2_pow2(next_pow2(mt1.len())));
@@ -304,7 +304,7 @@ fn test_simple_tree() {
         }
 
         {
-            let mt2: MerkleTree<[u8; 16], XOR128, MmapStore<_>> =
+            let mt2: MerkleTree<[u8; 16], XOR128, DiskMmapStore<_>> =
                 MerkleTree::from_byte_slice(&leafs);
             assert_eq!(mt2.leafs(), items);
             assert_eq!(mt2.height(), log2_pow2(next_pow2(mt2.len())));

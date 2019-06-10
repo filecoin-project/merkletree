@@ -88,10 +88,9 @@ pub trait Store<E: Element>:
     fn write_at(&mut self, el: E, i: usize);
 
     // Used to reduce lock contention and do the `E` to `u8`
-    // *outside* the lock.
-    // FIXME: `start` is the position of the elements even though
-    // we're dealing with bytes here.
-    // FIXME: Do we really want to expose writing `u8`?
+    // conversion in `build` *outside* the lock.
+    // `buf` is a slice of converted `E`s and `start` is its
+    // position in `E` sizes (*not* in `u8`).
     fn write_range(&mut self, buf: &[u8], start: usize);
 
     fn read_at(&self, i: usize) -> E;
@@ -144,13 +143,14 @@ impl<E: Element> Store<E> for VecStore<E> {
         assert_eq!(buf.len() % E::byte_len(), 0);
         let num_elem = buf.len() / E::byte_len();
 
-        if self.0.len() < start+num_elem {
-            self.0.resize(start+num_elem, E::default());
+        if self.0.len() < start + num_elem {
+            self.0.resize(start + num_elem, E::default());
         }
 
-        self.0.splice(start..start+num_elem, buf
-            .chunks_exact(E::byte_len())
-            .map(E::from_slice));
+        self.0.splice(
+            start..start + num_elem,
+            buf.chunks_exact(E::byte_len()).map(E::from_slice),
+        );
     }
 
     fn new_from_slice(size: usize, data: &[u8]) -> Self {
@@ -242,11 +242,11 @@ impl<E: Element> Store<E> for MmapStore<E> {
         let b = E::byte_len();
         assert_eq!(buf.len() % b, 0);
         let r = std::ops::Range {
-                            start: start * b,
-                            end: start * b + buf.len(),
-                        };
+            start: start * b,
+            end: start * b + buf.len(),
+        };
         self.store[r].copy_from_slice(buf);
-        self.len += buf.len()/ b;
+        self.len += buf.len() / b;
     }
 
     fn read_at(&self, i: usize) -> E {
@@ -397,8 +397,8 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
     fn write_range(&mut self, buf: &[u8], start: usize) {
         let b = E::byte_len();
         self.store_copy_from_slice(start * b, start * b + buf.len(), buf);
-        self.len += buf.len()/ b;
-        // FIXME: is it safe to increment `len` here? we may not be necessarily 
+        self.len += buf.len() / b;
+        // FIXME: Is it safe to increment `len` here? We may not be necessarily
         // writing to the end of the `Store`. Although this function is used at
         // the moment in `build` which guarantees we're writing *all* the
         // elements only *once* (so `len` will be correct at the end).
@@ -672,7 +672,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 // "global" index to access this `Store` (offsetting `leaves` length). All levels
                 // are contiguous so we read/write `width` nodes apart.
                 let read_start = level_node_index - leaves_lock.read().unwrap().len();
-
                 (
                     top_half_lock.clone(),
                     top_half_lock.clone(),
@@ -684,10 +683,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             // Allocate `width` indexes during operation (which is a negligible memory bloat
             // compared to the 32-bytes size of the nodes stored in the `Store`s) and hash each
             // pair of nodes to write them to the next level in concurrent threads.
-            // NOTE: This may lead to *considerable* lock contention (especially when reading
-            // and writing to the same `Store`, `top_half`).
-            // FIXME: Process more than 2 nodes at a time to reduce contention (changing the
-            // "pair" terminology to the more general "chunk" and removing the hard-coded 2's).
+            // Process `chunk_size` nodes in each thread at a time to reduce contention, optimized
+            // for big sector sizes (small ones will just have one thread doing all the work).
             let chunk_size = 1024;
             debug_assert_eq!(chunk_size % 2, 0);
             Vec::from_iter((read_start..read_start + width).step_by(chunk_size))
@@ -712,17 +709,20 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                     });
 
                     // We write the hashed nodes to the next level in the position that
-                    // would be "in the middle" of the previous pair (dividing it by 2).
+                    // would be "in the middle" of the previous pair (dividing by 2).
                     let write_delta = (chunk_index - read_start) / 2;
 
-                    let mut tmp: Vec<u8> = Vec::with_capacity(hashed_nodes.len() * T::byte_len());
-                    hashed_nodes.for_each(|node| { tmp.append(&mut node.as_ref().to_vec()) });
-                    debug_assert_eq!(tmp.len(), chunk_size/2 * T::byte_len());
-                    let hashed_nodes_as_bytes: &[u8] = tmp.as_slice();
-                    // FIXME: Pre-allocate slice. Simplify this conversion.
-                    
-                    let mut write_store = write_store_lock.write().unwrap();
-                    write_store.write_range(hashed_nodes_as_bytes, write_start + write_delta);
+                    let mut hashed_nodes_as_bytes: Vec<u8> =
+                        Vec::with_capacity(hashed_nodes.len() * T::byte_len());
+                    hashed_nodes
+                        .for_each(|node| hashed_nodes_as_bytes.append(&mut node.as_ref().to_vec()));
+                    debug_assert_eq!(hashed_nodes_as_bytes.len(), chunk_size / 2 * T::byte_len());
+                    // Check that we correctly pre-allocated the space.
+
+                    write_store_lock
+                        .write()
+                        .unwrap()
+                        .write_range(&hashed_nodes_as_bytes, write_start + write_delta);
                 });
 
             level_node_index += width;

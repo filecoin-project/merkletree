@@ -135,10 +135,22 @@ impl<E: Element> Store<E> for VecStore<E> {
         self.0[i] = el;
     }
 
-    fn write_range(&mut self, _buf: &[u8], _start: usize) {
-        unimplemented!("");
-        // FIXME: Implement before landing PR. Giving priority to `DiskMmapStore`
-        // for tests purposes.
+    // NOTE: Performance regression. To conform with the current API we are
+    // unnecessarily converting to and from `&[u8]` in the `VecStore` which
+    // already stores `E` (in contrast with the `mmap` versions). We are
+    // prioritizing performance for the `mmap` case which will be used in
+    // production (`VecStore` is mainly for testing and backwards compatibility).
+    fn write_range(&mut self, buf: &[u8], start: usize) {
+        assert_eq!(buf.len() % E::byte_len(), 0);
+        let num_elem = buf.len() / E::byte_len();
+
+        if self.0.len() < start+num_elem {
+            self.0.resize(start+num_elem, E::default());
+        }
+
+        self.0.splice(start..start+num_elem, buf
+            .chunks_exact(E::byte_len())
+            .map(E::from_slice));
     }
 
     fn new_from_slice(size: usize, data: &[u8]) -> Self {
@@ -226,10 +238,15 @@ impl<E: Element> Store<E> for MmapStore<E> {
         self.len += 1;
     }
 
-    fn write_range(&mut self, _buf: &[u8], _start: usize) {
-        unimplemented!("");
-        // FIXME: Implement before landing PR. Giving priority to `DiskMmapStore`
-        // for tests purposes.
+    fn write_range(&mut self, buf: &[u8], start: usize) {
+        let b = E::byte_len();
+        assert_eq!(buf.len() % b, 0);
+        let r = std::ops::Range {
+                            start: start * b,
+                            end: start * b + buf.len(),
+                        };
+        self.store[r].copy_from_slice(buf);
+        self.len += buf.len()/ b;
     }
 
     fn read_at(&self, i: usize) -> E {

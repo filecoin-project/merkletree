@@ -627,6 +627,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // This algorithms assumes that the underlying store has preallocated enough space.
         // TODO: add an assert here to ensure this is the case.
 
+        // For small sectors we use the old build algorithm optimized for speed
+        // rather than memory (they won't allocate that much and the current
+        // `build` implementation severely slows them down).
+        if leafs <= 1024 {
+            return Self::build_small_sector(leaves, top_half, leafs, height);
+        }
+
+
         let leaves_lock: Arc<RwLock<K>> = Arc::new(RwLock::new(leaves));
         let top_half_lock: Arc<RwLock<K>> = Arc::new(RwLock::new(top_half));
 
@@ -679,6 +687,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                     read_start + width,
                 )
             };
+            // FIXME: Maybe just remove `write_store_lock` and always access `top_half_lock`
+            // directly if it makes it more readable.
 
             // Allocate `width` indexes during operation (which is a negligible memory bloat
             // compared to the 32-bytes size of the nodes stored in the `Store`s) and hash each
@@ -745,6 +755,78 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 .unwrap()
                 .into_inner()
                 .unwrap(),
+            leafs,
+            height,
+            root,
+            _a: PhantomData,
+            _t: PhantomData,
+        }
+    }
+
+    #[inline]
+    fn build_small_sector(mut leaves: K, mut top_half: K, leafs: usize, height: usize) -> Self {
+        let mut level: usize = 0;
+        let mut width = leafs;
+        let mut level_node_index = 0;
+        while width > 1 {
+            if width & 1 == 1 {
+                if level == 0 {
+                    let last_node = leaves.read_at(leaves.len() - 1);
+                    leaves.push(last_node);
+                } else {
+                    let last_node = top_half.read_at(top_half.len() - 1);
+                    top_half.push(last_node);
+                }
+                width += 1;
+            }
+
+            // Same indexing logic as `build`.
+            let (layer, write_start) = {
+                let (read_store, read_start, write_start) = if level == 0 {
+                    (&leaves, 0, 0)
+                } else {
+                    let read_start = level_node_index - leaves.len();
+                    (
+                        &top_half,
+                        read_start,
+                        read_start + width,
+                    )
+                };
+
+                let layer: Vec<_> = read_store
+                    .read_range(read_start..read_start + width)
+                    .par_chunks(2)
+                    .map(|v| {
+                        let lhs = v[0].to_owned();
+                        let rhs = v[1].to_owned();
+                        A::default().node(lhs, rhs, level)
+                    })
+                    .collect();
+                (layer, write_start)
+            };
+            // FIXME: Just to make the borrow checker happy, ideally the `top_half` borrow
+            // should end with `read_store` access.
+            
+            for (i, node) in layer.into_iter().enumerate() {
+                top_half.write_at(node, write_start + i);
+            }
+
+            level_node_index += width;
+            level += 1;
+            width >>= 1;
+        }
+
+        assert_eq!(height, level + 1);
+        // The root isn't part of the previous loop so `height` is
+        // missing one level.
+
+        let root = {
+            top_half.read_at(top_half.len() - 1)
+        };
+
+        MerkleTree {
+            leaves,
+            top_half,
             leafs,
             height,
             root,

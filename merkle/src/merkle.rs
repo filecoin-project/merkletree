@@ -92,7 +92,7 @@ pub trait Store<E: Element>:
     // `buf` is a slice of converted `E`s and `start` is its
     // position in `E` sizes (*not* in `u8`).
     fn copy_from_slice(&mut self, buf: &[u8], start: usize);
-
+ 
     fn read_at(&self, i: usize) -> E;
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E>;
     fn read_into(&self, pos: usize, buf: &mut [u8]);
@@ -244,11 +244,7 @@ impl<E: Element> Store<E> for MmapStore<E> {
     fn copy_from_slice(&mut self, buf: &[u8], start: usize) {
         let b = E::byte_len();
         assert_eq!(buf.len() % b, 0);
-        let r = std::ops::Range {
-            start: start * b,
-            end: start * b + buf.len(),
-        };
-        self.store[r].copy_from_slice(buf);
+        self.store[start * b..start * b + buf.len()].copy_from_slice(buf);
         self.len += buf.len() / b;
     }
 
@@ -709,10 +705,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                     let chunk_nodes = {
                         // Read everything taking the lock once.
                         let read_store = read_store_lock.read().unwrap();
-                        read_store.read_range(std::ops::Range {
-                            start: chunk_index,
-                            end: chunk_index + chunk_size,
-                        })
+                        read_store.read_range(chunk_index..chunk_index + chunk_size)
                     };
 
                     let hashed_nodes = chunk_nodes.chunks(2).map(|node_pair| {
@@ -940,22 +933,13 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         let leaves_len = self.leaves.len();
         if end <= self.leaves.len() {
-            self.leaves.read_range(std::ops::Range { start, end })
+            self.leaves.read_range(start..end)
         } else if start >= self.leaves.len() {
-            self.top_half.read_range(std::ops::Range {
-                start: start - leaves_len,
-                end: end - leaves_len,
-            })
+            self.top_half.read_range(start - leaves_len..end - leaves_len)
         } else {
             let mut joined = Vec::with_capacity(end - start);
-            joined.append(&mut self.leaves.read_range(std::ops::Range {
-                start,
-                end: leaves_len,
-            }));
-            joined.append(&mut self.top_half.read_range(std::ops::Range {
-                start: 0,
-                end: end - leaves_len,
-            }));
+            joined.append(&mut self.leaves.read_range(start..leaves_len));
+            joined.append(&mut self.top_half.read_range(0..end - leaves_len));
             joined
         }
     }

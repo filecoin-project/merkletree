@@ -705,20 +705,20 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                         read_store.read_range(chunk_index..chunk_index + chunk_size)
                     };
 
-                    let hashed_nodes = chunk_nodes.chunks(2).map(|node_pair| {
-                        A::default().node(node_pair[0].clone(), node_pair[1].clone(), level)
-                        // FIXME: Change `node()` to receive references to avoid the `clone` here,
-                        //  this might be an API-breaking change.
-                    });
-
                     // We write the hashed nodes to the next level in the position that
                     // would be "in the middle" of the previous pair (dividing by 2).
                     let write_delta = (chunk_index - read_start) / 2;
 
-                    let mut hashed_nodes_as_bytes: Vec<u8> =
-                        Vec::with_capacity(hashed_nodes.len() * T::byte_len());
-                    hashed_nodes
-                        .for_each(|node| hashed_nodes_as_bytes.append(&mut node.as_ref().to_vec()));
+                    let nodes_size = (chunk_nodes.len() / 2) * T::byte_len();
+                    let hashed_nodes_as_bytes = chunk_nodes.chunks(2).fold(
+                        Vec::with_capacity(nodes_size), 
+                        |mut acc, node_pair| {
+                            let h = A::default().node(node_pair[0].clone(), node_pair[1].clone(), level);
+                            acc.extend_from_slice(h.as_ref());
+                            acc
+                        }
+                    );
+
                     debug_assert_eq!(hashed_nodes_as_bytes.len(), chunk_size / 2 * T::byte_len());
                     // Check that we correctly pre-allocated the space.
 

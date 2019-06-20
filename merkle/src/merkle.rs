@@ -634,8 +634,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         }
 
 
-        let leaves_lock: Arc<RwLock<K>> = Arc::new(RwLock::new(leaves));
-        let top_half_lock: Arc<RwLock<K>> = Arc::new(RwLock::new(top_half));
+        let leaves_lock = Arc::new(RwLock::new(leaves));
+        let top_half_lock= Arc::new(RwLock::new(top_half));
 
         // Process one `level` at a time of `width` nodes. Each level has half the nodes
         // as the previous one; the first level, completely stored in `leaves`, has `leafs`
@@ -697,9 +697,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             let chunk_size = 1024;
             debug_assert_eq!(chunk_size % 2, 0);
             Vec::from_iter((read_start..read_start + width).step_by(chunk_size))
-                .par_chunks(1)
-                .for_each(|chunk_index| {
-                    let chunk_index = chunk_index[0];
+                .par_iter()
+                .for_each(|&chunk_index| {
                     let chunk_size = std::cmp::min(chunk_size, read_start + width - chunk_index);
 
                     let chunk_nodes = {

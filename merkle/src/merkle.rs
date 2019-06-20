@@ -91,7 +91,7 @@ pub trait Store<E: Element>:
     // conversion in `build` *outside* the lock.
     // `buf` is a slice of converted `E`s and `start` is its
     // position in `E` sizes (*not* in `u8`).
-    fn write_range(&mut self, buf: &[u8], start: usize);
+    fn copy_from_slice(&mut self, buf: &[u8], start: usize);
 
     fn read_at(&self, i: usize) -> E;
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E>;
@@ -139,7 +139,7 @@ impl<E: Element> Store<E> for VecStore<E> {
     // already stores `E` (in contrast with the `mmap` versions). We are
     // prioritizing performance for the `mmap` case which will be used in
     // production (`VecStore` is mainly for testing and backwards compatibility).
-    fn write_range(&mut self, buf: &[u8], start: usize) {
+    fn copy_from_slice(&mut self, buf: &[u8], start: usize) {
         assert_eq!(buf.len() % E::byte_len(), 0);
         let num_elem = buf.len() / E::byte_len();
 
@@ -241,7 +241,7 @@ impl<E: Element> Store<E> for MmapStore<E> {
         self.len = std::cmp::max(self.len, i+1);
     }
 
-    fn write_range(&mut self, buf: &[u8], start: usize) {
+    fn copy_from_slice(&mut self, buf: &[u8], start: usize) {
         let b = E::byte_len();
         assert_eq!(buf.len() % b, 0);
         let r = std::ops::Range {
@@ -397,7 +397,7 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
         self.len = std::cmp::max(self.len, i+1);
     }
 
-    fn write_range(&mut self, buf: &[u8], start: usize) {
+    fn copy_from_slice(&mut self, buf: &[u8], start: usize) {
         let b = E::byte_len();
         self.store_copy_from_slice(start * b, start * b + buf.len(), buf);
         self.len += buf.len() / b;
@@ -735,7 +735,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                     write_store_lock
                         .write()
                         .unwrap()
-                        .write_range(&hashed_nodes_as_bytes, write_start + write_delta);
+                        .copy_from_slice(&hashed_nodes_as_bytes, write_start + write_delta);
                 });
 
             level_node_index += width;

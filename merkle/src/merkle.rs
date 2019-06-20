@@ -232,10 +232,13 @@ impl<E: Element> Store<E> for MmapStore<E> {
         res
     }
 
+    // Writing at positions `i` will mark all other positions as
+    // occupied with respect to the `len()` so the new `len()`
+    // is `>= i`.
     fn write_at(&mut self, el: E, i: usize) {
         let b = E::byte_len();
         self.store[i * b..(i + 1) * b].copy_from_slice(el.as_ref());
-        self.len += 1;
+        self.len = std::cmp::max(self.len, i+1);
     }
 
     fn write_range(&mut self, buf: &[u8], start: usize) {
@@ -391,7 +394,7 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
     fn write_at(&mut self, el: E, i: usize) {
         let b = E::byte_len();
         self.store_copy_from_slice(i * b, (i + 1) * b, el.as_ref());
-        self.len += 1;
+        self.len = std::cmp::max(self.len, i+1);
     }
 
     fn write_range(&mut self, buf: &[u8], start: usize) {

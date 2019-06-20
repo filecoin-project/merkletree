@@ -246,6 +246,7 @@ impl<E: Element> Store<E> for MmapStore<E> {
         assert_eq!(buf.len() % b, 0);
         self.store[start * b..start * b + buf.len()].copy_from_slice(buf);
         self.len += buf.len() / b;
+        self.len = std::cmp::max(self.len, start + buf.len() / b);
     }
 
     fn read_at(&self, i: usize) -> E {
@@ -395,12 +396,9 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
 
     fn copy_from_slice(&mut self, buf: &[u8], start: usize) {
         let b = E::byte_len();
+        assert_eq!(buf.len() % b, 0);
         self.store_copy_from_slice(start * b, start * b + buf.len(), buf);
-        self.len += buf.len() / b;
-        // FIXME: Is it safe to increment `len` here? We may not be necessarily
-        // writing to the end of the `Store`. Although this function is used at
-        // the moment in `build` which guarantees we're writing *all* the
-        // elements only *once* (so `len` will be correct at the end).
+        self.len = std::cmp::max(self.len, start + buf.len() / b);
     }
 
     fn read_at(&self, i: usize) -> E {

@@ -360,12 +360,38 @@ fn test_simple_tree() {
 fn test_large_tree() {
     let mut a = XOR128::new();
     let count = SMALL_TREE_BUILD * 2;
-    let mt0: MerkleTree<[u8; 16], XOR128, MmapStore<_>> =
-        MerkleTree::from_iter((0..count).map(|x| {
-            a.reset();
-            x.hash(&mut a);
-            a.hash()
-        }));
 
-    assert_eq!(mt0.len(), 2 * count - 1);
+    // The large `build` algorithm uses a ad hoc parallel solution (instead
+    // of the standard `par_iter()` from Rayon) so test these many times
+    // to increase the chances of finding a data-parallelism bug. (We're
+    // using a size close to the `SMALL_TREE_BUILD` threshold so this
+    // shouldn't increase test times considerably.)
+    for i in 0..100 {
+        let mt_vec: MerkleTree<[u8; 16], XOR128, VecStore<_>> =
+            MerkleTree::from_iter((0..count).map(|x| {
+                a.reset();
+                x.hash(&mut a);
+                i.hash(&mut a);
+                a.hash()
+            }));
+        assert_eq!(mt_vec.len(), 2 * count - 1);
+
+        let mt_mmap: MerkleTree<[u8; 16], XOR128, MmapStore<_>> =
+            MerkleTree::from_iter((0..count).map(|x| {
+                a.reset();
+                x.hash(&mut a);
+                i.hash(&mut a);
+                a.hash()
+            }));
+        assert_eq!(mt_mmap.len(), 2 * count - 1);
+
+        let mt_disk_mmap: MerkleTree<[u8; 16], XOR128, DiskMmapStore<_>> =
+            MerkleTree::from_iter((0..count).map(|x| {
+                a.reset();
+                x.hash(&mut a);
+                i.hash(&mut a);
+                a.hash()
+            }));
+        assert_eq!(mt_disk_mmap.len(), 2 * count - 1);
+    }
 }

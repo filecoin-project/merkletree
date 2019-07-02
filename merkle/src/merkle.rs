@@ -100,7 +100,7 @@ pub trait Store<E: Element>:
     // `buf` is a slice of converted `E`s and `start` is its
     // position in `E` sizes (*not* in `u8`).
     fn copy_from_slice(&mut self, buf: &[u8], start: usize);
- 
+
     fn read_at(&self, i: usize) -> E;
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E>;
     fn read_into(&self, pos: usize, buf: &mut [u8]);
@@ -246,7 +246,7 @@ impl<E: Element> Store<E> for MmapStore<E> {
     fn write_at(&mut self, el: E, i: usize) {
         let b = E::byte_len();
         self.store[i * b..(i + 1) * b].copy_from_slice(el.as_ref());
-        self.len = std::cmp::max(self.len, i+1);
+        self.len = std::cmp::max(self.len, i + 1);
     }
 
     fn copy_from_slice(&mut self, buf: &[u8], start: usize) {
@@ -398,7 +398,7 @@ impl<E: Element> Store<E> for DiskMmapStore<E> {
     fn write_at(&mut self, el: E, i: usize) {
         let b = E::byte_len();
         self.store_copy_from_slice(i * b, (i + 1) * b, el.as_ref());
-        self.len = std::cmp::max(self.len, i+1);
+        self.len = std::cmp::max(self.len, i + 1);
     }
 
     fn copy_from_slice(&mut self, buf: &[u8], start: usize) {
@@ -636,7 +636,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         }
 
         let leaves_lock = Arc::new(RwLock::new(leaves));
-        let top_half_lock= Arc::new(RwLock::new(top_half));
+        let top_half_lock = Arc::new(RwLock::new(top_half));
 
         // Process one `level` at a time of `width` nodes. Each level has half the nodes
         // as the previous one; the first level, completely stored in `leaves`, has `leafs`
@@ -714,12 +714,16 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
                     let nodes_size = (chunk_nodes.len() / 2) * T::byte_len();
                     let hashed_nodes_as_bytes = chunk_nodes.chunks(2).fold(
-                        Vec::with_capacity(nodes_size), 
+                        Vec::with_capacity(nodes_size),
                         |mut acc, node_pair| {
-                            let h = A::default().node(node_pair[0].clone(), node_pair[1].clone(), level);
+                            let h = A::default().node(
+                                node_pair[0].clone(),
+                                node_pair[1].clone(),
+                                level,
+                            );
                             acc.extend_from_slice(h.as_ref());
                             acc
-                        }
+                        },
                     );
 
                     debug_assert_eq!(hashed_nodes_as_bytes.len(), chunk_size / 2 * T::byte_len());
@@ -782,11 +786,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                     (&leaves, 0, 0)
                 } else {
                     let read_start = level_node_index - leaves.len();
-                    (
-                        &top_half,
-                        read_start,
-                        read_start + width,
-                    )
+                    (&top_half, read_start, read_start + width)
                 };
 
                 let layer: Vec<_> = read_store
@@ -802,7 +802,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             };
             // FIXME: Just to make the borrow checker happy, ideally the `top_half` borrow
             // should end with `read_store` access.
-            
+
             for (i, node) in layer.into_iter().enumerate() {
                 top_half.write_at(node, write_start + i);
             }
@@ -816,9 +816,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 
-        let root = {
-            top_half.read_at(top_half.len() - 1)
-        };
+        let root = { top_half.read_at(top_half.len() - 1) };
 
         MerkleTree {
             leaves,
@@ -935,7 +933,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         if end <= self.leaves.len() {
             self.leaves.read_range(start..end)
         } else if start >= self.leaves.len() {
-            self.top_half.read_range(start - leaves_len..end - leaves_len)
+            self.top_half
+                .read_range(start - leaves_len..end - leaves_len)
         } else {
             let mut joined = Vec::with_capacity(end - start);
             joined.append(&mut self.leaves.read_range(start..leaves_len));

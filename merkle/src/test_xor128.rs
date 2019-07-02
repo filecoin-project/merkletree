@@ -1,9 +1,8 @@
 #![cfg(test)]
 
 use hash::*;
-use merkle::log2_pow2;
-use merkle::next_pow2;
-use merkle::{DiskMmapStore, Element, MerkleTree, MmapStore, VecStore};
+use merkle::{log2_pow2, next_pow2};
+use merkle::{DiskMmapStore, Element, MerkleTree, MmapStore, VecStore, SMALL_TREE_BUILD};
 use std::fmt;
 use std::hash::Hasher;
 use std::iter::FromIterator;
@@ -360,7 +359,7 @@ fn test_simple_tree() {
 #[test]
 fn test_large_tree() {
     let mut a = XOR128::new();
-    let count = 1024 * 1024;
+    let count = SMALL_TREE_BUILD * 2;
     let mt0: MerkleTree<[u8; 16], XOR128, MmapStore<_>> =
         MerkleTree::from_iter((0..count).map(|x| {
             a.reset();

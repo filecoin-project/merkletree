@@ -12,6 +12,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tempfile::tempfile;
 
+/// Tree size (number of nodes) used as threshold to decide which build algorithm
+/// to use. Small trees (below this value) use the old build algorithm, optimized
+/// for speed rather than memory, allocating as much as needed to allow multiple
+/// threads to work concurrently without interrupting each other. Large trees (above)
+/// use the new build algorithm, optimized for memory rather than speed, allocating
+/// as less as possible with multiple threads competing to get the write lock.
+pub const SMALL_TREE_BUILD: usize = 1024;
+
 /// Merkle Tree.
 ///
 /// All leafs and nodes are stored in a linear array (vec).
@@ -623,13 +631,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // This algorithms assumes that the underlying store has preallocated enough space.
         // TODO: add an assert here to ensure this is the case.
 
-        // For small sectors we use the old build algorithm optimized for speed
-        // rather than memory (they won't allocate that much and the current
-        // `build` implementation severely slows them down).
-        if leafs <= 1024 {
-            return Self::build_small_sector(leaves, top_half, leafs, height);
+        if leafs <= SMALL_TREE_BUILD {
+            return Self::build_small_tree(leaves, top_half, leafs, height);
         }
-
 
         let leaves_lock = Arc::new(RwLock::new(leaves));
         let top_half_lock= Arc::new(RwLock::new(top_half));
@@ -756,7 +760,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 
     #[inline]
-    fn build_small_sector(mut leaves: K, mut top_half: K, leafs: usize, height: usize) -> Self {
+    fn build_small_tree(mut leaves: K, mut top_half: K, leafs: usize, height: usize) -> Self {
         let mut level: usize = 0;
         let mut width = leafs;
         let mut level_node_index = 0;

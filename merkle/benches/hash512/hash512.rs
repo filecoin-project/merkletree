@@ -1,11 +1,37 @@
 use std::cmp::Ordering;
 
+use merkletree::merkle::Element;
+
 #[derive(Copy, Clone)]
 pub struct Hash512(pub [u8; 64]);
+
+impl std::fmt::Debug for Hash512 {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Hash512 {{ {:?} }}", &self.0[..])
+    }
+}
 
 impl Default for Hash512 {
     fn default() -> Self {
         Hash512([0u8; 64])
+    }
+}
+
+impl Element for Hash512 {
+    fn byte_len() -> usize {
+        64
+    }
+
+    fn from_slice(bytes: &[u8]) -> Self {
+        assert_eq!(bytes.len(), 64);
+        let mut a = Self::default();
+        a.0.copy_from_slice(bytes);
+
+        a
+    }
+
+    fn copy_to_slice(&self, bytes: &mut [u8]) {
+        bytes[..64].copy_from_slice(&self.0[..])
     }
 }
 

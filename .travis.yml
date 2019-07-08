@@ -18,3 +18,4 @@ script:
   - cargo test --all-features
   - cargo doc --all-features --no-deps
   - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "nightly-2019-02-26" ]]; then cargo clippy --all -- -D warnings; fi'
+  - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "nightly-2019-02-26" ]]; then cargo build --benches --all-features --all --release; fi'

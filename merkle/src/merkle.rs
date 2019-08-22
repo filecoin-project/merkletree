@@ -883,7 +883,21 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
         let mut leaves = K::new(pow);
         let top_half = K::new(pow);
 
-        populate_leaves_par::<T, A, K, _>(&mut leaves, iter);
+        // leafs
+        let vs = iter
+            .map(|item| {
+                let mut a = A::default();
+                a.leaf(item)
+            })
+            .collect::<Vec<_>>();
+
+        for v in vs.into_iter() {
+            leaves.push(v);
+        }
+        leaves.sync();
+        // FIXME: Use a similar construction to `populate_leaves`
+        // for parallel threads.
+        // ^^^
 
         Self::build(leaves, top_half, leafs, log2_pow2(2 * pow))
     }

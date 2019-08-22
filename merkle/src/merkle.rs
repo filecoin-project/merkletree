@@ -856,9 +856,25 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 }
 
-impl<T: Element, A: Algorithm<T>, K: Store<T>> FromParallelIterator<T> for MerkleTree<T, A, K> {
+pub trait FromIndexedParallelIterator<T>
+where
+    T: Send,
+{
+    fn from_par_iter<I>(par_iter: I) -> Self
+    where
+        I: IntoParallelIterator<Item = T>,
+        I::Iter: IndexedParallelIterator;
+}
+
+impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
+    for MerkleTree<T, A, K>
+{
     /// Creates new merkle tree from an iterator over hashable objects.
-    fn from_par_iter<I: IntoParallelIterator<Item = T>>(into: I) -> Self {
+    fn from_par_iter<I>(into: I) -> Self
+    where
+        I: IntoParallelIterator<Item = T>,
+        I::Iter: IndexedParallelIterator,
+    {
         let iter = into.into_par_iter();
 
         let leafs = iter.opt_len().expect("must be sized");
@@ -867,23 +883,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromParallelIterator<T> for Merkl
         let mut leaves = K::new(pow);
         let top_half = K::new(pow);
 
-        populate_leaves_par::<T, A, K, I>(&mut leaves, iter);
-
-        // // leafs
-        // let vs = iter
-        //     .map(|item| {
-        //         let mut a = A::default();
-        //         a.leaf(item)
-        //     })
-        //     .collect::<Vec<_>>();
-
-        // for v in vs.into_iter() {
-        //     leaves.push(v);
-        // }
-        // leaves.sync();
-        // FIXME: Use a similar construction to `populate_leaves`
-        // for parallel threads.
-        // ^^^
+        populate_leaves_par::<T, A, K, _>(&mut leaves, iter);
 
         Self::build(leaves, top_half, leafs, log2_pow2(2 * pow))
     }
@@ -971,26 +971,32 @@ fn populate_leaves<T: Element, A: Algorithm<T>, K: Store<T>, I: IntoIterator<Ite
 }
 
 // FIXME: Copied from `populate_leaves`, can we unify the code?
-fn populate_leaves_par<T: Element, A: Algorithm<T>, K: Store<T>, I: IntoParallelIterator<Item = T>>(
-    leaves: &mut K,
-    iter: <I as rayon::iter::IntoParallelIterator>::Iter,
-) {
-    let mut buf = Vec::with_capacity(BUILD_LEAVES_BLOCK_SIZE * T::byte_len());
+fn populate_leaves_par<T, A, K, I>(leaves: &mut K, iter: I)
+where
+    T: Element,
+    A: Algorithm<T>,
+    K: Store<T>,
+    I: ParallelIterator<Item = T> + IndexedParallelIterator,
+{
+    let store = Arc::new(RwLock::new(leaves));
 
-    let mut a = A::default();
-    for item in iter {
-        a.reset();
-        buf.extend(a.leaf(item).as_ref());
-        if buf.len() >= BUILD_LEAVES_BLOCK_SIZE * T::byte_len() {
-            let leaves_len = leaves.len();
-            // FIXME: Integrate into `len()` call into `copy_from_slice`
-            // once we update to `stable` 1.36.
-            leaves.copy_from_slice(&buf, leaves_len);
-            buf.clear();
+    iter.chunks(BUILD_LEAVES_BLOCK_SIZE).for_each(|chunk| {
+        let store = store.clone();
+
+        let mut a = A::default();
+        let mut buf = Vec::with_capacity(BUILD_LEAVES_BLOCK_SIZE * T::byte_len());
+
+        for item in chunk {
+            a.reset();
+            buf.extend(a.leaf(item).as_ref());
         }
-    }
-    let leaves_len = leaves.len();
-    leaves.copy_from_slice(&buf, leaves_len);
+        {
+            let mut store = store.write().unwrap();
+            let len = store.len();
+            // TODO: write_at correct index
+            store.copy_from_slice(&buf[..], len)
+        }
+    });
 
-    leaves.sync();
+    store.write().unwrap().sync();
 }

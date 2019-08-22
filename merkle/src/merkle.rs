@@ -980,8 +980,7 @@ where
 {
     let store = Arc::new(RwLock::new(leaves));
 
-    iter.chunks(BUILD_LEAVES_BLOCK_SIZE).for_each(|chunk| {
-        let store = store.clone();
+    iter.chunks(BUILD_LEAVES_BLOCK_SIZE).enumerate().for_each(|(index, chunk)| {
 
         let mut a = A::default();
         let mut buf = Vec::with_capacity(BUILD_LEAVES_BLOCK_SIZE * T::byte_len());
@@ -990,12 +989,7 @@ where
             a.reset();
             buf.extend(a.leaf(item).as_ref());
         }
-        {
-            let mut store = store.write().unwrap();
-            let len = store.len();
-            // TODO: write_at correct index
-            store.copy_from_slice(&buf[..], len)
-        }
+        store.write().unwrap().copy_from_slice(&buf[..], BUILD_LEAVES_BLOCK_SIZE * index)
     });
 
     store.write().unwrap().sync();

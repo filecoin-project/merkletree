@@ -867,23 +867,24 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromParallelIterator<T> for Merkl
         let mut leaves = K::new(pow);
         let top_half = K::new(pow);
 
-        // leafs
-        let vs = iter
-            .map(|item| {
-                let mut a = A::default();
-                a.leaf(item)
-            })
-            .collect::<Vec<_>>();
+        populate_leaves_par::<T, A, K, I>(&mut leaves, iter);
 
-        for v in vs.into_iter() {
-            leaves.push(v);
-        }
-        leaves.sync();
+        // // leafs
+        // let vs = iter
+        //     .map(|item| {
+        //         let mut a = A::default();
+        //         a.leaf(item)
+        //     })
+        //     .collect::<Vec<_>>();
+
+        // for v in vs.into_iter() {
+        //     leaves.push(v);
+        // }
+        // leaves.sync();
         // FIXME: Use a similar construction to `populate_leaves`
         // for parallel threads.
         // ^^^
 
-        assert!(leafs > 1);
         Self::build(leaves, top_half, leafs, log2_pow2(2 * pow))
     }
 }
@@ -948,6 +949,31 @@ pub fn log2_pow2(n: usize) -> usize {
 fn populate_leaves<T: Element, A: Algorithm<T>, K: Store<T>, I: IntoIterator<Item = T>>(
     leaves: &mut K,
     iter: <I as std::iter::IntoIterator>::IntoIter,
+) {
+    let mut buf = Vec::with_capacity(BUILD_LEAVES_BLOCK_SIZE * T::byte_len());
+
+    let mut a = A::default();
+    for item in iter {
+        a.reset();
+        buf.extend(a.leaf(item).as_ref());
+        if buf.len() >= BUILD_LEAVES_BLOCK_SIZE * T::byte_len() {
+            let leaves_len = leaves.len();
+            // FIXME: Integrate into `len()` call into `copy_from_slice`
+            // once we update to `stable` 1.36.
+            leaves.copy_from_slice(&buf, leaves_len);
+            buf.clear();
+        }
+    }
+    let leaves_len = leaves.len();
+    leaves.copy_from_slice(&buf, leaves_len);
+
+    leaves.sync();
+}
+
+// FIXME: Copied from `populate_leaves`, can we unify the code?
+fn populate_leaves_par<T: Element, A: Algorithm<T>, K: Store<T>, I: IntoParallelIterator<Item = T>>(
+    leaves: &mut K,
+    iter: <I as rayon::iter::IntoParallelIterator>::Iter,
 ) {
     let mut buf = Vec::with_capacity(BUILD_LEAVES_BLOCK_SIZE * T::byte_len());
 

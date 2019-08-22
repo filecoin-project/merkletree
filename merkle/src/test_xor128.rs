@@ -3,6 +3,9 @@
 use hash::*;
 use merkle::{log2_pow2, next_pow2};
 use merkle::{DiskStore, Element, MerkleTree, MmapStore, VecStore, SMALL_TREE_BUILD};
+use merkle::FromIndexedParallelIterator;
+use rayon::iter::ParallelIterator;
+use rayon::iter::IntoParallelIterator;
 use std::fmt;
 use std::hash::Hasher;
 use std::iter::FromIterator;
@@ -344,11 +347,12 @@ fn test_large_tree() {
         assert_eq!(mt_mmap.len(), 2 * count - 1);
 
         let mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
-            MerkleTree::from_iter((0..count).map(|x| {
-                a.reset();
-                x.hash(&mut a);
-                i.hash(&mut a);
-                a.hash()
+            MerkleTree::from_par_iter((0..count).into_par_iter().map(|x| {
+                let mut xor_128 = a.clone();
+                xor_128.reset();
+                x.hash(&mut xor_128);
+                i.hash(&mut xor_128);
+                xor_128.hash()
             }));
         assert_eq!(mt_disk.len(), 2 * count - 1);
     }

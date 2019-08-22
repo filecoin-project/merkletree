@@ -14,7 +14,7 @@ use crypto::digest::Digest;
 use crypto::sha2::Sha512;
 use hash512::Hash512;
 use merkletree::hash::{Algorithm, Hashable};
-use merkletree::merkle::{DiskStore, MerkleTree, VecStore};
+use merkletree::merkle::{DiskStore, FromIndexedParallelIterator, MerkleTree, VecStore};
 use rand::Rng;
 use rayon::prelude::*;
 use std::hash::Hasher;

@@ -482,7 +482,7 @@ impl<E: Element> DiskStore<E> {
     }
 }
 
-// FIXME: Fake `Clone` implementation to accomodate the artificial call in
+// FIXME: Fake `Clone` implementation to accommodate the artificial call in
 //  `from_data_with_store`, we won't actually duplicate the mmap memory,
 //  just recreate the same object (as the original will be dropped).
 impl<E: Element> Clone for DiskStore<E> {
@@ -506,6 +506,27 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             a.hash()
         }))
     }
+
+    /// Creates new merkle from an already allocated `Store` (used with
+    /// `DiskStore::new_with_path` to set its path before instantiating
+    /// the MT, which would otherwise just call `DiskStore::new`).
+    // FIXME: Taken from `MerkleTree::from_iter` to avoid adding more complexity,
+    //  it should receive a `parallel` flag to decide what to do.
+    // FIXME: We're repeating too much code here, `from_iter` (and
+    //  `from_par_iter`) should be extended to handled a pre-allocated `Store`.
+    // FIXME: Remove the `leafs` parameter, that could be obtained from the
+    //  store adding a `capacity` method to the trait.
+    pub fn from_leaves_store(
+        leaves: K,
+        leafs: usize,
+    ) -> MerkleTree<T, A, K> {
+        let pow = next_pow2(leafs);
+
+        let top_half = K::new(pow);
+
+        Self::build(leaves, top_half, leafs, log2_pow2(2 * pow))
+    }
+
 
     #[inline]
     fn build(leaves: K, top_half: K, leafs: usize, height: usize) -> Self {

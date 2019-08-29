@@ -516,17 +516,13 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     //  `from_par_iter`) should be extended to handled a pre-allocated `Store`.
     // FIXME: Remove the `leafs` parameter, that could be obtained from the
     //  store adding a `capacity` method to the trait.
-    pub fn from_leaves_store(
-        leaves: K,
-        leafs: usize,
-    ) -> MerkleTree<T, A, K> {
+    pub fn from_leaves_store(leaves: K, leafs: usize) -> MerkleTree<T, A, K> {
         let pow = next_pow2(leafs);
 
         let top_half = K::new(pow);
 
         Self::build(leaves, top_half, leafs, log2_pow2(2 * pow))
     }
-
 
     #[inline]
     fn build(leaves: K, top_half: K, leafs: usize, height: usize) -> Self {

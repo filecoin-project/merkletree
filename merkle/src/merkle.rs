@@ -963,7 +963,7 @@ pub fn log2_pow2(n: usize) -> usize {
     n.trailing_zeros() as usize
 }
 
-fn populate_leaves<T: Element, A: Algorithm<T>, K: Store<T>, I: IntoIterator<Item = T>>(
+pub fn populate_leaves<T: Element, A: Algorithm<T>, K: Store<T>, I: IntoIterator<Item = T>>(
     leaves: &mut K,
     iter: <I as std::iter::IntoIterator>::IntoIter,
 ) {

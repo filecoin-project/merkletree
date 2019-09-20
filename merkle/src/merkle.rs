@@ -113,6 +113,7 @@ pub trait Store<E: Element>:
     fn read_at(&self, i: usize) -> E;
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E>;
     fn read_into(&self, pos: usize, buf: &mut [u8]);
+    fn read_into_all(&self, pos: usize, buf: &mut [u8]);
 
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
@@ -183,6 +184,17 @@ impl<E: Element> Store<E> for VecStore<E> {
 
     fn read_into(&self, i: usize, buf: &mut [u8]) {
         self.0[i].copy_to_slice(buf);
+    }
+
+    fn read_into_all(&self, i: usize, buf: &mut [u8]) {
+        let l = E::byte_len();
+        assert_eq!(buf.len() % l, 0);
+
+        let count = buf.len() / l;
+
+        for (pos, el) in self.0.iter().skip(i).take(count).enumerate() {
+            el.copy_to_slice(&mut buf[pos * l..(pos + 1) + l])
+        }
     }
 
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E> {
@@ -273,6 +285,20 @@ impl<E: Element> Store<E> for MmapStore<E> {
         let start = i * b;
         let end = (i + 1) * b;
         let len = self.len * b;
+        assert!(start < len, "start out of range {} >= {}", start, len);
+        assert!(end <= len, "end out of range {} > {}", end, len);
+
+        buf.copy_from_slice(&self.store[start..end]);
+    }
+
+    fn read_into_all(&self, i: usize, buf: &mut [u8]) {
+        let b = E::byte_len();
+        assert_eq!(buf.len() % b, 0);
+
+        let start = i * b;
+        let len = buf.len();
+        let end = start + len;
+
         assert!(start < len, "start out of range {} >= {}", start, len);
         assert!(end <= len, "end out of range {} > {}", end, len);
 
@@ -400,6 +426,20 @@ impl<E: Element> Store<E> for DiskStore<E> {
         let start = i * b;
         let end = (i + 1) * b;
         let len = self.len * b;
+        assert!(start < len, "start out of range {} >= {}", start, len);
+        assert!(end <= len, "end out of range {} > {}", end, len);
+
+        self.store_read_into(start, end, buf);
+    }
+
+    fn read_into_all(&self, i: usize, buf: &mut [u8]) {
+        let b = E::byte_len();
+        assert_eq!(buf.len() % b, 0);
+
+        let start = i * b;
+        let len = buf.len();
+        let end = start + len;
+
         assert!(start < len, "start out of range {} >= {}", start, len);
         assert!(end <= len, "end out of range {} > {}", end, len);
 
@@ -849,6 +889,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             self.leaves.read_into(pos, buf);
         } else {
             self.top_half.read_into(pos - self.leaves.len(), buf);
+        }
+    }
+
+    pub fn read_into_all(&self, pos: usize, buf: &mut [u8]) {
+        if pos < self.leaves.len() {
+            self.leaves.read_into_all(pos, buf);
+        } else {
+            self.top_half.read_into_all(pos - self.leaves.len(), buf);
         }
     }
 

@@ -193,7 +193,7 @@ impl<E: Element> Store<E> for VecStore<E> {
         let count = buf.len() / l;
 
         for (pos, el) in self.0.iter().skip(i).take(count).enumerate() {
-            el.copy_to_slice(&mut buf[pos * l..(pos + 1) + l])
+            el.copy_to_slice(&mut buf[pos * l..(pos + 1) * l])
         }
     }
 
@@ -1062,4 +1062,29 @@ where
         });
 
     store.write().unwrap().sync();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_into_all_vec_store() {
+        let source: Vec<u8> = (0..=255).collect();
+        let store = VecStore::<[u8; 32]>::new_from_slice(source.len(), &source);
+
+        let mut out = vec![0; source.len()];
+        store.read_into_all(0, &mut out);
+        assert_eq!(&out, &source);
+    }
+
+    #[test]
+    fn test_read_into_all_disk_store() {
+        let source: Vec<u8> = (0..=255).collect();
+        let store = DiskStore::<[u8; 32]>::new_from_slice(source.len(), &source);
+
+        let mut out = vec![0; source.len()];
+        store.read_into_all(0, &mut out);
+        assert_eq!(&out, &source);
+    }
 }

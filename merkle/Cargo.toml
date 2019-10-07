@@ -2,8 +2,8 @@
 name = "merkletree"
 version = "0.10.1"
 authors = [
-  "schomatis <lucas@protocol.ai>",
   "nemo <nemo@protocol.ai>",
+  "schomatis",
   "Ivan Prisyazhnyy <john.koepi@gmail.com>"
 ]
 

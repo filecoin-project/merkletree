@@ -129,7 +129,8 @@
 //! #[cfg(feature = "chaincore")]
 //! {
 //!     use example::ExampleAlgorithm;
-//!     use merkletree::merkle::{MerkleTree,VecStore};
+//!     use merkletree::merkle::MerkleTree;
+//!     use merkletree::store::VecStore;
 //!     use std::iter::FromIterator;
 //!
 //!     let mut h1 = [0u8; 32];

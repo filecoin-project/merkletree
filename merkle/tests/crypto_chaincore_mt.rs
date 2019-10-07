@@ -8,7 +8,7 @@ use crypto::digest::Digest;
 use crypto::sha3::{Sha3, Sha3Mode};
 use merkletree::hash::Algorithm;
 use merkletree::merkle::MerkleTree;
-use merkletree::merkle::VecStore;
+use merkletree::store::VecStore;
 use merkletree::proof::Proof;
 use std::fmt;
 use std::hash::Hasher;

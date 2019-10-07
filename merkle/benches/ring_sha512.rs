@@ -11,7 +11,8 @@ extern crate test;
 
 use hash512::Hash512;
 use merkletree::hash::{Algorithm, Hashable};
-use merkletree::merkle::{MerkleTree, VecStore};
+use merkletree::merkle::MerkleTree;
+use merkletree::store::VecStore;
 use rand::Rng;
 use ringx::Context;
 use ringx::SHA512;

@@ -276,7 +276,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
             elem_len: E::byte_len(),
             _e: Default::default(),
             file,
-            store_size: store_size,
+            store_size,
         })
     }
 

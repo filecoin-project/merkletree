@@ -5,7 +5,7 @@ extern crate merkletree;
 extern crate ring;
 use merkletree::hash::{Algorithm, Hashable};
 use merkletree::merkle::MerkleTree;
-use merkletree::merkle::VecStore;
+use merkletree::store::VecStore;
 use ring::digest::{Context, SHA256};
 use std::fmt;
 use std::hash::Hasher;

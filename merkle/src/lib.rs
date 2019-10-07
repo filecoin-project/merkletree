@@ -172,7 +172,10 @@ pub mod hash;
 /// Common implementations for [`Hashable`].
 mod hash_impl;
 
-/// Merkle tree inclusion proof
+/// Store implementations.
+pub mod store;
+
+/// Merkle tree inclusion proof.
 pub mod proof;
 
 /// Merkle tree abstractions, implementation and algorithms.
@@ -193,7 +196,7 @@ mod test_xor128;
 #[cfg(test)]
 mod test_sip;
 
-/// Tests for Merkle Hasher Customization
+/// Tests for Merkle Hasher Customization.
 #[cfg(test)]
 mod test_cmh;
 

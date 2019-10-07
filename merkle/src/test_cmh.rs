@@ -1,7 +1,8 @@
 #![cfg(test)]
 
 use hash::{Algorithm, Hashable};
-use merkle::{MerkleTree, VecStore};
+use store::VecStore;
+use merkle::MerkleTree;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::iter::FromIterator;

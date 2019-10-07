@@ -1,9 +1,10 @@
 #![cfg(test)]
 
 use hash::*;
+use store::{DiskStore, MmapStore, VecStore};
 use merkle::FromIndexedParallelIterator;
 use merkle::{log2_pow2, next_pow2};
-use merkle::{DiskStore, Element, MerkleTree, MmapStore, VecStore, SMALL_TREE_BUILD};
+use merkle::{Element, MerkleTree, SMALL_TREE_BUILD};
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use std::fmt;
@@ -306,6 +307,17 @@ fn test_simple_tree() {
 
         {
             let mt2: MerkleTree<[u8; 16], XOR128, MmapStore<_>> =
+                MerkleTree::from_byte_slice(&leafs);
+            assert_eq!(mt2.leafs(), items);
+            assert_eq!(mt2.height(), log2_pow2(next_pow2(mt2.len())));
+            for i in 0..mt2.leafs() {
+                let p = mt2.gen_proof(i);
+                assert!(p.validate::<XOR128>());
+            }
+        }
+
+        {
+            let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
                 MerkleTree::from_byte_slice(&leafs);
             assert_eq!(mt2.leafs(), items);
             assert_eq!(mt2.height(), log2_pow2(next_pow2(mt2.len())));

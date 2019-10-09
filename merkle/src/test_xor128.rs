@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use hash::*;
-use store::{DiskStore, MmapStore, VecStore};
+use store::{DiskStore, VecStore};
 use merkle::FromIndexedParallelIterator;
 use merkle::{log2_pow2, next_pow2};
 use merkle::{Element, MerkleTree, SMALL_TREE_BUILD};
@@ -253,27 +253,6 @@ fn test_simple_tree() {
             assert!(p.validate::<XOR128>());
         }
 
-        let mt0: MerkleTree<[u8; 16], XOR128, MmapStore<_>> = MerkleTree::from_iter(
-            [1, 2, 3, 4, 5, 6, 7, 8]
-                .iter()
-                .map(|x| {
-                    a.reset();
-                    x.hash(&mut a);
-                    a.hash()
-                })
-                .take(items),
-        );
-
-        assert_eq!(mt0.leafs(), items);
-        assert_eq!(mt0.height(), log2_pow2(next_pow2(mt0.len())));
-        // assert_eq!(mt0.as_slice(), answer[items - 2].as_slice());
-        // assert_eq!(mt0[0], mt0[0]);
-
-        for i in 0..mt0.leafs() {
-            let p = mt0.gen_proof(i);
-            assert!(p.validate::<XOR128>());
-        }
-
         let mut a2 = XOR128::new();
         let leafs: Vec<u8> = [1, 2, 3, 4, 5, 6, 7, 8]
             .iter()
@@ -301,17 +280,6 @@ fn test_simple_tree() {
 
             for i in 0..mt1.leafs() {
                 let p = mt1.gen_proof(i);
-                assert!(p.validate::<XOR128>());
-            }
-        }
-
-        {
-            let mt2: MerkleTree<[u8; 16], XOR128, MmapStore<_>> =
-                MerkleTree::from_byte_slice(&leafs);
-            assert_eq!(mt2.leafs(), items);
-            assert_eq!(mt2.height(), log2_pow2(next_pow2(mt2.len())));
-            for i in 0..mt2.leafs() {
-                let p = mt2.gen_proof(i);
                 assert!(p.validate::<XOR128>());
             }
         }
@@ -348,15 +316,6 @@ fn test_large_tree() {
                 a.hash()
             }));
         assert_eq!(mt_vec.len(), 2 * count - 1);
-
-        let mt_mmap: MerkleTree<[u8; 16], XOR128, MmapStore<_>> =
-            MerkleTree::from_iter((0..count).map(|x| {
-                a.reset();
-                x.hash(&mut a);
-                i.hash(&mut a);
-                a.hash()
-            }));
-        assert_eq!(mt_mmap.len(), 2 * count - 1);
 
         let mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
             MerkleTree::from_par_iter((0..count).into_par_iter().map(|x| {

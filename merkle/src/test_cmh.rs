@@ -3,9 +3,9 @@
 use hash::{Algorithm, Hashable};
 use store::VecStore;
 use merkle::MerkleTree;
+use merkle::FromIteratorWithConfig;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
-use std::iter::FromIterator;
 use test_item::Item;
 
 /// Custom merkle hash util test
@@ -64,7 +64,7 @@ fn test_custom_merkle_hasher() {
             a.reset();
             x.hash(&mut a);
             a.hash()
-        }));
+        }), None);
 
     assert_eq!(
         mt.read_range(0, 3)

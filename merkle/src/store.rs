@@ -1,21 +1,80 @@
 use failure::Error;
-use merkle::Element;
+use merkle::{Element, next_pow2, log2_pow2};
 use positioned_io::{ReadAt, WriteAt};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
+use std::path::Path;
 use std::marker::PhantomData;
 use std::ops::{self, Index};
 use tempfile::tempfile;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+
+#[derive(Debug)]
+pub struct StoreConfig {
+    /// A directory in which data (a merkle tree) can be persisted.
+    pub path: String,
+
+    /// A unique identifier used to help specify the on-disk store
+    /// location for this particular data.
+    pub id: String,
+
+    /// The number of merkle tree levels to cache in memory, starting
+    /// at the root.  A value larger than the number of levels in the
+    /// tree will cache the entire merkle tree.
+    pub levels: usize,
+}
+
+impl StoreConfig {
+    pub fn new(path: String, id: String, levels: usize) -> Result<StoreConfig> {
+        let merkle_tree_path = StoreConfig::merkle_tree_path(&path, &id);
+
+        if Path::new(&merkle_tree_path).exists() {
+            panic!("On disk file '{}' already exists. Use new_from_disk method instead?",
+                   merkle_tree_path);
+        }
+
+        Ok(StoreConfig {
+            path: path,
+            id: id,
+            levels: levels
+        })
+    }
+
+    // Deterministically create the merkle_tree_path on-disk location
+    // from a path and specified id.
+    pub fn merkle_tree_path(path: &String, id: &String) -> String {
+        Path::new(&path)
+            .join(format!("sc-merkle_tree-{}.dat", id))
+            .into_os_string()
+            .into_string()
+            .unwrap()
+    }
+}
+
+impl Clone for StoreConfig {
+    fn clone(&self) -> StoreConfig {
+        StoreConfig {
+            path: self.path.clone(),
+            id: self.id.clone(),
+            levels: self.levels
+        }
+    }
+}
+
+
 /// Backing store of the merkle tree.
 pub trait Store<E: Element>:
     ops::Deref<Target = [E]> + std::fmt::Debug + Clone + Send + Sync
 {
     /// Creates a new store which can store up to `size` elements.
+    fn new_with_config(size: usize, config: Option<StoreConfig>) -> Result<Self>;
     fn new(size: usize) -> Result<Self>;
 
+    fn new_from_slice_with_config(size: usize, data: &[u8], config: Option<StoreConfig>) -> Result<Self>;
     fn new_from_slice(size: usize, data: &[u8]) -> Result<Self>;
+
+    fn new_from_disk(config: Option<StoreConfig>) -> Result<Self>;
 
     fn write_at(&mut self, el: E, index: usize);
 
@@ -50,6 +109,10 @@ impl<E: Element> ops::Deref for VecStore<E> {
 }
 
 impl<E: Element> Store<E> for VecStore<E> {
+    fn new_with_config(size: usize, _config: Option<StoreConfig>) -> Result<Self> {
+        Self::new(size)
+    }
+
     fn new(size: usize) -> Result<Self> {
         Ok(VecStore(Vec::with_capacity(size)))
     }
@@ -81,6 +144,10 @@ impl<E: Element> Store<E> for VecStore<E> {
         );
     }
 
+    fn new_from_slice_with_config(size: usize, data: &[u8], _config: Option<StoreConfig>) -> Result<Self> {
+        Self::new_from_slice(size, &data)
+    }
+
     fn new_from_slice(size: usize, data: &[u8]) -> Result<Self> {
         let mut v: Vec<_> = data
             .chunks_exact(E::byte_len())
@@ -90,6 +157,10 @@ impl<E: Element> Store<E> for VecStore<E> {
         v.reserve(additional);
 
         Ok(VecStore(v))
+    }
+
+    fn new_from_disk(_config: Option<StoreConfig>) -> Result<Self> {
+        unimplemented!("Cannot load a VecStore from disk");
     }
 
     fn read_at(&self, index: usize) -> E {
@@ -142,6 +213,41 @@ impl<E: Element> ops::Deref for DiskStore<E> {
 }
 
 impl<E: Element> Store<E> for DiskStore<E> {
+    fn new_with_config(size: usize, config: Option<StoreConfig>) -> Result<Self> {
+        if !config.is_some() {
+            return Self::new(size);
+        }
+
+        let store_config = config.clone().unwrap();
+        let merkle_tree_path = StoreConfig::merkle_tree_path(
+            &store_config.path, &store_config.id);
+
+        // If the specified file exists, load it from disk.
+        if Path::new(&merkle_tree_path).exists() {
+            return Self::new_from_disk(config);
+        }
+
+        // Otherwise, create the file and allow it to be the on-disk store.
+        let merkle_tree = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .create_new(true)
+            .open(merkle_tree_path)
+            .unwrap();
+
+        let store_size = E::byte_len() * size;
+        merkle_tree.set_len(store_size as u64)
+            .unwrap_or_else(|_| panic!("couldn't set len {}", store_size));
+
+        Ok(DiskStore {
+            len: 0,
+            elem_len: E::byte_len(),
+            _e: Default::default(),
+            file: merkle_tree,
+            store_size,
+        })
+    }
+
     #[allow(unsafe_code)]
     fn new(size: usize) -> Result<Self> {
         let store_size = E::byte_len() * size;
@@ -158,16 +264,46 @@ impl<E: Element> Store<E> for DiskStore<E> {
         })
     }
 
+    fn new_from_slice_with_config(size: usize, data: &[u8], config: Option<StoreConfig>) -> Result<Self> {
+        if !config.is_some() {
+            return Self::new_from_slice(size, &data);
+        }
+
+        let mut store = Self::new_with_config(size, config).expect("Failed to create new store");
+        store.store_copy_from_slice(0, data);
+        store.len = data.len() / store.elem_len;
+
+        Ok(store)
+    }
+
     fn new_from_slice(size: usize, data: &[u8]) -> Result<Self> {
         assert_eq!(data.len() % E::byte_len(), 0);
 
-        let mut res = Self::new(size)?;
+        let mut store = Self::new(size)?;
 
-        res.store_copy_from_slice(0, data);
-        res.elem_len = E::byte_len();
-        res.len = data.len() / res.elem_len;
+        store.store_copy_from_slice(0, data);
+        store.elem_len = E::byte_len();
+        store.len = data.len() / store.elem_len;
 
-        Ok(res)
+        Ok(store)
+    }
+
+    fn new_from_disk(config: Option<StoreConfig>) -> Result<Self> {
+        let config = config.unwrap();
+        let merkle_tree_path = StoreConfig::merkle_tree_path(
+            &config.path, &config.id);
+
+        let merkle_tree = File::open(merkle_tree_path)?;
+        let store_size = merkle_tree.metadata().unwrap().len() as usize;
+        let size = store_size / E::byte_len();
+
+        Ok(DiskStore {
+            len: size,
+            elem_len: E::byte_len(),
+            _e: Default::default(),
+            file: merkle_tree,
+            store_size,
+        })
     }
 
     fn write_at(&mut self, el: E, index: usize) {
@@ -285,5 +421,245 @@ impl<E: Element> DiskStore<E> {
 impl<E: Element> Clone for DiskStore<E> {
     fn clone(&self) -> DiskStore<E> {
         unimplemented!("We can't clone a store with an already associated file");
+    }
+}
+
+
+// Internally uses a DiskStore to manage the on-disk MT, but also has
+// some levels of the tree cached in RAM for quicker read accesses.
+#[derive(Debug)]
+pub struct LevelCacheStore<E: Element> {
+    config: StoreConfig,
+    merkle_tree: DiskStore<E>,
+    cache: Vec<u8>,
+    cache_index_start: usize,
+    cache_index_end: usize,
+
+    _e: PhantomData<E>,
+}
+
+impl<E: Element> ops::Deref for LevelCacheStore<E> {
+    type Target = [E];
+
+    fn deref(&self) -> &Self::Target {
+        unimplemented!()
+    }
+}
+
+// Helper method: Given a store size, the node element size and the
+// number of tree levels to cache, return the cached index range
+// (start, end).
+fn calculate_cache_range(size: usize, elem_len: usize, num_cache_levels: usize) -> (usize, usize) {
+    // Calculate the store index map based on the approximate size.
+    let pow = next_pow2(size);
+    let height = log2_pow2(2 * pow);
+    let mut index = pow * elem_len;
+    let store_size = pow * elem_len;
+    let mut level_index_map = Vec::new();
+    for _ in 0..height {
+        level_index_map.push(store_size - index);
+        index >>= 1;
+    }
+
+    // If we're told to cache more tree levels than we have, cache them all.
+    let mut levels = num_cache_levels;
+    if levels >= level_index_map.len() {
+        levels = level_index_map.len() - 1;
+    }
+
+    let cache_index_start = level_index_map[level_index_map.len() - levels - 1];
+    let cache_index_end = size * elem_len;
+
+    (cache_index_start, cache_index_end)
+}
+
+impl<E: Element> Store<E> for LevelCacheStore<E> {
+    #[allow(unsafe_code)]
+    fn new_with_config(size: usize, config: Option<StoreConfig>) -> Result<Self> {
+        let merkle_tree = DiskStore::new_with_config(size, config.clone())
+            .expect("Failed to create merkle tree data store");
+
+        // Calculate the cached range based on specified levels.
+        let store_config = config.unwrap();
+        let (cache_index_start, cache_index_end) =
+            calculate_cache_range(size, E::byte_len(), store_config.levels);
+        let cache = vec![0; cache_index_end - cache_index_start];
+
+        Ok(LevelCacheStore{
+            config: store_config,
+            merkle_tree,
+            cache,
+            cache_index_start,
+            cache_index_end,
+            _e: Default::default()
+        })
+    }
+
+    fn new(_size: usize) -> Result<Self> {
+        unimplemented!("This method requires StoreConfig options in addition to the total size");
+    }
+
+    fn new_from_slice_with_config(size: usize, data: &[u8], config: Option<StoreConfig>) -> Result<Self> {
+        assert_eq!(data.len() % E::byte_len(), 0);
+
+        let mut store = LevelCacheStore::new_with_config(size, config).unwrap();
+        store.store_copy_from_slice(0, data);
+        store.merkle_tree.len = std::cmp::max(
+            store.merkle_tree.len, data.len() / store.merkle_tree.elem_len);
+
+        Ok(store)
+    }
+
+    fn new_from_slice(_size: usize, _data: &[u8]) -> Result<Self> {
+        unimplemented!("This method requires StoreConfig options in addition to the total size");
+    }
+
+    fn new_from_disk(config: Option<StoreConfig>) -> Result<Self> {
+        let store_config = config.clone().unwrap();
+        let merkle_tree = DiskStore::new_from_disk(config)
+            .expect("Failed to load merkle tree from disk");
+
+        // Calculate the cached range based on specified levels.
+        let (cache_index_start, cache_index_end) =
+            calculate_cache_range(
+                merkle_tree.len(), E::byte_len(), store_config.levels);
+        let cache = merkle_tree.store_read_range(
+            cache_index_start, cache_index_end);
+        assert_eq!(cache.len(), cache_index_end - cache_index_start);
+
+        Ok(LevelCacheStore {
+            config: store_config,
+            merkle_tree,
+            cache,
+            cache_index_start,
+            cache_index_end,
+            _e: Default::default(),
+        })
+    }
+
+    fn write_at(&mut self, el: E, index: usize) {
+        let start = index * self.merkle_tree.elem_len;
+        let end = start + self.merkle_tree.elem_len;
+        if start >= self.cache_index_start {
+            let cache_start = start - self.cache_index_start;
+            let cache_end = end - self.cache_index_start;
+            assert!(cache_end <= self.cache.len());
+
+            let segment = &mut self.cache[cache_start..cache_end];
+            el.copy_to_slice(segment);
+        }
+        self.merkle_tree.write_at(el, index)
+    }
+
+    fn copy_from_slice(&mut self, buf: &[u8], start: usize) {
+        assert_eq!(buf.len() % self.merkle_tree.elem_len, 0);
+        self.store_copy_from_slice(start * self.merkle_tree.elem_len, buf);
+        self.merkle_tree.len = std::cmp::max(
+            self.merkle_tree.len, start + buf.len() /
+                self.merkle_tree.elem_len);
+    }
+
+    fn read_at(&self, index: usize) -> E {
+        let start = index * self.merkle_tree.elem_len;
+        let end = start + self.merkle_tree.elem_len;
+        if start >= self.cache_index_start {
+            let cache_start = start - self.cache_index_start;
+            let cache_end = end - self.cache_index_start;
+            assert!(cache_end <= self.cache.len());
+
+            return E::from_slice(&self.cache[cache_start..cache_end])
+        }
+
+        self.merkle_tree.read_at(index)
+    }
+
+    fn read_into(&self, index: usize, buf: &mut [u8]) {
+        let start = index * self.merkle_tree.elem_len;
+        let end = start + buf.len();
+        if start >= self.cache_index_start {
+            let cache_start = start - self.cache_index_start;
+            let cache_end = end - self.cache_index_start;
+            assert!(cache_end <= self.cache.len());
+
+            return buf.copy_from_slice(&self.cache[cache_start..cache_end])
+        }
+
+        self.merkle_tree.read_into(index, buf)
+    }
+
+    fn read_range(&self, r: ops::Range<usize>) -> Vec<E> {
+        let start = r.start * self.merkle_tree.elem_len;
+        let end = r.end * self.merkle_tree.elem_len;
+
+        if start >= self.cache_index_start {
+            let cache_start = start - self.cache_index_start;
+            let cache_end = end - self.cache_index_start;
+            assert!(cache_end <= self.cache.len());
+
+            return self.cache[cache_start..cache_end]
+                .chunks(E::byte_len())
+                .map(E::from_slice)
+                .collect();
+        }
+
+        self.merkle_tree.read_range(r)
+    }
+
+    fn len(&self) -> usize {
+        self.merkle_tree.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.merkle_tree.is_empty()
+    }
+
+    fn push(&mut self, el: E) {
+        self.merkle_tree.push(el);
+    }
+
+    fn sync(&self) {
+        self.merkle_tree.sync()
+    }
+}
+
+impl<E: Element> LevelCacheStore<E> {
+    pub fn store_size(&self) -> usize {
+        self.merkle_tree.store_size()
+    }
+
+    pub fn store_read_range(&self, start: usize, end: usize) -> Vec<u8> {
+        if start >= self.cache_index_start {
+            let cache_start = start - self.cache_index_start;
+            let cache_end = end - self.cache_index_start;
+            assert!(cache_end <= self.cache.len());
+
+            return self.cache[cache_start..cache_end].to_vec();
+        }
+
+        self.merkle_tree.store_read_range(start, end)
+    }
+
+    pub fn store_read_into(&self, start: usize, end: usize, buf: &mut [u8]) {
+        buf.copy_from_slice(&self.store_read_range(start, end));
+    }
+
+    pub fn store_copy_from_slice(&mut self, start: usize, slice: &[u8]) {
+        if start >= self.cache_index_start {
+            let end = std::cmp::min(self.cache_index_end, start + slice.len());
+            let cache_start = start - self.cache_index_start;
+            let cache_end = end - self.cache_index_start;
+            assert!(cache_end <= self.cache.len());
+
+            let segment = &mut self.cache[cache_start..cache_end];
+            segment.copy_from_slice(&slice[0..]);
+        }
+
+        self.merkle_tree.store_copy_from_slice(start, slice);
+    }
+}
+
+impl<E: Element> Clone for LevelCacheStore<E> {
+    fn clone(&self) -> LevelCacheStore<E> {
+        unimplemented!("LevelCacheStore cloning is unsupported");
     }
 }

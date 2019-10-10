@@ -1,15 +1,17 @@
 #![cfg(test)]
 
+use file_diff::diff;
 use hash::*;
-use store::{DiskStore, VecStore};
-use merkle::FromIndexedParallelIterator;
 use merkle::{log2_pow2, next_pow2};
 use merkle::{Element, MerkleTree, SMALL_TREE_BUILD};
+use merkle::{FromIndexedParallelIterator, FromIteratorWithConfig};
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
+use std::io::Write;
+use std::fs::OpenOptions;
 use std::fmt;
 use std::hash::Hasher;
-use std::iter::FromIterator;
+use store::{Store, DiskStore, VecStore, LevelCacheStore, StoreConfig};
 
 const SIZE: usize = 0x10;
 
@@ -104,7 +106,7 @@ impl Element for [u8; 16] {
 #[test]
 fn test_from_slice() {
     let x = [String::from("ars"), String::from("zxc")];
-    let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> = MerkleTree::from_data(&x);
+    let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> = MerkleTree::from_data(&x, None);
     assert_eq!(
         mt.read_range(0, 3),
         [
@@ -125,7 +127,7 @@ fn test_from_slice() {
 #[test]
 fn test_read_into() {
     let x = [String::from("ars"), String::from("zxc")];
-    let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> = MerkleTree::from_data(&x);
+    let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> = MerkleTree::from_data(&x, None);
     let target_data = [
         [0, 97, 114, 115, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         [0, 122, 120, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -147,7 +149,7 @@ fn test_from_iter() {
             a.reset();
             x.hash(&mut a);
             a.hash()
-        }));
+        }), None);
     assert_eq!(mt.len(), 7);
     assert_eq!(mt.height(), 3);
 }
@@ -238,6 +240,7 @@ fn test_simple_tree() {
                     a.hash()
                 })
                 .take(items),
+            None
         );
 
         assert_eq!(mt_base.leafs(), items);
@@ -294,6 +297,23 @@ fn test_simple_tree() {
                 assert!(p.validate::<XOR128>());
             }
         }
+
+
+        {
+            let temp_dir = tempdir::TempDir::new("test_simple_tree").unwrap();
+            let current_path = temp_dir.path().to_str().unwrap().to_string();
+            let config = StoreConfig::new(
+                current_path, String::from("test-simple"), 7).unwrap();
+
+            let mt2: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_>> =
+                MerkleTree::from_byte_slice_with_config(&leafs, Some(config));
+            assert_eq!(mt2.leafs(), items);
+            assert_eq!(mt2.height(), log2_pow2(next_pow2(mt2.len())));
+            for i in 0..mt2.leafs() {
+                let p = mt2.gen_proof(i);
+                assert!(p.validate::<XOR128>());
+            }
+        }
     }
 }
 
@@ -314,7 +334,7 @@ fn test_large_tree() {
                 x.hash(&mut a);
                 i.hash(&mut a);
                 a.hash()
-            }));
+            }), None);
         assert_eq!(mt_vec.len(), 2 * count - 1);
 
         let mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
@@ -324,7 +344,137 @@ fn test_large_tree() {
                 x.hash(&mut xor_128);
                 i.hash(&mut xor_128);
                 xor_128.hash()
-            }));
+            }), None);
         assert_eq!(mt_disk.len(), 2 * count - 1);
+
+        let temp_dir = tempdir::TempDir::new("test_large_tree").unwrap();
+        let current_path = temp_dir.path().to_str().unwrap().to_string();
+
+        let config = StoreConfig::new(current_path, format!("test-id-{}", i), 7);
+        let mt_disk: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_>> =
+            MerkleTree::from_par_iter((0..count).into_par_iter().map(|x| {
+                let mut xor_128 = a.clone();
+                xor_128.reset();
+                x.hash(&mut xor_128);
+                i.hash(&mut xor_128);
+                xor_128.hash()
+            }), Some(config.expect("Failed to create store config")));
+        assert_eq!(mt_disk.len(), 2 * count - 1);
+    }
+}
+
+#[test]
+fn test_large_tree_disk_operations() {
+    let a = XOR128::new();
+    let count = SMALL_TREE_BUILD * 2;
+
+    let temp_dir = tempdir::TempDir::new("test_large_tree").unwrap();
+    let current_path = temp_dir.path().to_str().unwrap().to_string();
+
+    let config = StoreConfig::new(current_path, format!("test-id-{}", 0), 7)
+        .expect("Failed to create store config");
+    let mt_file = StoreConfig::merkle_tree_path(&config.path, &config.id);
+
+    let mt_disk1: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
+        MerkleTree::from_par_iter((0..count).into_par_iter().map(|x| {
+            let mut xor_128 = a.clone();
+            xor_128.reset();
+            x.hash(&mut xor_128);
+            0.hash(&mut xor_128);
+            xor_128.hash()
+        }), Some(config.clone()));
+    assert_eq!(mt_disk1.len(), 2 * count - 1);
+    assert_eq!(mt_disk1.leafs(), count);
+
+    // Read out the data from this MT's store.
+    let len = mt_disk1.len();
+    let data = mt_disk1.read_range(0, len);
+
+    let file_path = temp_dir.into_path();
+    let filename = file_path.join("test-disk-store1");
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&filename)
+        .unwrap();
+
+    // Write out the data we just read to an on disk file.
+    let mut read_buffer: [u8; 16] = [0; 16];
+    for (pos, &buf) in data.iter().enumerate() {
+        mt_disk1.read_into(pos, &mut read_buffer);
+        assert_eq!(read_buffer, buf);
+        let bytes_written = file.write(&buf).unwrap();
+        assert_eq!(bytes_written, 16);
+    }
+    file.sync_all().unwrap();
+
+    // Sanity check by diffing the 2 files for consistency.
+    assert!(diff(&mt_file, &filename.to_str().unwrap().to_string()));
+
+    // Use the config to load a new MT instance from disk.
+    let disk_store: DiskStore<[u8; 16]> =
+        Store::new_from_disk(Some(config)).unwrap();
+    let mt_disk2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
+        MerkleTree::from_data_store(disk_store, count);
+    assert_eq!(mt_disk2.len(), 2 * count - 1);
+    assert_eq!(mt_disk2.leafs(), count);
+
+    // Read the data from the store of the re-constructed on-disk MT.
+    let len = mt_disk2.len();
+    let data = mt_disk2.read_range(0, len);
+
+    let filename = file_path.join("test-disk-store2");
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&filename)
+        .unwrap();
+
+    // Write out the data we just read to another on disk file.
+    let mut read_buffer: [u8; 16] = [0; 16];
+    for (pos, &buf) in data.iter().enumerate() {
+        mt_disk2.read_into(pos, &mut read_buffer);
+        assert_eq!(read_buffer, buf);
+        let bytes_written = file.write(&buf).unwrap();
+        assert_eq!(bytes_written, 16);
+    }
+    file.sync_all().unwrap();
+
+    // Sanity check by diffing the 2 files for consistency.
+    assert!(diff(&mt_file, &filename.to_str().unwrap().to_string()));
+}
+
+#[test]
+fn test_large_tree_with_cache() {
+    let mut a = XOR128::new();
+    let count = SMALL_TREE_BUILD * 64;
+
+    let pow = next_pow2(count);
+    let height = log2_pow2(2 * pow);
+
+    let limit = height / 2 + 1;
+    for i in 4..limit {
+        let temp_dir = tempdir::TempDir::new("test_large_tree_with_cache").unwrap();
+        let current_path = temp_dir.path().to_str().unwrap().to_string();
+
+        let config = StoreConfig::new(current_path, String::from("test-cache"), i)
+            .expect("Failed to create store config");
+        let mt_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_>> =
+            MerkleTree::from_iter((0..count).map(|x| {
+                a.reset();
+                x.hash(&mut a);
+                count.hash(&mut a);
+                a.hash()
+            }), Some(config));
+
+        assert_eq!(mt_cache.len(), 2 * count - 1);
+        assert_eq!(mt_cache.leafs(), count);
+
+        for i in 0..mt_cache.leafs() {
+            let p = mt_cache.gen_proof(i);
+            assert!(p.validate::<XOR128>());
+        }
     }
 }

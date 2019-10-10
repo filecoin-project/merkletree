@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
-use store::Store;
+use store::{Store, StoreConfig};
 
 /// Tree size (number of nodes) used as threshold to decide which build algorithm
 /// to use. Small trees (below this value) use the old build algorithm, optimized
@@ -87,32 +87,37 @@ pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Default + std::fmt:
 
 impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     /// Creates new merkle from a sequence of hashes.
-    pub fn new<I: IntoIterator<Item = T>>(data: I) -> MerkleTree<T, A, K> {
-        Self::from_iter(data)
+    pub fn new<I: IntoIterator<Item = T>>(data: I, config: Option<StoreConfig>) -> MerkleTree<T, A, K> {
+        Self::from_iter(data, config)
     }
 
     /// Creates new merkle tree from a list of hashable objects.
-    pub fn from_data<O: Hashable<A>, I: IntoIterator<Item = O>>(data: I) -> MerkleTree<T, A, K> {
+    pub fn from_data<O: Hashable<A>, I: IntoIterator<Item = O>>(data: I, config: Option<StoreConfig>) -> MerkleTree<T, A, K> {
         let mut a = A::default();
         Self::from_iter(data.into_iter().map(|x| {
             a.reset();
             x.hash(&mut a);
             a.hash()
-        }))
+        }), config)
     }
 
     /// Creates new merkle from an already allocated `Store` (used with
-    /// `DiskStore::new_with_path` to set its path before instantiating
-    /// the MT, which would otherwise just call `DiskStore::new`).
-    // FIXME: Taken from `MerkleTree::from_iter` to avoid adding more complexity,
-    //  it should receive a `parallel` flag to decide what to do.
-    // FIXME: We're repeating too much code here, `from_iter` (and
-    //  `from_par_iter`) should be extended to handled a pre-allocated `Store`.
-    // FIXME: Remove the `leafs` parameter, that could be obtained from the
-    //  store adding a `capacity` method to the trait.
+    /// `DiskStore::new_from_disk`.
     pub fn from_data_store(data: K, leafs: usize) -> MerkleTree<T, A, K> {
         let pow = next_pow2(leafs);
-        Self::build(data, leafs, log2_pow2(2 * pow))
+        let height = log2_pow2(2 * pow);
+
+        let elements = data.len() / T::byte_len();
+        let root = data.read_at(elements - 1);
+
+        MerkleTree {
+            data: data,
+            leafs,
+            height,
+            root,
+            _a: PhantomData,
+            _t: PhantomData,
+        }
     }
 
     #[inline]
@@ -189,8 +194,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                         },
                     );
 
-                    debug_assert_eq!(hashed_nodes_as_bytes.len(), chunk_size / 2 * T::byte_len());
                     // Check that we correctly pre-allocated the space.
+                    debug_assert_eq!(hashed_nodes_as_bytes.len(), chunk_size / 2 * T::byte_len());
 
                     data_lock
                         .write()
@@ -380,7 +385,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 
     /// Build the tree given a slice of all leafs, in bytes form.
-    pub fn from_byte_slice(leafs: &[u8]) -> Self {
+    pub fn from_byte_slice_with_config(leafs: &[u8], config: Option<StoreConfig>) -> Self {
         assert_eq!(
             leafs.len() % T::byte_len(),
             0,
@@ -393,9 +398,15 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         assert!(leafs_count > 1);
 
         let pow = next_pow2(leafs_count);
-        let data = K::new_from_slice(2 * pow - 1, leafs).expect("Failed to create data");
+        let data = K::new_from_slice_with_config(2 * pow - 1, leafs, config)
+            .expect("Failed to create data store");
 
         Self::build(data, leafs_count, log2_pow2(2 * pow))
+    }
+
+    /// Build the tree given a slice of all leafs, in bytes form.
+    pub fn from_byte_slice(leafs: &[u8]) -> Self {
+        Self::from_byte_slice_with_config(leafs, None)
     }
 }
 
@@ -403,17 +414,27 @@ pub trait FromIndexedParallelIterator<T>
 where
     T: Send,
 {
-    fn from_par_iter<I>(par_iter: I) -> Self
+    fn from_par_iter<I>(par_iter: I, config: Option<StoreConfig>) -> Self
     where
         I: IntoParallelIterator<Item = T>,
         I::Iter: IndexedParallelIterator;
 }
 
+pub trait FromIteratorWithConfig<T>
+where
+    T: Send,
+{
+    fn from_iter<I>(par_iter: I, config: Option<StoreConfig>) -> Self
+    where
+        I: IntoIterator<Item = T>;
+}
+
+// NOTE: This use cannot accept a StoreConfig.
 impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
     for MerkleTree<T, A, K>
 {
     /// Creates new merkle tree from an iterator over hashable objects.
-    fn from_par_iter<I>(into: I) -> Self
+    fn from_par_iter<I>(into: I, config: Option<StoreConfig>) -> Self
     where
         I: IntoParallelIterator<Item = T>,
         I::Iter: IndexedParallelIterator,
@@ -423,24 +444,25 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
         let leafs = iter.opt_len().expect("must be sized");
         let pow = next_pow2(leafs);
 
-        let mut data = K::new(2 * pow - 1).expect("Failed to create data");
-
+        let mut data = K::new_with_config(2 * pow - 1, config)
+            .expect("Failed to create data store");
         populate_data_par::<T, A, K, _>(&mut data, iter);
 
         Self::build(data, leafs, log2_pow2(2 * pow))
     }
 }
 
-impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T, A, K> {
+impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIteratorWithConfig<T> for MerkleTree<T, A, K> {
     /// Creates new merkle tree from an iterator over hashable objects.
-    fn from_iter<I: IntoIterator<Item = T>>(into: I) -> Self {
+    fn from_iter<I: IntoIterator<Item = T>>(into: I, config: Option<StoreConfig>) -> Self {
         let iter = into.into_iter();
 
         let leafs = iter.size_hint().1.unwrap();
         assert!(leafs > 1);
 
         let pow = next_pow2(leafs);
-        let mut data = K::new(2 * pow - 1).expect("Failed to create data");
+        let mut data = K::new_with_config(2 * pow - 1, config)
+            .expect("Failed to create data store");
         populate_data::<T, A, K, I>(&mut data, iter);
 
         Self::build(data, leafs, log2_pow2(2 * pow))
@@ -489,7 +511,7 @@ pub fn populate_data<T: Element, A: Algorithm<T>, K: Store<T>, I: IntoIterator<I
     data: &mut K,
     iter: <I as std::iter::IntoIterator>::IntoIter,
 ) {
-    assert!(data.len() == 0);
+    assert!(data.is_empty());
     let mut buf = Vec::with_capacity(BUILD_DATA_BLOCK_SIZE * T::byte_len());
 
     let mut a = A::default();
@@ -517,7 +539,7 @@ where
     K: Store<T>,
     I: ParallelIterator<Item = T> + IndexedParallelIterator,
 {
-    assert!(data.len() == 0);
+    assert!(data.is_empty());
     let store = Arc::new(RwLock::new(data));
 
     iter.chunks(BUILD_DATA_BLOCK_SIZE)

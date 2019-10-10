@@ -79,7 +79,6 @@
 //! mod example {
 //!     use std::fmt;
 //!     use std::hash::Hasher;
-//!     use std::iter::FromIterator;
 //!     use crypto::sha3::{Sha3, Sha3Mode};
 //!     use crypto::digest::Digest;
 //!     use merkletree::hash::{Algorithm, Hashable};
@@ -131,7 +130,7 @@
 //!     use example::ExampleAlgorithm;
 //!     use merkletree::merkle::MerkleTree;
 //!     use merkletree::store::VecStore;
-//!     use std::iter::FromIterator;
+//!     use merkletree::merkle::FromIteratorWithConfig;
 //!
 //!     let mut h1 = [0u8; 32];
 //!     let mut h2 = [0u8; 32];
@@ -140,7 +139,7 @@
 //!     h2[0] = 0x22;
 //!     h3[0] = 0x33;
 //!
-//!     let t: MerkleTree<[u8; 32], ExampleAlgorithm, VecStore<_>> = MerkleTree::from_iter(vec![h1, h2, h3]);
+//!     let t: MerkleTree<[u8; 32], ExampleAlgorithm, VecStore<_>> = MerkleTree::from_iter(vec![h1, h2, h3], None);
 //!     println!("{:?}", t.root());
 //! }
 //! }
@@ -159,11 +158,15 @@
 )]
 #![cfg_attr(feature = "nightly", allow(unstable_features))]
 
+extern crate file_diff;
+
 extern crate failure;
 
 extern crate rayon;
 
 extern crate memmap;
+
+extern crate tempdir;
 
 extern crate tempfile;
 

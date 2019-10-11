@@ -110,9 +110,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     //  `from_par_iter`) should be extended to handled a pre-allocated `Store`.
     // FIXME: Remove the `leafs` parameter, that could be obtained from the
     //  store adding a `capacity` method to the trait.
-    pub fn from_leaves_store(leaves: K, leafs: usize) -> MerkleTree<T, A, K> {
+    pub fn from_data_store(data: K, leafs: usize) -> MerkleTree<T, A, K> {
         let pow = next_pow2(leafs);
-        Self::build(leaves, leafs, log2_pow2(2 * pow))
+        Self::build(data, leafs, log2_pow2(2 * pow))
     }
 
     #[inline]
@@ -121,10 +121,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             return Self::build_small_tree(data, leafs, height);
         }
 
+        assert!(data.len() == leafs);
         let data_lock = Arc::new(RwLock::new(data));
 
         // Process one `level` at a time of `width` nodes. Each level has half the nodes
-        // as the previous one; the first level, completely stored in `leaves`, has `leafs`
+        // as the previous one; the first level, completely stored in `data`, has `leafs`
         // nodes. We guarantee an even number of nodes per `level`, duplicating the last
         // node if necessary.
         let mut level: usize = 0;
@@ -145,6 +146,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             // starts, and width is updated accordingly at each level so that we know where
             // to start writing.
             let (read_start, write_start) = if level == 0 {
+                // Note that we previously asserted that data.len() == leafs.
                 (0, data_lock.read().unwrap().len())
             } else {
                 (level_node_index, level_node_index + width)
@@ -207,7 +209,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 
-       let root = {
+        let root = {
             let data = data_lock.read().unwrap();
             data.read_at(data.len() - 1)
         };
@@ -224,6 +226,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
     #[inline]
     fn build_small_tree(mut data: K, leafs: usize, height: usize) -> Self {
+        assert!(data.len() == leafs);
         let mut level: usize = 0;
         let mut width = leafs;
         let mut level_node_index = 0;
@@ -239,6 +242,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             // Same indexing logic as `build`.
             let (layer, write_start) = {
                 let (read_start, write_start) = if level == 0 {
+                    // Note that we previously asserted that data.len() == leafs.
                     (0, data.len())
                 } else {
                     (level_node_index, level_node_index + width)
@@ -365,19 +369,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         self.data.read_at(i)
     }
 
-    // With the leaves decoupled from the rest of the tree we need to split
-    // the range if necessary. If the range is covered by a single `Store`
-    // we just call its `read_range`, if not, we need to form a new `Vec`
-    // to hold both parts.
-    // FIXME: The second mechanism can be *very* expensive with big sectors,
-    // should the consumer be aware of this to avoid memory bloats?
     pub fn read_range(&self, start: usize, end: usize) -> Vec<T> {
-        if start > end {
-            panic!("read_range: start > end ({} > {})", start, end);
-            // FIXME: Do we need to check this? The implementations of
-            // `Store` don't (does `Range` take care of it?).
-        }
-
+        assert!(start < end);
         self.data.read_range(start..end)
     }
 
@@ -432,7 +425,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
 
         let mut data = K::new(2 * pow - 1).expect("Failed to create data");
 
-        populate_leaves_par::<T, A, K, _>(&mut data, iter);
+        populate_data_par::<T, A, K, _>(&mut data, iter);
 
         Self::build(data, leafs, log2_pow2(2 * pow))
     }
@@ -448,7 +441,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T,
 
         let pow = next_pow2(leafs);
         let mut data = K::new(2 * pow - 1).expect("Failed to create data");
-        populate_leaves::<T, A, K, I>(&mut data, iter);
+        populate_data::<T, A, K, I>(&mut data, iter);
 
         Self::build(data, leafs, log2_pow2(2 * pow))
     }
@@ -492,10 +485,11 @@ pub fn log2_pow2(n: usize) -> usize {
     n.trailing_zeros() as usize
 }
 
-pub fn populate_leaves<T: Element, A: Algorithm<T>, K: Store<T>, I: IntoIterator<Item = T>>(
-    leaves: &mut K,
+pub fn populate_data<T: Element, A: Algorithm<T>, K: Store<T>, I: IntoIterator<Item = T>>(
+    data: &mut K,
     iter: <I as std::iter::IntoIterator>::IntoIter,
 ) {
+    assert!(data.len() == 0);
     let mut buf = Vec::with_capacity(BUILD_DATA_BLOCK_SIZE * T::byte_len());
 
     let mut a = A::default();
@@ -503,28 +497,28 @@ pub fn populate_leaves<T: Element, A: Algorithm<T>, K: Store<T>, I: IntoIterator
         a.reset();
         buf.extend(a.leaf(item).as_ref());
         if buf.len() >= BUILD_DATA_BLOCK_SIZE * T::byte_len() {
-            let leaves_len = leaves.len();
+            let data_len = data.len();
             // FIXME: Integrate into `len()` call into `copy_from_slice`
             // once we update to `stable` 1.36.
-            leaves.copy_from_slice(&buf, leaves_len);
+            data.copy_from_slice(&buf, data_len);
             buf.clear();
         }
     }
-    let leaves_len = leaves.len();
-    leaves.copy_from_slice(&buf, leaves_len);
+    let data_len = data.len();
+    data.copy_from_slice(&buf, data_len);
 
-    leaves.sync();
+    data.sync();
 }
 
-// FIXME: Copied from `populate_leaves`, can we unify the code?
-fn populate_leaves_par<T, A, K, I>(leaves: &mut K, iter: I)
+fn populate_data_par<T, A, K, I>(data: &mut K, iter: I)
 where
     T: Element,
     A: Algorithm<T>,
     K: Store<T>,
     I: ParallelIterator<Item = T> + IndexedParallelIterator,
 {
-    let store = Arc::new(RwLock::new(leaves));
+    assert!(data.len() == 0);
+    let store = Arc::new(RwLock::new(data));
 
     iter.chunks(BUILD_DATA_BLOCK_SIZE)
         .enumerate()

@@ -190,7 +190,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                     debug_assert_eq!(hashed_nodes_as_bytes.len(), chunk_size / 2 * T::byte_len());
                     // Check that we correctly pre-allocated the space.
 
-                    write_store_lock
+                    data_lock
                         .write()
                         .unwrap()
                         .copy_from_slice(&hashed_nodes_as_bytes, write_start + write_delta);
@@ -257,7 +257,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 (layer, write_start)
             };
 
-            data.update_metadata(level, level_node_index);
             for (i, node) in layer.into_iter().enumerate() {
                 data.write_at(node, write_start + i);
             }

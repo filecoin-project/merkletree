@@ -15,11 +15,10 @@ use crypto::sha2::Sha512;
 use hash512::Hash512;
 use merkletree::hash::{Algorithm, Hashable};
 use merkletree::store::{DiskStore, VecStore};
-use merkletree::merkle::{FromIndexedParallelIterator, MerkleTree};
+use merkletree::merkle::{FromIndexedParallelIterator, FromIteratorWithConfig, MerkleTree};
 use rand::Rng;
 use rayon::prelude::*;
 use std::hash::Hasher;
-use std::iter::FromIterator;
 use test::Bencher;
 
 #[derive(Copy, Clone)]
@@ -123,13 +122,13 @@ fn bench_crypto_sha512(b: &mut Bencher) {
 #[bench]
 fn bench_crypto_sha512_from_data_5(b: &mut Bencher) {
     let values = tree_5();
-    b.iter(|| MerkleTree::<Hash512, A, VecStore<_>>::from_iter(values.clone()));
+    b.iter(|| MerkleTree::<Hash512, A, VecStore<_>>::from_iter(values.clone(), None));
 }
 
 #[bench]
 fn bench_crypto_sha512_from_data_5_proof(b: &mut Bencher) {
     let values = tree_5();
-    let tree: MerkleTree<Hash512, A, VecStore<_>> = MerkleTree::from_iter(values.clone());
+    let tree: MerkleTree<Hash512, A, VecStore<_>> = MerkleTree::from_iter(values.clone(), None);
 
     b.iter(|| {
         for i in 0..values.len() {
@@ -142,7 +141,7 @@ fn bench_crypto_sha512_from_data_5_proof(b: &mut Bencher) {
 #[bench]
 fn bench_crypto_sha512_from_data_5_proof_check(b: &mut Bencher) {
     let values = tree_5();
-    let tree: MerkleTree<Hash512, A, VecStore<_>> = MerkleTree::from_iter(values.clone());
+    let tree: MerkleTree<Hash512, A, VecStore<_>> = MerkleTree::from_iter(values.clone(), None);
     let proofs = (0..values.len())
         .map(|i| tree.gen_proof(i))
         .collect::<Vec<_>>();
@@ -157,43 +156,43 @@ fn bench_crypto_sha512_from_data_5_proof_check(b: &mut Bencher) {
 #[bench]
 fn bench_crypto_sha512_from_data_160_vec(b: &mut Bencher) {
     let values = tree_160();
-    b.iter(|| MerkleTree::<Hash512, A, VecStore<_>>::from_iter(values.clone()));
+    b.iter(|| MerkleTree::<Hash512, A, VecStore<_>>::from_iter(values.clone(), None));
 }
 
 #[bench]
 fn bench_crypto_sha512_from_data_160_mmap(b: &mut Bencher) {
     let values = tree_160();
-    b.iter(|| MerkleTree::<Hash512, A, DiskStore<_>>::from_iter(values.clone()));
+    b.iter(|| MerkleTree::<Hash512, A, DiskStore<_>>::from_iter(values.clone(), None));
 }
 
 #[bench]
 fn bench_crypto_sha512_from_data_160_par(b: &mut Bencher) {
     let values = tree_160();
-    b.iter(|| MerkleTree::<Hash512, A, VecStore<_>>::from_par_iter(values.clone()));
+    b.iter(|| MerkleTree::<Hash512, A, VecStore<_>>::from_par_iter(values.clone(), None));
 }
 
 #[bench]
 fn bench_crypto_sha512_from_data_30000_vec(b: &mut Bencher) {
     let values = tree_30000();
-    b.iter(|| MerkleTree::<Hash512, A, VecStore<_>>::from_iter(values.clone()));
+    b.iter(|| MerkleTree::<Hash512, A, VecStore<_>>::from_iter(values.clone(), None));
 }
 
 #[bench]
 fn bench_crypto_sha512_from_data_30000_mmap(b: &mut Bencher) {
     let values = tree_30000();
-    b.iter(|| MerkleTree::<Hash512, A, DiskStore<_>>::from_iter(values.clone()));
+    b.iter(|| MerkleTree::<Hash512, A, DiskStore<_>>::from_iter(values.clone(), None));
 }
 
 #[bench]
 fn bench_crypto_sha512_from_data_30000_par(b: &mut Bencher) {
     let values = tree_30000();
-    b.iter(|| MerkleTree::<Hash512, A, VecStore<_>>::from_par_iter(values.clone()));
+    b.iter(|| MerkleTree::<Hash512, A, VecStore<_>>::from_par_iter(values.clone(), None));
 }
 
 #[bench]
 fn bench_crypto_sha512_from_data_160_proof(b: &mut Bencher) {
     let values = tree_160();
-    let tree: MerkleTree<Hash512, A, VecStore<_>> = MerkleTree::from_iter(values.clone());
+    let tree: MerkleTree<Hash512, A, VecStore<_>> = MerkleTree::from_iter(values.clone(), None);
 
     b.iter(|| {
         for i in 0..values.len() {
@@ -206,7 +205,7 @@ fn bench_crypto_sha512_from_data_160_proof(b: &mut Bencher) {
 #[bench]
 fn bench_crypto_sha512_from_data_160_proof_check(b: &mut Bencher) {
     let values = tree_160();
-    let tree: MerkleTree<Hash512, A, VecStore<_>> = MerkleTree::from_iter(values.clone());
+    let tree: MerkleTree<Hash512, A, VecStore<_>> = MerkleTree::from_iter(values.clone(), None);
     let proofs = (0..values.len())
         .map(|i| tree.gen_proof(i))
         .collect::<Vec<_>>();

@@ -111,7 +111,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let root = data.read_at(elements - 1);
 
         MerkleTree {
-            data: data,
+            data,
             leafs,
             height,
             root,

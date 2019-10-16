@@ -27,23 +27,16 @@ pub struct StoreConfig {
 
 impl StoreConfig {
     pub fn new(path: String, id: String, levels: usize) -> Result<StoreConfig> {
-        let merkle_tree_path = StoreConfig::merkle_tree_path(&path, &id);
-
-        if Path::new(&merkle_tree_path).exists() {
-            panic!("On disk file '{}' already exists. Use new_from_disk method instead?",
-                   merkle_tree_path);
-        }
-
         Ok(StoreConfig {
-            path: path,
-            id: id,
-            levels: levels
+            path,
+            id,
+            levels
         })
     }
 
     // Deterministically create the merkle_tree_path on-disk location
     // from a path and specified id.
-    pub fn merkle_tree_path(path: &String, id: &String) -> String {
+    pub fn merkle_tree_path(path: &str, id: &str) -> String {
         Path::new(&path)
             .join(format!("sc-merkle_tree-{}.dat", id))
             .into_os_string()
@@ -214,7 +207,7 @@ impl<E: Element> ops::Deref for DiskStore<E> {
 
 impl<E: Element> Store<E> for DiskStore<E> {
     fn new_with_config(size: usize, config: Option<StoreConfig>) -> Result<Self> {
-        if !config.is_some() {
+        if config.is_none() {
             return Self::new(size);
         }
 
@@ -265,7 +258,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
     }
 
     fn new_from_slice_with_config(size: usize, data: &[u8], config: Option<StoreConfig>) -> Result<Self> {
-        if !config.is_some() {
+        if config.is_none() {
             return Self::new_from_slice(size, &data);
         }
 
@@ -640,6 +633,14 @@ impl<E: Element> LevelCacheStore<E> {
     }
 
     pub fn store_read_into(&self, start: usize, end: usize, buf: &mut [u8]) {
+        if start >= self.cache_index_start {
+            let cache_start = start - self.cache_index_start;
+            let cache_end = end - self.cache_index_start;
+            assert!(cache_end <= self.cache.len());
+
+            return buf.copy_from_slice(&self.cache[cache_start..cache_end]);
+        }
+
         buf.copy_from_slice(&self.store_read_range(start, end));
     }
 

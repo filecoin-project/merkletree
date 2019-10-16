@@ -139,6 +139,18 @@ fn test_read_into() {
         mt.read_into(pos, &mut read_buffer);
         assert_eq!(read_buffer, data);
     }
+
+    let temp_dir = tempdir::TempDir::new("test_read_into").unwrap();
+    let current_path = temp_dir.path().to_str().unwrap().to_string();
+    let config = StoreConfig::new(
+        current_path, String::from("test-read-into"), 7).unwrap();
+
+    let mt2: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_>> =
+        MerkleTree::from_data(&x, Some(config));
+    for (pos, &data) in target_data.iter().enumerate() {
+        mt2.read_into(pos, &mut read_buffer);
+        assert_eq!(read_buffer, data);
+    }
 }
 
 #[test]

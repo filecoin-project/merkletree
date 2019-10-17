@@ -397,7 +397,15 @@ impl<E: Element> DiskStore<E> {
     }
 
     pub fn store_read_into(&self, start: usize, end: usize, buf: &mut [u8]) {
-        buf.copy_from_slice(&self.store_read_range(start, end));
+        assert_eq!(
+            self.file
+                .read_at(start as u64, buf)
+                .unwrap_or_else(|_| panic!(
+                    "failed to read {} bytes from file at offset {}",
+                    end - start, start
+                )),
+            end - start
+        );
     }
 
     pub fn store_copy_from_slice(&mut self, start: usize, slice: &[u8]) {
@@ -641,7 +649,7 @@ impl<E: Element> LevelCacheStore<E> {
             return buf.copy_from_slice(&self.cache[cache_start..cache_end]);
         }
 
-        buf.copy_from_slice(&self.store_read_range(start, end));
+        self.merkle_tree.store_read_into(start, end, buf);
     }
 
     pub fn store_copy_from_slice(&mut self, start: usize, slice: &[u8]) {

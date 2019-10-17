@@ -197,6 +197,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                     // Check that we correctly pre-allocated the space.
                     debug_assert_eq!(hashed_nodes_as_bytes.len(), chunk_size / 2 * T::byte_len());
 
+                    // Write the data into the store.
                     data_lock
                         .write()
                         .unwrap()

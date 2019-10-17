@@ -385,7 +385,10 @@ fn test_large_tree_disk_operations() {
 
     let config = StoreConfig::new(current_path, format!("test-id-{}", 0), 7)
         .expect("Failed to create store config");
-    let mt_file = StoreConfig::merkle_tree_path(&config.path, &config.id);
+    let mt_file = StoreConfig::data_path(&config.path, &config.id)
+        .into_os_string()
+        .into_string()
+        .unwrap();
 
     let mt_disk1: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
         MerkleTree::from_par_iter((0..count).into_par_iter().map(|x| {

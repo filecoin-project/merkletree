@@ -158,8 +158,6 @@
 )]
 #![cfg_attr(feature = "nightly", allow(unstable_features))]
 
-extern crate file_diff;
-
 extern crate failure;
 
 extern crate rayon;

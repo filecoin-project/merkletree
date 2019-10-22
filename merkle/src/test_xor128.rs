@@ -1,14 +1,11 @@
 #![cfg(test)]
 
-use file_diff::diff;
 use hash::*;
 use merkle::{log2_pow2, next_pow2};
 use merkle::{Element, MerkleTree, SMALL_TREE_BUILD};
 use merkle::{FromIndexedParallelIterator, FromIteratorWithConfig};
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
-use std::io::Write;
-use std::fs::OpenOptions;
 use std::fmt;
 use std::hash::Hasher;
 use store::{Store, DiskStore, VecStore, LevelCacheStore, StoreConfig};
@@ -143,9 +140,9 @@ fn test_read_into() {
     let temp_dir = tempdir::TempDir::new("test_read_into").unwrap();
     let current_path = temp_dir.path().to_str().unwrap().to_string();
     let config = StoreConfig::new(
-        current_path, String::from("test-read-into"), 7).unwrap();
+        current_path, String::from("test-read-into"), 7);
 
-    let mt2: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_>> =
+    let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
         MerkleTree::from_data(&x, Some(config));
     for (pos, &data) in target_data.iter().enumerate() {
         mt2.read_into(pos, &mut read_buffer);
@@ -300,6 +297,7 @@ fn test_simple_tree() {
         }
 
         {
+            let cached_above_base_levels = 2;
             let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
                 MerkleTree::from_byte_slice(&leafs);
             assert_eq!(mt2.leafs(), items);
@@ -307,23 +305,13 @@ fn test_simple_tree() {
             for i in 0..mt2.leafs() {
                 let p = mt2.gen_proof(i);
                 assert!(p.validate::<XOR128>());
-            }
-        }
-
-
-        {
-            let temp_dir = tempdir::TempDir::new("test_simple_tree").unwrap();
-            let current_path = temp_dir.path().to_str().unwrap().to_string();
-            let config = StoreConfig::new(
-                current_path, String::from("test-simple"), 7).unwrap();
-
-            let mt2: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_>> =
-                MerkleTree::from_byte_slice_with_config(&leafs, Some(config));
-            assert_eq!(mt2.leafs(), items);
-            assert_eq!(mt2.height(), log2_pow2(next_pow2(mt2.len())));
-            for i in 0..mt2.leafs() {
-                let p = mt2.gen_proof(i);
-                assert!(p.validate::<XOR128>());
+                if items >= 7 {
+                    // When the tree is large enough to have some
+                    // cached levels, test the proof generation from a
+                    // partial store.
+                    let (p1, _) = mt2.gen_proof_and_partial_tree(i, cached_above_base_levels);
+                    assert!(p1.validate::<XOR128>());
+                }
             }
         }
     }
@@ -358,138 +346,148 @@ fn test_large_tree() {
                 xor_128.hash()
             }), None);
         assert_eq!(mt_disk.len(), 2 * count - 1);
-
-        let temp_dir = tempdir::TempDir::new("test_large_tree").unwrap();
-        let current_path = temp_dir.path().to_str().unwrap().to_string();
-
-        let config = StoreConfig::new(current_path, format!("test-id-{}", i), 7);
-        let mt_disk: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_>> =
-            MerkleTree::from_par_iter((0..count).into_par_iter().map(|x| {
-                let mut xor_128 = a.clone();
-                xor_128.reset();
-                x.hash(&mut xor_128);
-                i.hash(&mut xor_128);
-                xor_128.hash()
-            }), Some(config.expect("Failed to create store config")));
-        assert_eq!(mt_disk.len(), 2 * count - 1);
     }
 }
 
 #[test]
-fn test_large_tree_disk_operations() {
-    let a = XOR128::new();
-    let count = SMALL_TREE_BUILD * 2;
-
-    let temp_dir = tempdir::TempDir::new("test_large_tree").unwrap();
-    let current_path = temp_dir.path().to_str().unwrap().to_string();
-
-    let config = StoreConfig::new(current_path, format!("test-id-{}", 0), 7)
-        .expect("Failed to create store config");
-    let mt_file = StoreConfig::data_path(&config.path, &config.id)
-        .into_os_string()
-        .into_string()
-        .unwrap();
-
-    let mt_disk1: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
-        MerkleTree::from_par_iter((0..count).into_par_iter().map(|x| {
-            let mut xor_128 = a.clone();
-            xor_128.reset();
-            x.hash(&mut xor_128);
-            0.hash(&mut xor_128);
-            xor_128.hash()
-        }), Some(config.clone()));
-    assert_eq!(mt_disk1.len(), 2 * count - 1);
-    assert_eq!(mt_disk1.leafs(), count);
-
-    // Read out the data from this MT's store.
-    let len = mt_disk1.len();
-    let data = mt_disk1.read_range(0, len);
-
-    let file_path = temp_dir.into_path();
-    let filename = file_path.join("test-disk-store1");
-    let mut file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open(&filename)
-        .unwrap();
-
-    // Write out the data we just read to an on disk file.
-    let mut read_buffer: [u8; 16] = [0; 16];
-    for (pos, &buf) in data.iter().enumerate() {
-        mt_disk1.read_into(pos, &mut read_buffer);
-        assert_eq!(read_buffer, buf);
-        let bytes_written = file.write(&buf).unwrap();
-        assert_eq!(bytes_written, 16);
-    }
-    file.sync_all().unwrap();
-
-    // Sanity check by diffing the 2 files for consistency.
-    assert!(diff(&mt_file, &filename.to_str().unwrap().to_string()));
-
-    // Use the config to load a new MT instance from disk.
-    let disk_store: DiskStore<[u8; 16]> =
-        Store::new_from_disk(Some(config)).unwrap();
-    let mt_disk2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
-        MerkleTree::from_data_store(disk_store, count);
-    assert_eq!(mt_disk2.len(), 2 * count - 1);
-    assert_eq!(mt_disk2.leafs(), count);
-
-    // Read the data from the store of the re-constructed on-disk MT.
-    let len = mt_disk2.len();
-    let data = mt_disk2.read_range(0, len);
-
-    let filename = file_path.join("test-disk-store2");
-    let mut file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open(&filename)
-        .unwrap();
-
-    // Write out the data we just read to another on disk file.
-    let mut read_buffer: [u8; 16] = [0; 16];
-    for (pos, &buf) in data.iter().enumerate() {
-        mt_disk2.read_into(pos, &mut read_buffer);
-        assert_eq!(read_buffer, buf);
-        let bytes_written = file.write(&buf).unwrap();
-        assert_eq!(bytes_written, 16);
-    }
-    file.sync_all().unwrap();
-
-    // Sanity check by diffing the 2 files for consistency.
-    assert!(diff(&mt_file, &filename.to_str().unwrap().to_string()));
-}
-
-#[test]
-fn test_large_tree_with_cache() {
+fn test_large_tree_with_partial_cache() {
     let mut a = XOR128::new();
-    let count = SMALL_TREE_BUILD * 64;
+    let count = SMALL_TREE_BUILD * 2;
 
     let pow = next_pow2(count);
     let height = log2_pow2(2 * pow);
 
-    let limit = height / 2 + 1;
-    for i in 4..limit {
+    let cached_above_base_levels = height - 2;
+    for i in 3..cached_above_base_levels {
         let temp_dir = tempdir::TempDir::new("test_large_tree_with_cache").unwrap();
         let current_path = temp_dir.path().to_str().unwrap().to_string();
 
-        let config = StoreConfig::new(current_path, String::from("test-cache"), i)
-            .expect("Failed to create store config");
-        let mt_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_>> =
+        // Construct and store an MT using a named DiskStore.
+        let config = StoreConfig::new(
+            current_path.clone(), String::from("test-cache"), i);
+        let mut mt_cache: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
             MerkleTree::from_iter((0..count).map(|x| {
                 a.reset();
                 x.hash(&mut a);
                 count.hash(&mut a);
                 a.hash()
-            }), Some(config));
+            }), Some(config.clone()));
 
         assert_eq!(mt_cache.len(), 2 * count - 1);
         assert_eq!(mt_cache.leafs(), count);
 
-        for i in 0..mt_cache.leafs() {
-            let p = mt_cache.gen_proof(i);
+        // Generate and validate proof on the first element.
+        let p = mt_cache.gen_proof(0);
+        assert!(p.validate::<XOR128>());
+
+        // Generate and validate proof on the first element and also
+        // retrieve the partial tree needed for future proof
+        // generation.  This is an optimization that lets us re-use
+        // the partially generated tree, given the known access
+        // pattern.
+        //
+        // NOTE: Using partial tree proof generation with a DiskStore
+        // does not generally make sense (just use gen_proof), but it
+        // does provide a proof of concept implementation to show that
+        // we can generate proofs only using certain segments of the
+        // on-disk data.
+        let (p1, partial_tree1) = mt_cache.gen_proof_and_partial_tree(0, i);
+        assert!(p1.validate::<XOR128>());
+
+        // Same as above, but generate and validate the proof on the
+        // first element of the second data half and retrieve the
+        // partial tree needed for future proofs in that range.
+        let (p2, partial_tree2) = mt_cache.gen_proof_and_partial_tree(mt_cache.leafs() / 2, i);
+        assert!(p2.validate::<XOR128>());
+
+        for j in 1..mt_cache.leafs() {
+            // First generate and validate the proof using the full
+            // range of data we have stored on disk (no partial tree
+            // is built or used in this case).
+            let p = mt_cache.gen_proof(j);
             assert!(p.validate::<XOR128>());
+
+            // Then generate proofs using a combination of data in the
+            // partial tree generated outside of this loop, and data
+            // on disk (simulating a partial cache since we do not use
+            // the full range of data stored on disk in these cases).
+            if j < mt_cache.leafs() / 2 {
+                let p1 = mt_cache.gen_proof_with_partial_tree(j, i, partial_tree1.clone());
+                assert!(p1.validate::<XOR128>());
+            } else {
+                let p2 = mt_cache.gen_proof_with_partial_tree(j, i, partial_tree2.clone());
+                assert!(p2.validate::<XOR128>());
+            }
+        }
+
+        // Once we have the full on-disk MT data, we can optimize
+        // space for future access by compacting it into the partially
+        // cached data format.
+        //
+        // Before store compaction, save the mt_cache.len() so that we
+        // can assert after rebuilding the MT from the compacted data
+        // that it matches.
+        let mt_cache_len = mt_cache.len();
+
+        // Compact the newly created DiskStore into the
+        // LevelCacheStore format.  This uses information from the
+        // Config to properly shape the compacted data for later
+        // access using the LevelCacheStore interface.
+        mt_cache.compact(config.clone());
+
+        // After compaction, mt_cache.len() will not match
+        // mt_cache_len (since the store shrunk).
+        assert!(mt_cache_len > mt_cache.len());
+
+        // Then re-create an MT using LevelCacheStore and generate all proofs.
+        let level_cache_store: LevelCacheStore<[u8; 16]> =
+            Store::new_from_disk(count, Some(config.clone())).unwrap();
+        let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_>> =
+            MerkleTree::from_data_store_with_config(
+                level_cache_store, count, config);
+
+        // Sanity check that after rebuild, the new MT properties match the original.
+        assert_eq!(mt_level_cache.len(), mt_cache_len);
+        assert_eq!(mt_level_cache.leafs(), mt_cache.leafs());
+
+        // This is the proper way to generate a single proof using the
+        // LevelCacheStore.  If generating more than 1 proof, it's
+        // terribly slow though since the partial tree(s) generated
+        // are not re-used across calls.  For that example, see the
+        // next test below.
+        //
+        // This is commented out because it adds a lot of runtime waiting.
+        // for j in 0..mt_level_cache.leafs() {
+        //     let (p, _) = mt_level_cache.gen_proof_and_partial_tree(j, i);
+        //     assert!(p.validate::<XOR128>());
+        // }
+
+        // Optimized proof generation based on simple generation pattern:
+        let (p1, partial_tree1) = mt_level_cache
+            .gen_proof_and_partial_tree(0, i);
+        assert!(p1.validate::<XOR128>());
+
+        // Same as above, but generate and validate the proof on the
+        // first element of the second data half and retrieve the
+        // partial tree needed for future proofs in that range.
+        let (p2, partial_tree2) = mt_level_cache
+            .gen_proof_and_partial_tree(mt_level_cache.leafs() / 2, i);
+        assert!(p2.validate::<XOR128>());
+
+        for j in 1..mt_level_cache.leafs() {
+            // Generate proofs using a combination of data in the
+            // partial tree generated outside of this loop, and data
+            // on disk (which now only contains the base layer and
+            // cached range).
+            if j < mt_level_cache.leafs() / 2 {
+                let p1 = mt_level_cache
+                    .gen_proof_with_partial_tree(j, i, partial_tree1.clone());
+                assert!(p1.validate::<XOR128>());
+            } else {
+                let p2 = mt_level_cache
+                    .gen_proof_with_partial_tree(j, i, partial_tree2.clone());
+                assert!(p2.validate::<XOR128>());
+            }
         }
     }
 }

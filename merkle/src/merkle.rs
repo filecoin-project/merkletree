@@ -55,7 +55,7 @@ pub const BUILD_DATA_BLOCK_SIZE: usize = 64 * BUILD_CHUNK_NODES;
 /// will be nil.
 ///
 /// TODO: Ord
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct MerkleTree<T, A, K>
 where
     T: Element,
@@ -116,8 +116,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         }), config)
     }
 
-    /// Creates new merkle from an already allocated `Store` (used with
-    /// `DiskStore::new_from_disk`.
+    /// Creates new merkle tree from an already allocated `Store`
+    /// (used with `DiskStore::new_from_disk`.
     pub fn from_data_store(data: K, leafs: usize) -> MerkleTree<T, A, K> {
         let pow = next_pow2(leafs);
         let height = log2_pow2(2 * pow);
@@ -378,7 +378,15 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             width >>= 1;
         }
 
+        // This root may not be a real root in the case of a partial
+        // tree build for the same reason that the height may be
+        // incorrect (i.e. we aborted early because we hit the
+        // stop_index).
         let root = { data.read_at(data.len() - 1) };
+
+        // Re-claim any memory that was allocated and unused at this
+        // point in the data.
+        data.compact(Default::default());
 
         MerkleTree {
             data,
@@ -447,11 +455,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             width += 1;
         }
 
-        let data_width = width;
-        let pow = next_pow2(width);
-        let total_size = 2 * pow - 1;
-        let cache_size = ((2 * pow) >> levels) - 1;
+        assert_eq!(width, next_pow2(width));
+
+        let total_size = 2 * width - 1;
+        let cache_size = total_size >> levels;
         let partial_height = self.height - levels;
+        if cache_size >= total_size {
+            return (self.gen_proof(i), Default::default());
+        }
 
         // Before generating the proof, build the partial tree based
         // on the data side we need it on.
@@ -487,7 +498,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let partial_tree: MerkleTree<T, A, VecStore<T>> =
             Self::build_partial_small_tree(
                 partial_store, partial_width, partial_height,
-                total_size - data_width - cache_size);
+                total_size - width - cache_size);
 
         (self.gen_proof_with_partial_tree(i, levels, &partial_tree), partial_tree)
     }
@@ -508,8 +519,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         }
 
         let data_width = width;
-        let pow = next_pow2(width);
-        let cache_size = ((2 * pow) >> levels) - 1;
+        let total_size = 2 * data_width - 1;
+        let cache_size = total_size >> levels;
 
         // Determine the offset where the partial tree provided should
         // have been built from.
@@ -520,7 +531,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         };
 
         let mut offset_level_index = 0;
-        let cache_index_start = (2 * pow - 1) - cache_size;
+        let cache_index_start = total_size - cache_size;
 
         lemma.push(self.read_at(j));
         while base + 1 < self.len() {
@@ -596,7 +607,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     /// Truncates the data for later access via LevelCacheStore
     /// interface.
     #[inline]
-    pub fn compact(&mut self, config: StoreConfig) {
+    pub fn compact(&mut self, config: StoreConfig) -> bool {
         self.data.compact(config)
     }
 

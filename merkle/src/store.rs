@@ -11,7 +11,7 @@ use tempfile::tempfile;
 pub type Result<T> = std::result::Result<T, Error>;
 
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct StoreConfig {
     /// A directory in which data (a merkle tree) can be persisted.
     pub path: PathBuf,
@@ -63,7 +63,7 @@ pub trait Store<E: Element>:
     // `buf` is a slice of converted `E`s and `start` is its
     // position in `E` sizes (*not* in `u8`).
     fn copy_from_slice(&mut self, buf: &[u8], start: usize);
-    fn compact(&mut self, config: StoreConfig); // TRUNCATE DISKSTORE AS SPECIFIED BY THE LEVELS
+    fn compact(&mut self, config: StoreConfig) -> bool;
 
     fn read_at(&self, index: usize) -> E;
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E>;
@@ -79,7 +79,7 @@ pub trait Store<E: Element>:
     fn sync(&self) {}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct VecStore<E: Element>(Vec<E>);
 
 impl<E: Element> ops::Deref for VecStore<E> {
@@ -165,8 +165,9 @@ impl<E: Element> Store<E> for VecStore<E> {
         self.0.len()
     }
 
-    fn compact(&mut self, _config: StoreConfig) {
-        unimplemented!("Not used in VecStore")
+    fn compact(&mut self, _config: StoreConfig) -> bool {
+        self.0.shrink_to_fit();
+        true
     }
 
     fn is_empty(&self) -> bool {
@@ -351,7 +352,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
     // Specifically, this method truncates an existing DiskStore and
     // formats the data in such a way that is compatible with future
     // access using LevelCacheStore::new_from_disk.
-    fn compact(&mut self, config: StoreConfig) {
+    fn compact(&mut self, config: StoreConfig) -> bool {
         // Determine how many leafs there are (in bytes).
         let data_width = (self.len / 2 + 1) * self.elem_len;
 
@@ -359,6 +360,12 @@ impl<E: Element> Store<E> for DiskStore<E> {
         // config.levels param) and load that much data from the end
         // of the store into RAM temporarily.
         let cache_size = (2 * data_width) >> config.levels;
+        if cache_size >= 2 * data_width - 1 {
+            // The file cannot be compacted (to fix, provide a sane
+            // configuration).
+            return false;
+        }
+
         let cache_start = (self.store_size - cache_size) / self.elem_len;
         let mut cached_data = vec![0; cache_size];
         self.read_range_into(
@@ -381,6 +388,8 @@ impl<E: Element> Store<E> for DiskStore<E> {
         self.sync();
         let store_size = self.file.metadata().unwrap().len() as usize;
         assert_eq!(self.len * self.elem_len, store_size);
+
+        true
     }
 
     fn is_empty(&self) -> bool {
@@ -537,17 +546,17 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
         // massaged next pow2 (guaranteed if created with
         // DiskStore::compact, which is the only supported method at
         // the moment).
-        let size = next_pow2(size);
+        assert_eq!(size, next_pow2(size));
 
         // Values below in bytes.
-        let pow = size * E::byte_len();
-        let cache_size = (2 * pow) >> config.levels;
-        let store_range = 2 * pow - 1;
+        let data_len = size * E::byte_len();
+        let cache_size = (2 * data_len) >> config.levels;
+        let store_range = 2 * data_len - 1;
         let cache_index_start = store_range - cache_size;
 
         // Sanity checks that the StoreConfig levels matches this
         // particular on-disk file.
-        assert_eq!(store_size, pow + cache_size);
+        assert_eq!(store_size, data_len + cache_size);
 
         Ok(LevelCacheStore {
             len: store_range / E::byte_len(),
@@ -603,8 +612,8 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
         self.len
     }
 
-    fn compact(&mut self, _config: StoreConfig) {
-        unimplemented!("Not used in VecStore")
+    fn compact(&mut self, _config: StoreConfig) -> bool {
+        false
     }
 
     fn is_empty(&self) -> bool {

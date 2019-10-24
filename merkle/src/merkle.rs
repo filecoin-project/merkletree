@@ -87,14 +87,29 @@ pub trait Element: Ord + Clone + AsRef<[u8]> + Sync + Send + Default + std::fmt:
 
 impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     /// Creates new merkle from a sequence of hashes.
-    pub fn new<I: IntoIterator<Item = T>>(data: I, config: Option<StoreConfig>) -> MerkleTree<T, A, K> {
-        Self::from_iter(data, config)
+    pub fn new<I: IntoIterator<Item = T>>(data: I) -> MerkleTree<T, A, K> {
+        Self::from_iter(data)
+    }
+
+    /// Creates new merkle from a sequence of hashes.
+    pub fn new_with_config<I: IntoIterator<Item = T>>(data: I, config: StoreConfig) -> MerkleTree<T, A, K> {
+        Self::from_iter_with_config(data, config)
     }
 
     /// Creates new merkle tree from a list of hashable objects.
-    pub fn from_data<O: Hashable<A>, I: IntoIterator<Item = O>>(data: I, config: Option<StoreConfig>) -> MerkleTree<T, A, K> {
+    pub fn from_data<O: Hashable<A>, I: IntoIterator<Item = O>>(data: I) -> MerkleTree<T, A, K> {
         let mut a = A::default();
         Self::from_iter(data.into_iter().map(|x| {
+            a.reset();
+            x.hash(&mut a);
+            a.hash()
+        }))
+    }
+
+    /// Creates new merkle tree from a list of hashable objects.
+    pub fn from_data_with_config<O: Hashable<A>, I: IntoIterator<Item = O>>(data: I, config: StoreConfig) -> MerkleTree<T, A, K> {
+        let mut a = A::default();
+        Self::from_iter_with_config(data.into_iter().map(|x| {
             a.reset();
             x.hash(&mut a);
             a.hash()
@@ -143,7 +158,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         }
     }
 
-    #[inline]
     fn build(data: K, leafs: usize, height: usize) -> Self {
         if leafs <= SMALL_TREE_BUILD {
             return Self::build_small_tree(data, leafs, height);
@@ -425,7 +439,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
     /// Generate merkle tree inclusion proof for leaf `i` by first
     /// building a partial tree (returned) along with the proof.
-    #[inline]
     pub fn gen_proof_and_partial_tree(&self, i: usize, levels: usize) -> (Proof<T>, MerkleTree<T, A, VecStore<T>>) {
         assert!(i < self.leafs); // i in [0 .. self.leafs)
 
@@ -481,7 +494,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
     /// Generate merkle tree inclusion proof for leaf `i` given a
     /// partial tree for lookups where data is otherwise unavailable.
-    #[inline]
     pub fn gen_proof_with_partial_tree(&self, i: usize, levels: usize, partial_tree: &MerkleTree<T, A, VecStore<T>>) -> Proof<T> {
         assert!(i < self.leafs); // i in [0 .. self.leafs)
 
@@ -634,7 +646,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 
     /// Build the tree given a slice of all leafs, in bytes form.
-    pub fn from_byte_slice_with_config(leafs: &[u8], config: Option<StoreConfig>) -> Self {
+    pub fn from_byte_slice_with_config(leafs: &[u8], config: StoreConfig) -> Self {
         assert_eq!(
             leafs.len() % T::byte_len(),
             0,
@@ -655,7 +667,22 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
     /// Build the tree given a slice of all leafs, in bytes form.
     pub fn from_byte_slice(leafs: &[u8]) -> Self {
-        Self::from_byte_slice_with_config(leafs, None)
+        assert_eq!(
+            leafs.len() % T::byte_len(),
+            0,
+            "{} not a multiple of {}",
+            leafs.len(),
+            T::byte_len()
+        );
+
+        let leafs_count = leafs.len() / T::byte_len();
+        assert!(leafs_count > 1);
+
+        let pow = next_pow2(leafs_count);
+        let data = K::new_from_slice(2 * pow - 1, leafs)
+            .expect("Failed to create data store");
+
+        Self::build(data, leafs_count, log2_pow2(2 * pow))
     }
 }
 
@@ -663,7 +690,12 @@ pub trait FromIndexedParallelIterator<T>
 where
     T: Send,
 {
-    fn from_par_iter<I>(par_iter: I, config: Option<StoreConfig>) -> Self
+    fn from_par_iter<I>(par_iter: I) -> Self
+    where
+        I: IntoParallelIterator<Item = T>,
+        I::Iter: IndexedParallelIterator;
+
+    fn from_par_iter_with_config<I>(par_iter: I, config: StoreConfig) -> Self
     where
         I: IntoParallelIterator<Item = T>,
         I::Iter: IndexedParallelIterator;
@@ -673,7 +705,7 @@ pub trait FromIteratorWithConfig<T>
 where
     T: Send,
 {
-    fn from_iter<I>(par_iter: I, config: Option<StoreConfig>) -> Self
+    fn from_iter_with_config<I>(par_iter: I, config: StoreConfig) -> Self
     where
         I: IntoIterator<Item = T>;
 }
@@ -683,7 +715,25 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
     for MerkleTree<T, A, K>
 {
     /// Creates new merkle tree from an iterator over hashable objects.
-    fn from_par_iter<I>(into: I, config: Option<StoreConfig>) -> Self
+    fn from_par_iter<I>(into: I) -> Self
+    where
+        I: IntoParallelIterator<Item = T>,
+        I::Iter: IndexedParallelIterator,
+    {
+        let iter = into.into_par_iter();
+
+        let leafs = iter.opt_len().expect("must be sized");
+        let pow = next_pow2(leafs);
+
+        let mut data = K::new(2 * pow - 1)
+            .expect("Failed to create data store");
+        populate_data_par::<T, A, K, _>(&mut data, iter);
+
+        Self::build(data, leafs, log2_pow2(2 * pow))
+    }
+
+    /// Creates new merkle tree from an iterator over hashable objects.
+    fn from_par_iter_with_config<I>(into: I, config: StoreConfig) -> Self
     where
         I: IntoParallelIterator<Item = T>,
         I::Iter: IndexedParallelIterator,
@@ -701,9 +751,26 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
     }
 }
 
+impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T, A, K> {
+    /// Creates new merkle tree from an iterator over hashable objects.
+    fn from_iter<I: IntoIterator<Item = T>>(into: I) -> Self {
+        let iter = into.into_iter();
+
+        let leafs = iter.size_hint().1.unwrap();
+        assert!(leafs > 1);
+
+        let pow = next_pow2(leafs);
+        let mut data = K::new(2 * pow - 1)
+            .expect("Failed to create data store");
+        populate_data::<T, A, K, I>(&mut data, iter);
+
+        Self::build(data, leafs, log2_pow2(2 * pow))
+    }
+}
+
 impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIteratorWithConfig<T> for MerkleTree<T, A, K> {
     /// Creates new merkle tree from an iterator over hashable objects.
-    fn from_iter<I: IntoIterator<Item = T>>(into: I, config: Option<StoreConfig>) -> Self {
+    fn from_iter_with_config<I: IntoIterator<Item = T>>(into: I, config: StoreConfig) -> Self {
         let iter = into.into_iter();
 
         let leafs = iter.size_hint().1.unwrap();

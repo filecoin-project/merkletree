@@ -130,7 +130,7 @@
 //!     use example::ExampleAlgorithm;
 //!     use merkletree::merkle::MerkleTree;
 //!     use merkletree::store::VecStore;
-//!     use merkletree::merkle::FromIteratorWithConfig;
+//!     use std::iter::FromIterator;
 //!
 //!     let mut h1 = [0u8; 32];
 //!     let mut h2 = [0u8; 32];
@@ -139,7 +139,7 @@
 //!     h2[0] = 0x22;
 //!     h3[0] = 0x33;
 //!
-//!     let t: MerkleTree<[u8; 32], ExampleAlgorithm, VecStore<_>> = MerkleTree::from_iter(vec![h1, h2, h3], None);
+//!     let t: MerkleTree<[u8; 32], ExampleAlgorithm, VecStore<_>> = MerkleTree::from_iter(vec![h1, h2, h3]);
 //!     println!("{:?}", t.root());
 //! }
 //! }
@@ -169,6 +169,8 @@ extern crate tempdir;
 extern crate tempfile;
 
 extern crate positioned_io;
+
+extern crate serde;
 
 /// Hash infrastructure for items in Merkle tree.
 pub mod hash;

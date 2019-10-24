@@ -6,6 +6,7 @@ use merkle::{Element, MerkleTree, SMALL_TREE_BUILD};
 use merkle::{FromIndexedParallelIterator, FromIteratorWithConfig};
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
+use std::iter::FromIterator;
 use std::fmt;
 use std::hash::Hasher;
 use store::{Store, DiskStore, VecStore, LevelCacheStore, StoreConfig};
@@ -103,7 +104,7 @@ impl Element for [u8; 16] {
 #[test]
 fn test_from_slice() {
     let x = [String::from("ars"), String::from("zxc")];
-    let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> = MerkleTree::from_data(&x, None);
+    let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> = MerkleTree::from_data(&x);
     assert_eq!(
         mt.read_range(0, 3),
         [
@@ -124,7 +125,7 @@ fn test_from_slice() {
 #[test]
 fn test_read_into() {
     let x = [String::from("ars"), String::from("zxc")];
-    let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> = MerkleTree::from_data(&x, None);
+    let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> = MerkleTree::from_data(&x);
     let target_data = [
         [0, 97, 114, 115, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         [0, 122, 120, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -143,7 +144,7 @@ fn test_read_into() {
         current_path, String::from("test-read-into"), 7);
 
     let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
-        MerkleTree::from_data(&x, Some(config));
+        MerkleTree::from_data_with_config(&x, config);
     for (pos, &data) in target_data.iter().enumerate() {
         mt2.read_into(pos, &mut read_buffer);
         assert_eq!(read_buffer, data);
@@ -158,7 +159,7 @@ fn test_from_iter() {
             a.reset();
             x.hash(&mut a);
             a.hash()
-        }), None);
+        }));
     assert_eq!(mt.len(), 7);
     assert_eq!(mt.height(), 3);
 }
@@ -248,8 +249,7 @@ fn test_simple_tree() {
                     x.hash(&mut a);
                     a.hash()
                 })
-                .take(items),
-            None
+                .take(items)
         );
 
         assert_eq!(mt_base.leafs(), items);
@@ -334,7 +334,7 @@ fn test_large_tree() {
                 x.hash(&mut a);
                 i.hash(&mut a);
                 a.hash()
-            }), None);
+            }));
         assert_eq!(mt_vec.len(), 2 * count - 1);
 
         let mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
@@ -344,7 +344,7 @@ fn test_large_tree() {
                 x.hash(&mut xor_128);
                 i.hash(&mut xor_128);
                 xor_128.hash()
-            }), None);
+            }));
         assert_eq!(mt_disk.len(), 2 * count - 1);
     }
 }
@@ -366,12 +366,12 @@ fn test_large_tree_with_partial_cache() {
         let config = StoreConfig::new(
             current_path.clone(), String::from("test-cache"), i);
         let mut mt_cache: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
-            MerkleTree::from_iter((0..count).map(|x| {
+            MerkleTree::from_iter_with_config((0..count).map(|x| {
                 a.reset();
                 x.hash(&mut a);
                 count.hash(&mut a);
                 a.hash()
-            }), Some(config.clone()));
+            }), config.clone());
 
         assert_eq!(mt_cache.len(), 2 * count - 1);
         assert_eq!(mt_cache.leafs(), count);
@@ -441,7 +441,7 @@ fn test_large_tree_with_partial_cache() {
 
         // Then re-create an MT using LevelCacheStore and generate all proofs.
         let level_cache_store: LevelCacheStore<[u8; 16]> =
-            Store::new_from_disk(count, Some(config.clone())).unwrap();
+            Store::new_from_disk(count, config.clone()).unwrap();
         let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_>> =
             MerkleTree::from_data_store_with_config(
                 level_cache_store, count, config);

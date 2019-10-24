@@ -5,9 +5,9 @@ use store::VecStore;
 use merkle::log2_pow2;
 use merkle::next_pow2;
 use merkle::MerkleTree;
-use merkle::FromIteratorWithConfig;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
+use std::iter::FromIterator;
 use test_item::Item;
 
 impl Algorithm<Item> for DefaultHasher {
@@ -106,8 +106,7 @@ fn test_simple_tree() {
                     x.hash(&mut a);
                     a.hash()
                 })
-                .take(items),
-            None
+                .take(items)
         );
 
         assert_eq!(mt.leafs(), items);

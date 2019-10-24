@@ -1,6 +1,7 @@
-use failure::Error;
+use failure::{Error, err_msg};
 use merkle::{Element, next_pow2};
 use positioned_io::{ReadAt, WriteAt};
+use serde::{Serialize, Deserialize};
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::marker::PhantomData;
@@ -10,10 +11,10 @@ use tempfile::tempfile;
 pub type Result<T> = std::result::Result<T, Error>;
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StoreConfig {
     /// A directory in which data (a merkle tree) can be persisted.
-    pub path: String,
+    pub path: PathBuf,
 
     /// A unique identifier used to help specify the on-disk store
     /// location for this particular data.
@@ -26,7 +27,7 @@ pub struct StoreConfig {
 impl StoreConfig {
     pub fn new(path: String, id: String, levels: usize) -> StoreConfig {
         StoreConfig {
-            path,
+            path: PathBuf::from(path),
             id,
             levels
         }
@@ -34,8 +35,10 @@ impl StoreConfig {
 
     // Deterministically create the data_path on-disk location from a
     // path and specified id.
-    pub fn data_path(path: &str, id: &str) -> PathBuf {
-        Path::new(&path).join(format!("sc-data-{}.dat", id))
+    pub fn data_path(path: &PathBuf, id: &str) -> PathBuf {
+        const DATA_STORE_VERSION: u32 = 1;
+        Path::new(&path).join(
+            format!("sc-{:0>2}-data-{}.dat", DATA_STORE_VERSION, id))
     }
 }
 
@@ -45,13 +48,13 @@ pub trait Store<E: Element>:
     ops::Deref<Target = [E]> + std::fmt::Debug + Clone + Send + Sync
 {
     /// Creates a new store which can store up to `size` elements.
-    fn new_with_config(size: usize, config: Option<StoreConfig>) -> Result<Self>;
+    fn new_with_config(size: usize, config: StoreConfig) -> Result<Self>;
     fn new(size: usize) -> Result<Self>;
 
-    fn new_from_slice_with_config(size: usize, data: &[u8], config: Option<StoreConfig>) -> Result<Self>;
+    fn new_from_slice_with_config(size: usize, data: &[u8], config: StoreConfig) -> Result<Self>;
     fn new_from_slice(size: usize, data: &[u8]) -> Result<Self>;
 
-    fn new_from_disk(size: usize, config: Option<StoreConfig>) -> Result<Self>;
+    fn new_from_disk(size: usize, config: StoreConfig) -> Result<Self>;
 
     fn write_at(&mut self, el: E, index: usize);
 
@@ -88,7 +91,7 @@ impl<E: Element> ops::Deref for VecStore<E> {
 }
 
 impl<E: Element> Store<E> for VecStore<E> {
-    fn new_with_config(size: usize, _config: Option<StoreConfig>) -> Result<Self> {
+    fn new_with_config(size: usize, _config: StoreConfig) -> Result<Self> {
         Self::new(size)
     }
 
@@ -123,7 +126,7 @@ impl<E: Element> Store<E> for VecStore<E> {
         );
     }
 
-    fn new_from_slice_with_config(size: usize, data: &[u8], _config: Option<StoreConfig>) -> Result<Self> {
+    fn new_from_slice_with_config(size: usize, data: &[u8], _config: StoreConfig) -> Result<Self> {
         Self::new_from_slice(size, &data)
     }
 
@@ -138,7 +141,7 @@ impl<E: Element> Store<E> for VecStore<E> {
         Ok(VecStore(v))
     }
 
-    fn new_from_disk(_size: usize, _config: Option<StoreConfig>) -> Result<Self> {
+    fn new_from_disk(_size: usize, _config: StoreConfig) -> Result<Self> {
         unimplemented!("Cannot load a VecStore from disk");
     }
 
@@ -200,14 +203,9 @@ impl<E: Element> ops::Deref for DiskStore<E> {
 }
 
 impl<E: Element> Store<E> for DiskStore<E> {
-    fn new_with_config(size: usize, config: Option<StoreConfig>) -> Result<Self> {
-        if config.is_none() {
-            return Self::new(size);
-        }
-
-        let store_config = config.clone().unwrap();
+    fn new_with_config(size: usize, config: StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(
-            &store_config.path, &store_config.id);
+            &config.path, &config.id);
 
         // If the specified file exists, load it from disk.
         if Path::new(&data_path).exists() {
@@ -251,11 +249,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
         })
     }
 
-    fn new_from_slice_with_config(size: usize, data: &[u8], config: Option<StoreConfig>) -> Result<Self> {
-        if config.is_none() {
-            return Self::new_from_slice(size, data);
-        }
-
+    fn new_from_slice_with_config(size: usize, data: &[u8], config: StoreConfig) -> Result<Self> {
         let mut store = Self::new_with_config(size, config)
             .expect("Failed to create new store");
         store.store_copy_from_slice(0, data);
@@ -274,8 +268,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
         Ok(store)
     }
 
-    fn new_from_disk(size: usize, config: Option<StoreConfig>) -> Result<Self> {
-        let config = config.unwrap();
+    fn new_from_disk(size: usize, config: StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
         let data = File::open(data_path)?;
@@ -449,7 +442,7 @@ impl<E: Element> DiskStore<E> {
     }
 
     pub fn store_copy_from_slice(&mut self, start: usize, slice: &[u8]) {
-        // assert!(start + slice.len() <= self.store_size);
+        assert!(start + slice.len() <= self.store_size);
         self.file
             .write_at(start as u64, slice)
             .expect("failed to write file");
@@ -466,9 +459,9 @@ impl<E: Element> Clone for DiskStore<E> {
 }
 
 
-/// The LevelCacheStore is used to reduce memory even further to the
-/// minimum at the cost of build time performance.  Each
-/// LevelCacheStore is created with a StoreConfig object which
+/// The LevelCacheStore is used to reduce the on-disk footprint even
+/// further to the minimum at the cost of build time performance.
+/// Each LevelCacheStore is created with a StoreConfig object which
 /// contains the number of binary tree levels above the base that are
 /// 'cached'.  This implementation has hard requirements about the on
 /// disk file size based on that number of levels, so on-disk files
@@ -508,14 +501,9 @@ impl<E: Element> ops::Deref for LevelCacheStore<E> {
 }
 
 impl<E: Element> Store<E> for LevelCacheStore<E> {
-    fn new_with_config(size: usize, config: Option<StoreConfig>) -> Result<Self> {
-        if config.is_none() {
-            return Self::new(size);
-        }
-
-        let store_config = config.clone().unwrap();
+    fn new_with_config(size: usize, config: StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(
-            &store_config.path, &store_config.id);
+            &config.path, &config.id);
 
         // If the specified file exists, load it from disk.  This is
         // the only supported usage of this call for this type of
@@ -524,14 +512,14 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
             return Self::new_from_disk(size, config);
         }
 
-        panic!("Cannot create a LevelCacheStore in this way. Try DiskStore::compact");
+        Err(err_msg("Cannot create a LevelCacheStore in this way. Try DiskStore::compact"))
     }
 
     fn new(_size: usize) -> Result<Self> {
         unimplemented!("LevelCacheStore requires a StoreConfig");
     }
 
-    fn new_from_slice_with_config(_size: usize, _data: &[u8], _config: Option<StoreConfig>) -> Result<Self> {
+    fn new_from_slice_with_config(_size: usize, _data: &[u8], _config: StoreConfig) -> Result<Self> {
         unimplemented!("Cannot create a LevelCacheStore in this way. Try 'new_from_disk'.");
     }
 
@@ -539,8 +527,7 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
         unimplemented!("LevelCacheStore requires a StoreConfig");
     }
 
-    fn new_from_disk(size: usize, config: Option<StoreConfig>) -> Result<Self> {
-        let config = config.unwrap();
+    fn new_from_disk(size: usize, config: StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
         let data = File::open(data_path)?;

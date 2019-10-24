@@ -412,10 +412,10 @@ fn test_large_tree_with_partial_cache() {
             // on disk (simulating a partial cache since we do not use
             // the full range of data stored on disk in these cases).
             if j < mt_cache.leafs() / 2 {
-                let p1 = mt_cache.gen_proof_with_partial_tree(j, i, partial_tree1.clone());
+                let p1 = mt_cache.gen_proof_with_partial_tree(j, i, &partial_tree1);
                 assert!(p1.validate::<XOR128>());
             } else {
-                let p2 = mt_cache.gen_proof_with_partial_tree(j, i, partial_tree2.clone());
+                let p2 = mt_cache.gen_proof_with_partial_tree(j, i, &partial_tree2);
                 assert!(p2.validate::<XOR128>());
             }
         }
@@ -481,11 +481,11 @@ fn test_large_tree_with_partial_cache() {
             // cached range).
             if j < mt_level_cache.leafs() / 2 {
                 let p1 = mt_level_cache
-                    .gen_proof_with_partial_tree(j, i, partial_tree1.clone());
+                    .gen_proof_with_partial_tree(j, i, &partial_tree1);
                 assert!(p1.validate::<XOR128>());
             } else {
                 let p2 = mt_level_cache
-                    .gen_proof_with_partial_tree(j, i, partial_tree2.clone());
+                    .gen_proof_with_partial_tree(j, i, &partial_tree2);
                 assert!(p2.validate::<XOR128>());
             }
         }

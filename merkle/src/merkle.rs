@@ -423,16 +423,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         Proof::new(lemma, path)
     }
 
-    /// Generate merkle tree inclusion proof for leaf `i`
+    /// Generate merkle tree inclusion proof for leaf `i` by first
+    /// building a partial tree (returned) along with the proof.
     #[inline]
     pub fn gen_proof_and_partial_tree(&self, i: usize, levels: usize) -> (Proof<T>, MerkleTree<T, A, VecStore<T>>) {
         assert!(i < self.leafs); // i in [0 .. self.leafs)
 
-        let mut lemma: Vec<T> = Vec::with_capacity(self.height + 1); // path + root
-        let mut path: Vec<bool> = Vec::with_capacity(self.height - 1); // path - 1
-
-        let mut base = 0;
-        let mut j = i;
         let mut width = self.leafs;
         if width & 1 == 1 {
             width += 1;
@@ -455,8 +451,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         } else {
             0
         };
-
-        let mut offset_level_index = 0;
 
         // Copy the proper half of the base data into memory and
         // initialize a VecStore to back a new, smaller MT.
@@ -482,67 +476,13 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 partial_store, partial_width, partial_height,
                 total_size - data_width - cache_size);
 
-        let cache_index_start = (2 * pow - 1) - cache_size;
-
-        lemma.push(self.read_at(j));
-        while base + 1 < self.len() {
-            lemma.push(if j & 1 == 0 {
-                // j is left
-                let left_index = base + j + 1;
-
-                // Check if we can read from either the base data
-                // layer, or the cached region (accessed the same way
-                // via the store interface).
-                if left_index < data_width || left_index >= cache_index_start {
-                    self.read_at(left_index)
-                } else {
-                    // Otherwise, read from the partially built sub-tree.
-                    let index = (base >> 1) + j + 1 - (offset >> offset_level_index);
-                    partial_tree.read_at(index)
-                }
-            } else {
-                // j is right
-                let right_index = base + j - 1;
-
-                // Check if we can read from either the base data
-                // layer, or the cached region (accessed the same way
-                // via the store interface).
-                if right_index < data_width || right_index >= cache_index_start {
-                    self.read_at(right_index)
-                } else {
-                    // Otherwise, read from the partially built sub-tree.
-                    let index = (base >> 1) + j - 1 - (offset >> offset_level_index);
-                    partial_tree.read_at(index)
-                }
-            });
-
-            path.push(j & 1 == 0);
-
-            base += width;
-            width >>= 1;
-            if width & 1 == 1 {
-                width += 1;
-            }
-            j >>= 1;
-            if offset != 0 {
-                offset_level_index += 1;
-            }
-        }
-
-        // root is final
-        lemma.push(self.root());
-
-        // Sanity check: if the `MerkleTree` lost its integrity and `data` doesn't match the
-        // expected values for `leafs` and `height` this can get ugly.
-        debug_assert!(lemma.len() == self.height + 1);
-        debug_assert!(path.len() == self.height - 1);
-
-        (Proof::new(lemma, path), partial_tree)
+        (self.gen_proof_with_partial_tree(i, levels, &partial_tree), partial_tree)
     }
 
-    /// Generate merkle tree inclusion proof for leaf `i`
+    /// Generate merkle tree inclusion proof for leaf `i` given a
+    /// partial tree for lookups where data is otherwise unavailable.
     #[inline]
-    pub fn gen_proof_with_partial_tree(&self, i: usize, levels: usize, partial_tree: MerkleTree<T, A, VecStore<T>>) -> Proof<T> {
+    pub fn gen_proof_with_partial_tree(&self, i: usize, levels: usize, partial_tree: &MerkleTree<T, A, VecStore<T>>) -> Proof<T> {
         assert!(i < self.leafs); // i in [0 .. self.leafs)
 
         let mut lemma: Vec<T> = Vec::with_capacity(self.height + 1); // path + root

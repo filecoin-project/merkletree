@@ -493,9 +493,8 @@ pub struct LevelCacheStore<E: Element> {
     // The byte index of where the cached data begins.
     cache_index_start: usize,
 
-    // We cache the `store.len()` call to avoid accessing disk unnecessarily.
-    // Not to be confused with `len`, this saves the total size of the `store`
-    // in bytes and the other one keeps track of used `E` slots in the `LevelCacheStore`.
+    // We cache the on-disk file size to avoid accessing disk
+    // unnecessarily.
     store_size: usize,
 
     _e: PhantomData<E>
@@ -581,12 +580,24 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
         let start = index * self.elem_len;
         let end = start + self.elem_len;
 
+        let len = self.len * self.elem_len;
+        assert!(start < len, "start out of range {} >= {}", start, len);
+        assert!(end <= len, "end out of range {} > {}", end, len);
+        assert!(start <= self.data_width * self.elem_len ||
+                start >= self.cache_index_start);
+
         E::from_slice(&self.store_read_range(start, end))
     }
 
     fn read_into(&self, index: usize, buf: &mut [u8]) {
         let start = index * self.elem_len;
         let end = start + self.elem_len;
+
+        let len = self.len * self.elem_len;
+        assert!(start < len, "start out of range {} >= {}", start, len);
+        assert!(end <= len, "end out of range {} > {}", end, len);
+        assert!(start <= self.data_width * self.elem_len ||
+                start >= self.cache_index_start);
 
         self.store_read_into(start, end, buf);
     }
@@ -595,12 +606,24 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
         let start = start * self.elem_len;
         let end = end * self.elem_len;
 
+        let len = self.len * self.elem_len;
+        assert!(start < len, "start out of range {} >= {}", start, len);
+        assert!(end <= len, "end out of range {} > {}", end, len);
+        assert!(start <= self.data_width * self.elem_len ||
+                start >= self.cache_index_start);
+
         self.store_read_into(start, end, buf);
     }
 
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E> {
         let start = r.start * self.elem_len;
         let end = r.end * self.elem_len;
+
+        let len = self.len * self.elem_len;
+        assert!(start < len, "start out of range {} >= {}", start, len);
+        assert!(end <= len, "end out of range {} > {}", end, len);
+        assert!(start <= self.data_width * self.elem_len ||
+                start >= self.cache_index_start);
 
         self.store_read_range(start, end)
             .chunks(self.elem_len)

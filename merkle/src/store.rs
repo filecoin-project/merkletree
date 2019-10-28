@@ -3,6 +3,7 @@ use merkle::{Element, next_pow2};
 use positioned_io::{ReadAt, WriteAt};
 use serde::{Serialize, Deserialize};
 use std::fs::{File, OpenOptions};
+use std::io::{copy, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::marker::PhantomData;
 use std::ops::{self, Index};
@@ -10,6 +11,7 @@ use tempfile::tempfile;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+const STORE_CONFIG_DATA_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct StoreConfig {
@@ -36,9 +38,8 @@ impl StoreConfig {
     // Deterministically create the data_path on-disk location from a
     // path and specified id.
     pub fn data_path(path: &PathBuf, id: &str) -> PathBuf {
-        const DATA_STORE_VERSION: u32 = 1;
         Path::new(&path).join(
-            format!("sc-{:0>2}-data-{}.dat", DATA_STORE_VERSION, id))
+            format!("sc-{:0>2}-data-{}.dat", STORE_CONFIG_DATA_VERSION, id))
     }
 }
 
@@ -357,34 +358,50 @@ impl<E: Element> Store<E> for DiskStore<E> {
         let data_width = (self.len / 2 + 1) * self.elem_len;
 
         // Calculate how large the cache should be (based on the
-        // config.levels param) and load that much data from the end
-        // of the store into RAM temporarily.
-        let cache_size = (2 * data_width) >> config.levels;
+        // config.levels param).
+        let mut cache_size = (2 * data_width) >> config.levels;
         if cache_size >= 2 * data_width - 1 {
             // The file cannot be compacted (to fix, provide a sane
             // configuration).
             return false;
         }
 
-        let cache_start = (self.store_size - cache_size) / self.elem_len;
-        let mut cached_data = vec![0; cache_size];
-        self.read_range_into(
-            cache_start, cache_start + (cache_size / self.elem_len), &mut cached_data);
-        assert_eq!(cached_data.len(), cache_size);
+        // Calculate cache start and updated size with repect to the
+        // data size.
+        let cache_start = std::cmp::max(self.store_size - cache_size, data_width);
+        cache_size = self.store_size - cache_start;
+
+        // Seek the reader to the start of the cached data.
+        let mut reader = OpenOptions::new()
+            .read(true)
+            .open(StoreConfig::data_path(&config.path, &config.id))
+            .expect("Failed to open data store as read-only file");
+        reader.seek(SeekFrom::Start(cache_start as u64))
+            .expect("Failed to seek to read start");
+
+        // Seek the writer to the end of the base layer data.
+        self.file.seek(SeekFrom::Start(data_width as u64))
+            .expect("Failed to seek to write start");
+
+        // Copy the data from the cached region to just after the base
+        // layer data.
+        let written = copy(&mut reader, &mut self.file)
+            .expect("Failed to write cached data");
+        assert_eq!(written, cache_size as u64);
 
         // Truncate the data on-disk just after the base layer data
-        // and then append the cached data that should be persisted.
-        self.file.set_len(data_width as u64)
-            .unwrap_or_else(|_| panic!("Couldn't resize store to len {}", data_width));
-        self.file
-            .write_at(data_width as u64, &cached_data)
-            .expect("Failed to write cached data");
+        // and cached data that should be persisted.
+        self.file.set_len((data_width + cache_size) as u64)
+            .unwrap_or_else(|_| panic!(
+                "Couldn't resize store to len {}",
+                (data_width + cache_size) as u64));
 
         // Adjust our length to be data_width + cached_layers for
         // internal consistency.
         self.len = (data_width + cache_size) / self.elem_len;
 
-        // Sync and sanity check that we match on disk.
+        // Sync and sanity check that we match on disk (this can be
+        // removed if needed).
         self.sync();
         let store_size = self.file.metadata().unwrap().len() as usize;
         assert_eq!(self.len * self.elem_len, store_size);
@@ -549,8 +566,13 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
 
         // Values below in bytes.
         let data_len = size * E::byte_len();
-        let cache_size = (2 * data_len) >> config.levels;
         let store_range = 2 * data_len - 1;
+
+        // Calculate cache start and the updated size with repect to
+        // the data size.
+        let mut cache_size = (2 * data_len) >> config.levels;
+        let cache_start = std::cmp::max(store_size - cache_size, data_len);
+        cache_size = store_size - cache_start;
         let cache_index_start = store_range - cache_size;
 
         // Sanity checks that the StoreConfig levels matches this

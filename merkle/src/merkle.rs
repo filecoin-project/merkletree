@@ -492,9 +492,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // trapezoidal in shape, as it stops building upward when it
         // runs into the cached region.
         //
-        // FIXME: Eventually allow this to use a DiskStore to persist
-        // the partial tree so that based on config it can also be
-        // loaded as needed?
+        // FIXME: Eventually that will not be true when we're building
+        // only the proper/minimal tree required for the proof.
         let partial_tree: MerkleTree<T, A, VecStore<T>> =
             Self::build_partial_small_tree(
                 partial_store, partial_width, partial_height,

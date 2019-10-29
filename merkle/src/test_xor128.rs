@@ -309,7 +309,8 @@ fn test_simple_tree() {
                     // When the tree is large enough to have some
                     // cached levels, test the proof generation from a
                     // partial store.
-                    let (p1, _) = mt2.gen_proof_and_partial_tree(i, cached_above_base_levels);
+                    let (p1, _) = mt2.gen_proof_and_partial_tree(i, cached_above_base_levels)
+                        .unwrap();
                     assert!(p1.validate::<XOR128>());
                 }
             }
@@ -402,13 +403,15 @@ fn test_various_trees_with_partial_cache() {
             // does provide a proof of concept implementation to show that
             // we can generate proofs only using certain segments of the
             // on-disk data.
-            let (p1, partial_tree1) = mt_cache.gen_proof_and_partial_tree(0, i);
+            let (p1, partial_tree1) = mt_cache.gen_proof_and_partial_tree(0, i)
+                .unwrap();
             assert!(p1.validate::<XOR128>());
 
             // Same as above, but generate and validate the proof on the
             // first element of the second data half and retrieve the
             // partial tree needed for future proofs in that range.
-            let (p2, partial_tree2) = mt_cache.gen_proof_and_partial_tree(mt_cache.leafs() / 2, i);
+            let (p2, partial_tree2) = mt_cache.gen_proof_and_partial_tree(mt_cache.leafs() / 2, i)
+                .unwrap();
             assert!(p2.validate::<XOR128>());
 
             for j in 1..mt_cache.leafs() {
@@ -444,9 +447,9 @@ fn test_various_trees_with_partial_cache() {
             // LevelCacheStore format.  This uses information from the
             // Config to properly shape the compacted data for later
             // access using the LevelCacheStore interface.
-            if !mt_cache.compact(config.clone()) {
-                // Could not do any compaction with this configuration.
-                continue;
+            match mt_cache.compact(config.clone()) {
+                Ok(x) => assert_eq!(x, true),
+                Err(_) => continue, // Could not do any compaction with this configuration.
             }
 
             // Then re-create an MT using LevelCacheStore and generate all proofs.
@@ -474,14 +477,16 @@ fn test_various_trees_with_partial_cache() {
 
             // Optimized proof generation based on simple generation pattern:
             let (p1, partial_tree1) = mt_level_cache
-                .gen_proof_and_partial_tree(0, i);
+                .gen_proof_and_partial_tree(0, i)
+                .unwrap();
             assert!(p1.validate::<XOR128>());
 
             // Same as above, but generate and validate the proof on the
             // first element of the second data half and retrieve the
             // partial tree needed for future proofs in that range.
             let (p2, partial_tree2) = mt_level_cache
-                .gen_proof_and_partial_tree(mt_level_cache.leafs() / 2, i);
+                .gen_proof_and_partial_tree(mt_level_cache.leafs() / 2, i)
+                .unwrap();
             assert!(p2.validate::<XOR128>());
 
             for j in 1..mt_level_cache.leafs() {

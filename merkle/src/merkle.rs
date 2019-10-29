@@ -1,10 +1,13 @@
 use hash::{Algorithm, Hashable};
+use failure::Error;
 use proof::Proof;
 use rayon::prelude::*;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 use store::{Store, StoreConfig, VecStore};
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Tree size (number of nodes) used as threshold to decide which build algorithm
 /// to use. Small trees (below this value) use the old build algorithm, optimized
@@ -330,7 +333,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 
     #[inline]
-    fn build_partial_small_tree(mut data: VecStore<T>, leafs: usize, height: usize, stop_index: usize) -> MerkleTree<T, A, VecStore<T>> {
+    fn build_partial_small_tree(mut data: VecStore<T>, leafs: usize, height: usize, stop_index: usize) -> Result<MerkleTree<T, A, VecStore<T>>> {
         let mut level: usize = 0;
         let mut width = leafs;
         let mut level_node_index = 0;
@@ -386,16 +389,16 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         // Re-claim any memory that was allocated and unused at this
         // point in the data.
-        data.compact(Default::default());
+        data.compact(Default::default())?;
 
-        MerkleTree {
+        Ok(MerkleTree {
             data,
             leafs,
             height,
             root,
             _a: PhantomData,
             _t: PhantomData,
-        }
+        })
     }
 
     /// Generate merkle tree inclusion proof for leaf `i`
@@ -447,7 +450,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
     /// Generate merkle tree inclusion proof for leaf `i` by first
     /// building a partial tree (returned) along with the proof.
-    pub fn gen_proof_and_partial_tree(&self, i: usize, levels: usize) -> (Proof<T>, MerkleTree<T, A, VecStore<T>>) {
+    pub fn gen_proof_and_partial_tree(&self, i: usize, levels: usize) -> Result<(Proof<T>, MerkleTree<T, A, VecStore<T>>)> {
         assert!(i < self.leafs); // i in [0 .. self.leafs)
 
         let mut width = self.leafs;
@@ -461,7 +464,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let cache_size = total_size >> levels;
         let partial_height = self.height - levels;
         if cache_size >= total_size {
-            return (self.gen_proof(i), Default::default());
+            return Ok((self.gen_proof(i), Default::default()));
         }
 
         // Before generating the proof, build the partial tree based
@@ -497,9 +500,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let partial_tree: MerkleTree<T, A, VecStore<T>> =
             Self::build_partial_small_tree(
                 partial_store, partial_width, partial_height,
-                total_size - width - cache_size);
+                total_size - width - cache_size)?;
 
-        (self.gen_proof_with_partial_tree(i, levels, &partial_tree), partial_tree)
+        Ok((self.gen_proof_with_partial_tree(i, levels, &partial_tree), partial_tree))
     }
 
     /// Generate merkle tree inclusion proof for leaf `i` given a
@@ -606,7 +609,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     /// Truncates the data for later access via LevelCacheStore
     /// interface.
     #[inline]
-    pub fn compact(&mut self, config: StoreConfig) -> bool {
+    pub fn compact(&mut self, config: StoreConfig) -> Result<bool> {
         self.data.compact(config)
     }
 

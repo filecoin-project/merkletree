@@ -64,7 +64,7 @@ pub trait Store<E: Element>:
     // `buf` is a slice of converted `E`s and `start` is its
     // position in `E` sizes (*not* in `u8`).
     fn copy_from_slice(&mut self, buf: &[u8], start: usize);
-    fn compact(&mut self, config: StoreConfig) -> bool;
+    fn compact(&mut self, config: StoreConfig) -> Result<bool>;
 
     fn read_at(&self, index: usize) -> E;
     fn read_range(&self, r: ops::Range<usize>) -> Vec<E>;
@@ -166,9 +166,10 @@ impl<E: Element> Store<E> for VecStore<E> {
         self.0.len()
     }
 
-    fn compact(&mut self, _config: StoreConfig) -> bool {
+    fn compact(&mut self, _config: StoreConfig) -> Result<bool> {
         self.0.shrink_to_fit();
-        true
+
+        Ok(true)
     }
 
     fn is_empty(&self) -> bool {
@@ -219,12 +220,10 @@ impl<E: Element> Store<E> for DiskStore<E> {
             .write(true)
             .read(true)
             .create_new(true)
-            .open(data_path)
-            .unwrap();
+            .open(data_path)?;
 
         let base_size = E::byte_len() * size;
-        data.set_len(base_size as u64)
-            .unwrap_or_else(|_| panic!("couldn't set len {}", base_size));
+        data.set_len(base_size as u64)?;
 
         Ok(DiskStore {
             len: 0,
@@ -238,9 +237,8 @@ impl<E: Element> Store<E> for DiskStore<E> {
     #[allow(unsafe_code)]
     fn new(size: usize) -> Result<Self> {
         let store_size = E::byte_len() * size;
-        let file = tempfile().expect("couldn't create temp file");
-        file.set_len(store_size as u64)
-            .unwrap_or_else(|_| panic!("couldn't set len of {}", store_size));
+        let file = tempfile()?;
+        file.set_len(store_size as u64)?;
 
         Ok(DiskStore {
             len: 0,
@@ -252,8 +250,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
     }
 
     fn new_from_slice_with_config(size: usize, data: &[u8], config: StoreConfig) -> Result<Self> {
-        let mut store = Self::new_with_config(size, config)
-            .expect("Failed to create new store");
+        let mut store = Self::new_with_config(size, config)?;
         store.store_copy_from_slice(0, data);
         store.len = data.len() / store.elem_len;
 
@@ -274,7 +271,8 @@ impl<E: Element> Store<E> for DiskStore<E> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
         let data = File::open(data_path)?;
-        let store_size = data.metadata().unwrap().len() as usize;
+        let metadata = data.metadata()?;
+        let store_size = metadata.len() as usize;
 
         // Sanity check.
         assert_eq!(store_size, size * E::byte_len());
@@ -353,7 +351,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
     // Specifically, this method truncates an existing DiskStore and
     // formats the data in such a way that is compatible with future
     // access using LevelCacheStore::new_from_disk.
-    fn compact(&mut self, config: StoreConfig) -> bool {
+    fn compact(&mut self, config: StoreConfig) -> Result<bool> {
         // Determine how many leafs there are (in bytes).
         let data_width = (self.len / 2 + 1) * self.elem_len;
 
@@ -363,7 +361,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
         if cache_size >= 2 * data_width - 1 {
             // The file cannot be compacted (to fix, provide a sane
             // configuration).
-            return false;
+            return Err(err_msg("Cannot compact with this configuration"));
         }
 
         // Calculate cache start and updated size with repect to the
@@ -374,27 +372,20 @@ impl<E: Element> Store<E> for DiskStore<E> {
         // Seek the reader to the start of the cached data.
         let mut reader = OpenOptions::new()
             .read(true)
-            .open(StoreConfig::data_path(&config.path, &config.id))
-            .expect("Failed to open data store as read-only file");
-        reader.seek(SeekFrom::Start(cache_start as u64))
-            .expect("Failed to seek to read start");
+            .open(StoreConfig::data_path(&config.path, &config.id))?;
+        reader.seek(SeekFrom::Start(cache_start as u64))?;
 
         // Seek the writer to the end of the base layer data.
-        self.file.seek(SeekFrom::Start(data_width as u64))
-            .expect("Failed to seek to write start");
+        self.file.seek(SeekFrom::Start(data_width as u64))?;
 
         // Copy the data from the cached region to just after the base
         // layer data.
-        let written = copy(&mut reader, &mut self.file)
-            .expect("Failed to write cached data");
+        let written = copy(&mut reader, &mut self.file)?;
         assert_eq!(written, cache_size as u64);
 
         // Truncate the data on-disk just after the base layer data
         // and cached data that should be persisted.
-        self.file.set_len((data_width + cache_size) as u64)
-            .unwrap_or_else(|_| panic!(
-                "Couldn't resize store to len {}",
-                (data_width + cache_size) as u64));
+        self.file.set_len((data_width + cache_size) as u64)?;
 
         // Adjust our length to be data_width + cached_layers for
         // internal consistency.
@@ -403,10 +394,11 @@ impl<E: Element> Store<E> for DiskStore<E> {
         // Sync and sanity check that we match on disk (this can be
         // removed if needed).
         self.sync();
-        let store_size = self.file.metadata().unwrap().len() as usize;
+        let metadata = self.file.metadata()?;
+        let store_size = metadata.len() as usize;
         assert_eq!(self.len * self.elem_len, store_size);
 
-        true
+        Ok(true)
     }
 
     fn is_empty(&self) -> bool {
@@ -556,7 +548,8 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
         let data = File::open(data_path)?;
-        let store_size = data.metadata().unwrap().len() as usize;
+        let metadata = data.metadata()?;
+        let store_size = metadata.len() as usize;
 
         // The LevelCacheStore base data layer must already be a
         // massaged next pow2 (guaranteed if created with
@@ -657,8 +650,8 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
         self.len
     }
 
-    fn compact(&mut self, _config: StoreConfig) -> bool {
-        false
+    fn compact(&mut self, _config: StoreConfig) -> Result<bool> {
+        Err(err_msg("Cannot compact this type of Store"))
     }
 
     fn is_empty(&self) -> bool {

@@ -309,9 +309,9 @@ fn test_simple_tree() {
                     // When the tree is large enough to have some
                     // cached levels, test the proof generation from a
                     // partial store.
-                    let (p1, _) = mt2.gen_proof_and_partial_tree(i, cached_above_base_levels)
+                    let pat = mt2.gen_proof_and_partial_tree(i, cached_above_base_levels)
                         .unwrap();
-                    assert!(p1.validate::<XOR128>());
+                    assert!(pat.proof.validate::<XOR128>());
                 }
             }
         }
@@ -403,16 +403,16 @@ fn test_various_trees_with_partial_cache() {
             // does provide a proof of concept implementation to show that
             // we can generate proofs only using certain segments of the
             // on-disk data.
-            let (p1, partial_tree1) = mt_cache.gen_proof_and_partial_tree(0, i)
+            let pat1 = mt_cache.gen_proof_and_partial_tree(0, i)
                 .unwrap();
-            assert!(p1.validate::<XOR128>());
+            assert!(pat1.proof.validate::<XOR128>());
 
             // Same as above, but generate and validate the proof on the
             // first element of the second data half and retrieve the
             // partial tree needed for future proofs in that range.
-            let (p2, partial_tree2) = mt_cache.gen_proof_and_partial_tree(mt_cache.leafs() / 2, i)
+            let pat2 = mt_cache.gen_proof_and_partial_tree(mt_cache.leafs() / 2, i)
                 .unwrap();
-            assert!(p2.validate::<XOR128>());
+            assert!(pat2.proof.validate::<XOR128>());
 
             for j in 1..mt_cache.leafs() {
                 // First generate and validate the proof using the full
@@ -426,10 +426,10 @@ fn test_various_trees_with_partial_cache() {
                 // on disk (simulating a partial cache since we do not use
                 // the full range of data stored on disk in these cases).
                 if j < mt_cache.leafs() / 2 {
-                    let p1 = mt_cache.gen_proof_with_partial_tree(j, i, &partial_tree1);
+                    let p1 = mt_cache.gen_proof_with_partial_tree(j, i, &pat1.merkle_tree);
                     assert!(p1.validate::<XOR128>());
                 } else {
-                    let p2 = mt_cache.gen_proof_with_partial_tree(j, i, &partial_tree2);
+                    let p2 = mt_cache.gen_proof_with_partial_tree(j, i, &pat2.merkle_tree);
                     assert!(p2.validate::<XOR128>());
                 }
             }
@@ -471,23 +471,23 @@ fn test_various_trees_with_partial_cache() {
             //
             // This is commented out because it adds a lot of runtime waiting.
             // for j in 0..mt_level_cache.leafs() {
-            //     let (p, _) = mt_level_cache.gen_proof_and_partial_tree(j, i);
-            //     assert!(p.validate::<XOR128>());
+            //     let pat = mt_level_cache.gen_proof_and_partial_tree(j, i);
+            //     assert!(pat.proof.validate::<XOR128>());
             // }
 
             // Optimized proof generation based on simple generation pattern:
-            let (p1, partial_tree1) = mt_level_cache
+            let pat1 = mt_level_cache
                 .gen_proof_and_partial_tree(0, i)
                 .unwrap();
-            assert!(p1.validate::<XOR128>());
+            assert!(pat1.proof.validate::<XOR128>());
 
             // Same as above, but generate and validate the proof on the
             // first element of the second data half and retrieve the
             // partial tree needed for future proofs in that range.
-            let (p2, partial_tree2) = mt_level_cache
+            let pat2 = mt_level_cache
                 .gen_proof_and_partial_tree(mt_level_cache.leafs() / 2, i)
                 .unwrap();
-            assert!(p2.validate::<XOR128>());
+            assert!(pat2.proof.validate::<XOR128>());
 
             for j in 1..mt_level_cache.leafs() {
                 // Generate proofs using a combination of data in the
@@ -496,11 +496,11 @@ fn test_various_trees_with_partial_cache() {
                 // cached range).
                 if j < mt_level_cache.leafs() / 2 {
                     let p1 = mt_level_cache
-                        .gen_proof_with_partial_tree(j, i, &partial_tree1);
+                        .gen_proof_with_partial_tree(j, i, &pat1.merkle_tree);
                     assert!(p1.validate::<XOR128>());
                 } else {
                     let p2 = mt_level_cache
-                        .gen_proof_with_partial_tree(j, i, &partial_tree2);
+                        .gen_proof_with_partial_tree(j, i, &pat2.merkle_tree);
                     assert!(p2.validate::<XOR128>());
                 }
             }

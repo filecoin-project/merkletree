@@ -9,6 +9,17 @@ use store::{Store, StoreConfig, VecStore};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug)]
+pub struct ProofAndTree<T, A, K>
+where
+    T: Element,
+    A: Algorithm<T>,
+    K: Store<T>
+{
+    pub proof: Proof<T>,
+    pub merkle_tree: MerkleTree<T, A, K>
+}
+
 /// Tree size (number of nodes) used as threshold to decide which build algorithm
 /// to use. Small trees (below this value) use the old build algorithm, optimized
 /// for speed rather than memory, allocating as much as needed to allow multiple
@@ -450,7 +461,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
     /// Generate merkle tree inclusion proof for leaf `i` by first
     /// building a partial tree (returned) along with the proof.
-    pub fn gen_proof_and_partial_tree(&self, i: usize, levels: usize) -> Result<(Proof<T>, MerkleTree<T, A, VecStore<T>>)> {
+    pub fn gen_proof_and_partial_tree(&self, i: usize, levels: usize) -> Result<ProofAndTree<T, A, VecStore<T>>> {
         assert!(i < self.leafs); // i in [0 .. self.leafs)
 
         let mut width = self.leafs;
@@ -464,7 +475,10 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let cache_size = total_size >> levels;
         let partial_height = self.height - levels;
         if cache_size >= total_size {
-            return Ok((self.gen_proof(i), Default::default()));
+            return Ok(ProofAndTree {
+                proof: self.gen_proof(i),
+                merkle_tree: Default::default()
+            });
         }
 
         // Before generating the proof, build the partial tree based
@@ -502,7 +516,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 partial_store, partial_width, partial_height,
                 total_size - width - cache_size)?;
 
-        Ok((self.gen_proof_with_partial_tree(i, levels, &partial_tree), partial_tree))
+        let proof = self.gen_proof_with_partial_tree(i, levels, &partial_tree);
+
+        Ok(ProofAndTree{
+            proof,
+            merkle_tree: partial_tree
+        })
     }
 
     /// Generate merkle tree inclusion proof for leaf `i` given a

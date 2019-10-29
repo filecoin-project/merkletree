@@ -6,10 +6,10 @@ use merkle::{Element, MerkleTree, SMALL_TREE_BUILD};
 use merkle::{FromIndexedParallelIterator, FromIteratorWithConfig};
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
-use std::iter::FromIterator;
 use std::fmt;
 use std::hash::Hasher;
-use store::{Store, DiskStore, VecStore, LevelCacheStore};
+use std::iter::FromIterator;
+use store::{DiskStore, LevelCacheStore, Store, VecStore};
 use store::{StoreConfig, DEFAULT_CACHED_ABOVE_BASE_LAYER};
 
 const SIZE: usize = 0x10;
@@ -142,8 +142,10 @@ fn test_read_into() {
     let temp_dir = tempdir::TempDir::new("test_read_into").unwrap();
     let current_path = temp_dir.path().to_str().unwrap().to_string();
     let config = StoreConfig::new(
-        current_path, String::from("test-read-into"),
-        DEFAULT_CACHED_ABOVE_BASE_LAYER);
+        current_path,
+        String::from("test-read-into"),
+        DEFAULT_CACHED_ABOVE_BASE_LAYER,
+    );
 
     let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
         MerkleTree::from_data_with_config(&x, config);
@@ -251,7 +253,7 @@ fn test_simple_tree() {
                     x.hash(&mut a);
                     a.hash()
                 })
-                .take(items)
+                .take(items),
         );
 
         assert_eq!(mt_base.leafs(), items);
@@ -311,7 +313,8 @@ fn test_simple_tree() {
                     // When the tree is large enough to have some
                     // cached levels, test the proof generation from a
                     // partial store.
-                    let pat = mt2.gen_proof_and_partial_tree(i, cached_above_base_levels)
+                    let pat = mt2
+                        .gen_proof_and_partial_tree(i, cached_above_base_levels)
                         .unwrap();
                     assert!(pat.proof.validate::<XOR128>());
                 }
@@ -367,25 +370,24 @@ fn test_various_trees_with_partial_cache() {
 
     // Test a range of tree sizes, given a range of leaf elements.
     while count <= max_count {
-
         // Test a range of heights to cache above the base (for
         // different partial tree sizes).
         for i in 0..cached_above_base_levels {
-
-            let temp_dir = tempdir::TempDir::new(
-                "test_various_trees_with_partial_cache").unwrap();
+            let temp_dir = tempdir::TempDir::new("test_various_trees_with_partial_cache").unwrap();
             let current_path = temp_dir.path().to_str().unwrap().to_string();
 
             // Construct and store an MT using a named DiskStore.
-            let config = StoreConfig::new(
-                current_path.clone(), String::from("test-cache"), i);
+            let config = StoreConfig::new(current_path.clone(), String::from("test-cache"), i);
             let mut mt_cache: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
-                MerkleTree::from_iter_with_config((0..count).map(|x| {
-                    a.reset();
-                    x.hash(&mut a);
-                    count.hash(&mut a);
-                    a.hash()
-                }), config.clone());
+                MerkleTree::from_iter_with_config(
+                    (0..count).map(|x| {
+                        a.reset();
+                        x.hash(&mut a);
+                        count.hash(&mut a);
+                        a.hash()
+                    }),
+                    config.clone(),
+                );
 
             // Sanity check loading the store from disk and then
             // re-creating the MT from it.
@@ -414,14 +416,14 @@ fn test_various_trees_with_partial_cache() {
             // does provide a proof of concept implementation to show that
             // we can generate proofs only using certain segments of the
             // on-disk data.
-            let pat1 = mt_cache.gen_proof_and_partial_tree(0, i)
-                .unwrap();
+            let pat1 = mt_cache.gen_proof_and_partial_tree(0, i).unwrap();
             assert!(pat1.proof.validate::<XOR128>());
 
             // Same as above, but generate and validate the proof on the
             // first element of the second data half and retrieve the
             // partial tree needed for future proofs in that range.
-            let pat2 = mt_cache.gen_proof_and_partial_tree(mt_cache.leafs() / 2, i)
+            let pat2 = mt_cache
+                .gen_proof_and_partial_tree(mt_cache.leafs() / 2, i)
                 .unwrap();
             assert!(pat2.proof.validate::<XOR128>());
 
@@ -486,9 +488,7 @@ fn test_various_trees_with_partial_cache() {
             // }
 
             // Optimized proof generation based on simple generation pattern:
-            let pat1 = mt_level_cache
-                .gen_proof_and_partial_tree(0, i)
-                .unwrap();
+            let pat1 = mt_level_cache.gen_proof_and_partial_tree(0, i).unwrap();
             assert!(pat1.proof.validate::<XOR128>());
 
             // Same as above, but generate and validate the proof on the
@@ -505,17 +505,120 @@ fn test_various_trees_with_partial_cache() {
                 // on disk (which now only contains the base layer and
                 // cached range).
                 if j < mt_level_cache.leafs() / 2 {
-                    let p1 = mt_level_cache
-                        .gen_proof_with_partial_tree(j, i, &pat1.merkle_tree);
+                    let p1 = mt_level_cache.gen_proof_with_partial_tree(j, i, &pat1.merkle_tree);
                     assert!(p1.validate::<XOR128>());
                 } else {
-                    let p2 = mt_level_cache
-                        .gen_proof_with_partial_tree(j, i, &pat2.merkle_tree);
+                    let p2 = mt_level_cache.gen_proof_with_partial_tree(j, i, &pat2.merkle_tree);
                     assert!(p2.validate::<XOR128>());
                 }
             }
         }
 
         count <<= 1;
+    }
+}
+
+use rayon::iter::plumbing::*;
+use rayon::prelude::*;
+use store::DiskStoreProducer;
+
+#[test]
+fn test_parallel_iter_disk_1() {
+    let data = vec![1u8; 16 * 128];
+    let store: DiskStore<[u8; 16]> = DiskStore::new_from_slice(128, &data).unwrap();
+
+    let p = DiskStoreProducer {
+        current: 0,
+        end: 128,
+        store: &store,
+    };
+
+    assert_eq!(p.len(), 128);
+
+    let collected: Vec<[u8; 16]> = p.clone().into_iter().collect();
+    for (a, b) in collected.iter().zip(data.chunks_exact(16)) {
+        assert_eq!(a, b);
+    }
+
+    let (a1, b1) = p.clone().split_at(64);
+    assert_eq!(a1.len(), 64);
+    assert_eq!(b1.len(), 64);
+
+    let (a2, b2) = a1.split_at(32);
+    assert_eq!(a2.len(), 32);
+    assert_eq!(b2.len(), 32);
+
+    let (a3, b3) = a2.split_at(16);
+    assert_eq!(a3.len(), 16);
+    assert_eq!(b3.len(), 16);
+
+    let (a4, b4) = a3.split_at(8);
+    assert_eq!(a4.len(), 8);
+    assert_eq!(b4.len(), 8);
+
+    let (a5, b5) = a4.split_at(4);
+    assert_eq!(a5.len(), 4);
+    assert_eq!(b5.len(), 4);
+
+    let (a6, b6) = a5.split_at(2);
+    assert_eq!(a6.len(), 2);
+    assert_eq!(b6.len(), 2);
+
+    let (a7, b7) = a6.split_at(1);
+    assert_eq!(a7.len(), 1);
+    assert_eq!(b7.len(), 1);
+
+    // nothing happens
+    let (a8, b8) = a7.clone().split_at(1);
+    assert_eq!(a8.len(), 1);
+    assert_eq!(b8.len(), 0);
+
+    let (a8, b8) = a7.split_at(10);
+    assert_eq!(a8.len(), 1);
+    assert_eq!(b8.len(), 0);
+
+    let (a, b) = p.clone().split_at(10);
+
+    for (a, b) in a.into_iter().zip(data.chunks_exact(16).take(10)) {
+        assert_eq!(a, b);
+    }
+
+    for (a, b) in b.into_iter().zip(data.chunks_exact(16).skip(10)) {
+        assert_eq!(a, b);
+    }
+
+    let mut disk_iter = p.into_iter();
+    let mut i = 128;
+    while let Some(_el) = disk_iter.next_back() {
+        i -= 1;
+    }
+
+    assert_eq!(i, 0);
+}
+
+#[test]
+fn test_parallel_iter_disk_2() {
+    for size in &[2, 4, 5, 99, 128] {
+        let size = *size;
+        println!(" --- {}", size);
+
+        let data = vec![1u8; 16 * size];
+        let store: DiskStore<[u8; 16]> = DiskStore::new_from_slice(size, &data).unwrap();
+
+        let p = DiskStoreProducer {
+            current: 0,
+            end: size,
+            store: &store,
+        };
+
+        assert_eq!(p.len(), size);
+
+        let par_iter = store.into_par_iter();
+        assert_eq!(Store::len(&par_iter), size);
+
+        let collected: Vec<[u8; 16]> = par_iter.collect();
+        for (a, b) in collected.iter().zip(data.chunks_exact(16)) {
+            assert_eq!(a, b);
+        }
     }
 }

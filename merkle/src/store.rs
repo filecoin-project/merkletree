@@ -905,7 +905,7 @@ impl<'data, E: 'data + Element> Producer for DiskStoreProducer<'data, E> {
         debug_assert!(first_end >= current);
         debug_assert!(current + len >= first_end);
 
-        let res = (
+        (
             DiskStoreProducer {
                 current,
                 end: first_end,
@@ -916,9 +916,7 @@ impl<'data, E: 'data + Element> Producer for DiskStoreProducer<'data, E> {
                 end: current + len,
                 store: &self.store,
             },
-        );
-
-        res
+        )
     }
 }
 

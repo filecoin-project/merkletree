@@ -387,6 +387,15 @@ fn test_various_trees_with_partial_cache() {
                     a.hash()
                 }), config.clone());
 
+            // Sanity check loading the store from disk and then
+            // re-creating the MT from it.
+            let store = DiskStore::new_from_disk(mt_cache.len(), config.clone()).unwrap();
+            let mt_cache2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
+                MerkleTree::from_data_store(store, mt_cache.len());
+
+            assert_eq!(mt_cache.len(), mt_cache2.len());
+            assert_eq!(mt_cache.leafs(), mt_cache2.leafs());
+
             assert_eq!(mt_cache.len(), 2 * count - 1);
             assert_eq!(mt_cache.leafs(), count);
 
@@ -458,8 +467,7 @@ fn test_various_trees_with_partial_cache() {
             let level_cache_store: LevelCacheStore<[u8; 16]> =
                 Store::new_from_disk(count, config.clone()).unwrap();
             let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_>> =
-                MerkleTree::from_data_store_with_config(
-                    level_cache_store, count, config);
+                MerkleTree::from_data_store(level_cache_store, count);
 
             // Sanity check that after rebuild, the new MT properties match the original.
             assert_eq!(mt_level_cache.len(), mt_cache_len);

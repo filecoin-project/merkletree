@@ -26,7 +26,7 @@ pub struct StoreConfig {
 
     /// The number of elements in the DiskStore.  This field is
     /// optional, and unused internally.
-    pub size: usize,
+    pub size: Option<usize>,
 
     /// The number of merkle tree levels above the base to cache on disk.
     pub levels: usize,
@@ -37,7 +37,7 @@ impl StoreConfig {
         StoreConfig {
             path: PathBuf::from(path),
             id,
-            size: 0,
+            size: None,
             levels
         }
     }

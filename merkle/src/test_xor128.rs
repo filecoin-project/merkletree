@@ -9,7 +9,8 @@ use rayon::iter::ParallelIterator;
 use std::iter::FromIterator;
 use std::fmt;
 use std::hash::Hasher;
-use store::{Store, DiskStore, VecStore, LevelCacheStore, StoreConfig};
+use store::{Store, DiskStore, VecStore, LevelCacheStore};
+use store::{StoreConfig, DEFAULT_CACHED_ABOVE_BASE_LAYER};
 
 const SIZE: usize = 0x10;
 
@@ -141,7 +142,8 @@ fn test_read_into() {
     let temp_dir = tempdir::TempDir::new("test_read_into").unwrap();
     let current_path = temp_dir.path().to_str().unwrap().to_string();
     let config = StoreConfig::new(
-        current_path, String::from("test-read-into"), 7);
+        current_path, String::from("test-read-into"),
+        DEFAULT_CACHED_ABOVE_BASE_LAYER);
 
     let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
         MerkleTree::from_data_with_config(&x, config);

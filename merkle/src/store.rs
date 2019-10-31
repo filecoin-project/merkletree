@@ -11,6 +11,8 @@ use tempfile::tempfile;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+pub const DEFAULT_CACHED_ABOVE_BASE_LAYER: usize = 7;
+
 const STORE_CONFIG_DATA_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -22,6 +24,10 @@ pub struct StoreConfig {
     /// location for this particular data.
     pub id: String,
 
+    /// The number of elements in the DiskStore.  This field is
+    /// optional, and unused internally.
+    pub size: usize,
+
     /// The number of merkle tree levels above the base to cache on disk.
     pub levels: usize,
 }
@@ -31,6 +37,7 @@ impl StoreConfig {
         StoreConfig {
             path: PathBuf::from(path),
             id,
+            size: 0,
             levels
         }
     }
@@ -72,6 +79,7 @@ pub trait Store<E: Element>:
     fn read_range_into(&self, start: usize, end: usize, buf: &mut [u8]);
 
     fn len(&self) -> usize;
+    fn loaded_from_disk(&self) -> bool;
     fn is_empty(&self) -> bool;
     fn push(&mut self, el: E);
 
@@ -166,6 +174,10 @@ impl<E: Element> Store<E> for VecStore<E> {
         self.0.len()
     }
 
+    fn loaded_from_disk(&self) -> bool {
+        false
+    }
+
     fn compact(&mut self, _config: StoreConfig) -> Result<bool> {
         self.0.shrink_to_fit();
 
@@ -190,6 +202,11 @@ pub struct DiskStore<E: Element> {
     elem_len: usize,
     _e: PhantomData<E>,
     file: File,
+
+    // This flag is useful only immediate after instantiation, which
+    // is false if the store was newly initialized and true if the
+    // store was loaded from already existing on-disk data.
+    loaded_from_disk: bool,
 
     // We cache the `store.len()` call to avoid accessing disk unnecessarily.
     // Not to be confused with `len`, this saves the total size of the `store`
@@ -230,6 +247,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
             elem_len: E::byte_len(),
             _e: Default::default(),
             file: data,
+            loaded_from_disk: false,
             store_size: base_size,
         })
     }
@@ -245,6 +263,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
             elem_len: E::byte_len(),
             _e: Default::default(),
             file,
+            loaded_from_disk: false,
             store_size,
         })
     }
@@ -270,7 +289,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
     fn new_from_disk(size: usize, config: StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
-        let data = File::open(data_path)?;
+        let data = File::open(&data_path)?;
         let metadata = data.metadata()?;
         let store_size = metadata.len() as usize;
 
@@ -282,6 +301,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
             elem_len: E::byte_len(),
             _e: Default::default(),
             file: data,
+            loaded_from_disk: true,
             store_size,
         })
     }
@@ -346,6 +366,10 @@ impl<E: Element> Store<E> for DiskStore<E> {
 
     fn len(&self) -> usize {
         self.len
+    }
+
+    fn loaded_from_disk(&self) -> bool {
+        self.loaded_from_disk
     }
 
     // Specifically, this method truncates an existing DiskStore and
@@ -462,7 +486,7 @@ impl<E: Element> DiskStore<E> {
     pub fn store_copy_from_slice(&mut self, start: usize, slice: &[u8]) {
         assert!(start + slice.len() <= self.store_size);
         self.file
-            .write_at(start as u64, slice)
+            .write_all_at(start as u64, slice)
             .expect("failed to write file");
     }
 }
@@ -648,6 +672,10 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
 
     fn len(&self) -> usize {
         self.len
+    }
+
+    fn loaded_from_disk(&self) -> bool {
+        true
     }
 
     fn compact(&mut self, _config: StoreConfig) -> Result<bool> {

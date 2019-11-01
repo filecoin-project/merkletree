@@ -1,5 +1,5 @@
-use hash::{Algorithm, Hashable};
 use failure::Error;
+use hash::{Algorithm, Hashable};
 use proof::Proof;
 use rayon::prelude::*;
 use std::iter::FromIterator;
@@ -14,10 +14,10 @@ pub struct ProofAndTree<T, A, K>
 where
     T: Element,
     A: Algorithm<T>,
-    K: Store<T>
+    K: Store<T>,
 {
     pub proof: Proof<T>,
-    pub merkle_tree: MerkleTree<T, A, K>
+    pub merkle_tree: MerkleTree<T, A, K>,
 }
 
 /// Tree size (number of nodes) used as threshold to decide which build algorithm
@@ -74,7 +74,7 @@ pub struct MerkleTree<T, A, K>
 where
     T: Element,
     A: Algorithm<T>,
-    K: Store<T>
+    K: Store<T>,
 {
     data: K,
     leafs: usize,
@@ -106,7 +106,10 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 
     /// Creates new merkle from a sequence of hashes.
-    pub fn new_with_config<I: IntoIterator<Item = T>>(data: I, config: StoreConfig) -> MerkleTree<T, A, K> {
+    pub fn new_with_config<I: IntoIterator<Item = T>>(
+        data: I,
+        config: StoreConfig,
+    ) -> MerkleTree<T, A, K> {
         Self::from_iter_with_config(data, config)
     }
 
@@ -121,13 +124,19 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 
     /// Creates new merkle tree from a list of hashable objects.
-    pub fn from_data_with_config<O: Hashable<A>, I: IntoIterator<Item = O>>(data: I, config: StoreConfig) -> MerkleTree<T, A, K> {
+    pub fn from_data_with_config<O: Hashable<A>, I: IntoIterator<Item = O>>(
+        data: I,
+        config: StoreConfig,
+    ) -> MerkleTree<T, A, K> {
         let mut a = A::default();
-        Self::from_iter_with_config(data.into_iter().map(|x| {
-            a.reset();
-            x.hash(&mut a);
-            a.hash()
-        }), config)
+        Self::from_iter_with_config(
+            data.into_iter().map(|x| {
+                a.reset();
+                x.hash(&mut a);
+                a.hash()
+            }),
+            config,
+        )
     }
 
     /// Creates new merkle tree from an already allocated `Store`
@@ -211,12 +220,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
                 .par_iter()
                 .for_each(|&chunk_index| {
-                    let chunk_size = std::cmp::min(
-                        BUILD_CHUNK_NODES, read_start + width - chunk_index);
+                    let chunk_size =
+                        std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
 
                     let chunk_nodes = {
                         // Read everything taking the lock once.
-                        data_lock.read().unwrap()
+                        data_lock
+                            .read()
+                            .unwrap()
                             .read_range(chunk_index..chunk_index + chunk_size)
                     };
 
@@ -337,7 +348,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 
     #[inline]
-    fn build_partial_small_tree(mut data: VecStore<T>, leafs: usize, height: usize, stop_index: usize) -> Result<MerkleTree<T, A, VecStore<T>>> {
+    fn build_partial_small_tree(
+        mut data: VecStore<T>,
+        leafs: usize,
+        height: usize,
+        stop_index: usize,
+    ) -> Result<MerkleTree<T, A, VecStore<T>>> {
         let mut level: usize = 0;
         let mut width = leafs;
         let mut level_node_index = 0;
@@ -389,7 +405,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // tree build for the same reason that the height may be
         // incorrect (i.e. we aborted early because we hit the
         // stop_index).
-        let root = { data.read_at(data.len() - 1) };
+        let root = { data.read_at(Store::len(&data) - 1) };
 
         // Re-claim any memory that was allocated and unused at this
         // point in the data.
@@ -454,7 +470,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
     /// Generate merkle tree inclusion proof for leaf `i` by first
     /// building a partial tree (returned) along with the proof.
-    pub fn gen_proof_and_partial_tree(&self, i: usize, levels: usize) -> Result<ProofAndTree<T, A, VecStore<T>>> {
+    pub fn gen_proof_and_partial_tree(
+        &self,
+        i: usize,
+        levels: usize,
+    ) -> Result<ProofAndTree<T, A, VecStore<T>>> {
         assert!(i < self.leafs); // i in [0 .. self.leafs)
 
         let mut width = self.leafs;
@@ -470,7 +490,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         if cache_size >= total_size {
             return Ok(ProofAndTree {
                 proof: self.gen_proof(i),
-                merkle_tree: Default::default()
+                merkle_tree: Default::default(),
             });
         }
 
@@ -480,19 +500,16 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // FIXME: These perhaps could be smarter about the partial
         // tree width to not overbuild the partial tree.
         let partial_width = width >> 1;
-        let offset = if i + 1 > width >> 1 {
-            width >> 1
-        } else {
-            0
-        };
+        let offset = if i + 1 > width >> 1 { width >> 1 } else { 0 };
 
         // Copy the proper half of the base data into memory and
         // initialize a VecStore to back a new, smaller MT.
         let mut data_copy = vec![0; partial_width * T::byte_len()];
-        self.data.read_range_into(offset, offset + partial_width, &mut data_copy);
+        self.data
+            .read_range_into(offset, offset + partial_width, &mut data_copy);
         let partial_store = VecStore::new_from_slice(partial_width, &data_copy)
             .expect("Failed to create intermediate Store");
-        assert_eq!(partial_store.len(), partial_width);
+        assert_eq!(Store::len(&partial_store), partial_width);
 
         // Before building the tree, resize the store where the tree
         // will be built to allow space for the newly constructed layers.
@@ -504,22 +521,29 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         //
         // FIXME: Eventually that will not be true when we're building
         // only the proper/minimal tree required for the proof.
-        let partial_tree: MerkleTree<T, A, VecStore<T>> =
-            Self::build_partial_small_tree(
-                partial_store, partial_width, partial_height,
-                total_size - width - cache_size)?;
+        let partial_tree: MerkleTree<T, A, VecStore<T>> = Self::build_partial_small_tree(
+            partial_store,
+            partial_width,
+            partial_height,
+            total_size - width - cache_size,
+        )?;
 
         let proof = self.gen_proof_with_partial_tree(i, levels, &partial_tree);
 
-        Ok(ProofAndTree{
+        Ok(ProofAndTree {
             proof,
-            merkle_tree: partial_tree
+            merkle_tree: partial_tree,
         })
     }
 
     /// Generate merkle tree inclusion proof for leaf `i` given a
     /// partial tree for lookups where data is otherwise unavailable.
-    pub fn gen_proof_with_partial_tree(&self, i: usize, levels: usize, partial_tree: &MerkleTree<T, A, VecStore<T>>) -> Proof<T> {
+    pub fn gen_proof_with_partial_tree(
+        &self,
+        i: usize,
+        levels: usize,
+        partial_tree: &MerkleTree<T, A, VecStore<T>>,
+    ) -> Proof<T> {
         assert!(i < self.leafs); // i in [0 .. self.leafs)
 
         let mut lemma: Vec<T> = Vec::with_capacity(self.height + 1); // path + root
@@ -538,11 +562,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         // Determine the offset where the partial tree provided should
         // have been built from.
-        let offset = if i + 1 > width >> 1 {
-            width >> 1
-        } else {
-            0
-        };
+        let offset = if i + 1 > width >> 1 { width >> 1 } else { 0 };
 
         let mut offset_level_index = 0;
         let cache_index_start = total_size - cache_size;
@@ -704,8 +724,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         assert!(leafs_count > 1);
 
         let pow = next_pow2(leafs_count);
-        let data = K::new_from_slice(2 * pow - 1, leafs)
-            .expect("Failed to create data store");
+        let data = K::new_from_slice(2 * pow - 1, leafs).expect("Failed to create data store");
 
         Self::build(data, leafs_count, log2_pow2(2 * pow))
     }
@@ -750,8 +769,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
         let leafs = iter.opt_len().expect("must be sized");
         let pow = next_pow2(leafs);
 
-        let mut data = K::new(2 * pow - 1)
-            .expect("Failed to create data store");
+        let mut data = K::new(2 * pow - 1).expect("Failed to create data store");
         populate_data_par::<T, A, K, _>(&mut data, iter);
 
         Self::build(data, leafs, log2_pow2(2 * pow))
@@ -768,8 +786,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
         let leafs = iter.opt_len().expect("must be sized");
         let pow = next_pow2(leafs);
 
-        let mut data = K::new_with_config(2 * pow - 1, config)
-            .expect("Failed to create data store");
+        let mut data =
+            K::new_with_config(2 * pow - 1, config).expect("Failed to create data store");
 
         // If the data store is empty, populate the base layer before
         // building the tree.  If it's not empty, it likely already
@@ -792,8 +810,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIterator<T> for MerkleTree<T,
         assert!(leafs > 1);
 
         let pow = next_pow2(leafs);
-        let mut data = K::new(2 * pow - 1)
-            .expect("Failed to create data store");
+        let mut data = K::new(2 * pow - 1).expect("Failed to create data store");
         populate_data::<T, A, K, I>(&mut data, iter);
 
         Self::build(data, leafs, log2_pow2(2 * pow))
@@ -809,8 +826,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIteratorWithConfig<T> for Mer
         assert!(leafs > 1);
 
         let pow = next_pow2(leafs);
-        let mut data = K::new_with_config(2 * pow - 1, config)
-            .expect("Failed to create data store");
+        let mut data =
+            K::new_with_config(2 * pow - 1, config).expect("Failed to create data store");
 
         // If the data store is empty, populate the base layer before
         // building the tree.  If it's not empty, it likely already

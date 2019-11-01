@@ -4,13 +4,14 @@ use hash::*;
 use merkle::{log2_pow2, next_pow2};
 use merkle::{Element, MerkleTree, SMALL_TREE_BUILD};
 use merkle::{FromIndexedParallelIterator, FromIteratorWithConfig};
-use rayon::iter::IntoParallelIterator;
-use rayon::iter::ParallelIterator;
+use rayon::iter::{plumbing::*, IntoParallelIterator, ParallelIterator};
 use std::fmt;
 use std::hash::Hasher;
 use std::iter::FromIterator;
-use store::{DiskStore, LevelCacheStore, Store, VecStore};
-use store::{StoreConfig, DEFAULT_CACHED_ABOVE_BASE_LAYER};
+use store::{
+    DiskStore, DiskStoreProducer, LevelCacheStore, Store, StoreConfig, VecStore,
+    DEFAULT_CACHED_ABOVE_BASE_LAYER,
+};
 
 const SIZE: usize = 0x10;
 
@@ -517,10 +518,6 @@ fn test_various_trees_with_partial_cache() {
         count <<= 1;
     }
 }
-
-use rayon::iter::plumbing::*;
-use rayon::prelude::*;
-use store::DiskStoreProducer;
 
 #[test]
 fn test_parallel_iter_disk_1() {

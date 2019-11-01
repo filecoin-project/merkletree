@@ -770,200 +770,194 @@ impl<E: Element> Clone for LevelCacheStore<E> {
 use rayon::iter::plumbing::*;
 use rayon::iter::*;
 
-impl<E: Element> ParallelIterator for DiskStore<E> {
-    type Item = E;
+// Using a macro as it is not possible to do a generic implementation for all stores.
 
-    fn drive_unindexed<C>(self, consumer: C) -> C::Result
-    where
-        C: UnindexedConsumer<Self::Item>,
-    {
-        bridge(self, consumer)
-    }
+macro_rules! impl_parallel_iter {
+    ($name:ident, $producer:ident, $iter:ident) => {
+        impl<E: Element> ParallelIterator for $name<E> {
+            type Item = E;
 
-    fn opt_len(&self) -> Option<usize> {
-        Some(Store::len(self))
-    }
-}
+            fn drive_unindexed<C>(self, consumer: C) -> C::Result
+            where
+                C: UnindexedConsumer<Self::Item>,
+            {
+                bridge(self, consumer)
+            }
 
-impl<'a, E: Element> ParallelIterator for &'a DiskStore<E> {
-    type Item = E;
-
-    fn drive_unindexed<C>(self, consumer: C) -> C::Result
-    where
-        C: UnindexedConsumer<Self::Item>,
-    {
-        bridge(self, consumer)
-    }
-
-    fn opt_len(&self) -> Option<usize> {
-        Some(Store::len(*self))
-    }
-}
-
-impl<E: Element> IndexedParallelIterator for DiskStore<E> {
-    fn drive<C>(self, consumer: C) -> C::Result
-    where
-        C: Consumer<Self::Item>,
-    {
-        bridge(self, consumer)
-    }
-
-    fn len(&self) -> usize {
-        Store::len(self)
-    }
-
-    fn with_producer<CB>(self, callback: CB) -> CB::Output
-    where
-        CB: ProducerCallback<Self::Item>,
-    {
-        callback.callback(DiskStoreProducer {
-            current: 0,
-            end: Store::len(&self),
-            store: &self,
-        })
-    }
-}
-
-impl<'a, E: Element> IndexedParallelIterator for &'a DiskStore<E> {
-    fn drive<C>(self, consumer: C) -> C::Result
-    where
-        C: Consumer<Self::Item>,
-    {
-        bridge(self, consumer)
-    }
-
-    fn len(&self) -> usize {
-        Store::len(*self)
-    }
-
-    fn with_producer<CB>(self, callback: CB) -> CB::Output
-    where
-        CB: ProducerCallback<Self::Item>,
-    {
-        callback.callback(DiskStoreProducer {
-            current: 0,
-            end: Store::len(self),
-            store: self,
-        })
-    }
-}
-
-/// ////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug, Clone)]
-pub struct DiskStoreProducer<'data, E: 'data + Element> {
-    pub(crate) current: usize,
-    pub(crate) end: usize,
-    pub(crate) store: &'data DiskStore<E>,
-}
-
-impl<'data, E: 'data + Element> DiskStoreProducer<'data, E> {
-    pub fn len(&self) -> usize {
-        self.end - self.current
-    }
-}
-
-impl<'data, E: 'data + Element> Producer for DiskStoreProducer<'data, E> {
-    type Item = E;
-    type IntoIter = DiskIter<'data, E>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let DiskStoreProducer {
-            current,
-            end,
-            store,
-        } = self;
-
-        DiskIter {
-            current,
-            end,
-            store,
+            fn opt_len(&self) -> Option<usize> {
+                Some(Store::len(self))
+            }
         }
-    }
+        impl<'a, E: Element> ParallelIterator for &'a $name<E> {
+            type Item = E;
 
-    fn split_at(self, index: usize) -> (Self, Self) {
-        let len = self.len();
+            fn drive_unindexed<C>(self, consumer: C) -> C::Result
+            where
+                C: UnindexedConsumer<Self::Item>,
+            {
+                bridge(self, consumer)
+            }
 
-        if len == 0 {
-            return (
-                DiskStoreProducer {
-                    current: 0,
-                    end: 0,
-                    store: &self.store,
-                },
-                DiskStoreProducer {
-                    current: 0,
-                    end: 0,
-                    store: &self.store,
-                },
-            );
+            fn opt_len(&self) -> Option<usize> {
+                Some(Store::len(*self))
+            }
         }
 
-        let current = self.current;
-        let first_end = current + std::cmp::min(len, index);
+        impl<E: Element> IndexedParallelIterator for $name<E> {
+            fn drive<C>(self, consumer: C) -> C::Result
+            where
+                C: Consumer<Self::Item>,
+            {
+                bridge(self, consumer)
+            }
 
-        debug_assert!(first_end >= current);
-        debug_assert!(current + len >= first_end);
+            fn len(&self) -> usize {
+                Store::len(self)
+            }
 
-        (
-            DiskStoreProducer {
-                current,
-                end: first_end,
-                store: &self.store,
-            },
-            DiskStoreProducer {
-                current: first_end,
-                end: current + len,
-                store: &self.store,
-            },
-        )
-    }
-}
-
-#[derive(Debug)]
-pub struct DiskIter<'data, E: 'data + Element> {
-    current: usize,
-    end: usize,
-    store: &'data DiskStore<E>,
-}
-
-impl<'data, E: 'data + Element> DiskIter<'data, E> {
-    fn is_done(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-impl<'data, E: 'data + Element> Iterator for DiskIter<'data, E> {
-    type Item = E;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.is_done() {
-            return None;
+            fn with_producer<CB>(self, callback: CB) -> CB::Output
+            where
+                CB: ProducerCallback<Self::Item>,
+            {
+                callback.callback(<$producer<E>>::new(0, Store::len(&self), &self))
+            }
         }
 
-        let el = self.store.read_at(self.current);
-        self.current += 1;
+        impl<'a, E: Element> IndexedParallelIterator for &'a $name<E> {
+            fn drive<C>(self, consumer: C) -> C::Result
+            where
+                C: Consumer<Self::Item>,
+            {
+                bridge(self, consumer)
+            }
 
-        Some(el)
-    }
-}
+            fn len(&self) -> usize {
+                Store::len(*self)
+            }
 
-impl<'data, E: 'data + Element> ExactSizeIterator for DiskIter<'data, E> {
-    fn len(&self) -> usize {
-        debug_assert!(self.current <= self.end);
-        self.end - self.current
-    }
-}
-
-impl<'data, E: 'data + Element> DoubleEndedIterator for DiskIter<'data, E> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if self.is_done() {
-            return None;
+            fn with_producer<CB>(self, callback: CB) -> CB::Output
+            where
+                CB: ProducerCallback<Self::Item>,
+            {
+                callback.callback(<$producer<E>>::new(0, Store::len(self), self))
+            }
         }
 
-        let el = self.store.read_at(self.end - 1);
-        self.end -= 1;
+        #[derive(Debug, Clone)]
+        pub struct $producer<'data, E: 'data + Element> {
+            pub(crate) current: usize,
+            pub(crate) end: usize,
+            pub(crate) store: &'data $name<E>,
+        }
 
-        Some(el)
-    }
+        impl<'data, E: 'data + Element> $producer<'data, E> {
+            pub fn new(current: usize, end: usize, store: &'data $name<E>) -> Self {
+                Self {
+                    current,
+                    end,
+                    store,
+                }
+            }
+
+            pub fn len(&self) -> usize {
+                self.end - self.current
+            }
+
+            pub fn is_empty(&self) -> bool {
+                self.len() == 0
+            }
+        }
+
+        impl<'data, E: 'data + Element> Producer for $producer<'data, E> {
+            type Item = E;
+            type IntoIter = $iter<'data, E>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                let $producer {
+                    current,
+                    end,
+                    store,
+                } = self;
+
+                $iter {
+                    current,
+                    end,
+                    store,
+                }
+            }
+
+            fn split_at(self, index: usize) -> (Self, Self) {
+                let len = self.len();
+
+                if len == 0 {
+                    return (
+                        <$producer<E>>::new(0, 0, &self.store),
+                        <$producer<E>>::new(0, 0, &self.store),
+                    );
+                }
+
+                let current = self.current;
+                let first_end = current + std::cmp::min(len, index);
+
+                debug_assert!(first_end >= current);
+                debug_assert!(current + len >= first_end);
+
+                (
+                    <$producer<E>>::new(current, first_end, &self.store),
+                    <$producer<E>>::new(first_end, current + len, &self.store),
+                )
+            }
+        }
+        #[derive(Debug)]
+        pub struct $iter<'data, E: 'data + Element> {
+            current: usize,
+            end: usize,
+            store: &'data $name<E>,
+        }
+
+        impl<'data, E: 'data + Element> $iter<'data, E> {
+            fn is_done(&self) -> bool {
+                self.len() == 0
+            }
+        }
+
+        impl<'data, E: 'data + Element> Iterator for $iter<'data, E> {
+            type Item = E;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.is_done() {
+                    return None;
+                }
+
+                let el = self.store.read_at(self.current);
+                self.current += 1;
+
+                Some(el)
+            }
+        }
+
+        impl<'data, E: 'data + Element> ExactSizeIterator for $iter<'data, E> {
+            fn len(&self) -> usize {
+                debug_assert!(self.current <= self.end);
+                self.end - self.current
+            }
+        }
+
+        impl<'data, E: 'data + Element> DoubleEndedIterator for $iter<'data, E> {
+            fn next_back(&mut self) -> Option<Self::Item> {
+                if self.is_done() {
+                    return None;
+                }
+
+                let el = self.store.read_at(self.end - 1);
+                self.end -= 1;
+
+                Some(el)
+            }
+        }
+    };
 }
+
+impl_parallel_iter!(VecStore, VecStoreProducer, VecStoreIter);
+impl_parallel_iter!(DiskStore, DiskStoreProducer, DiskIter);
+impl_parallel_iter!(LevelCacheStore, LevelCacheStoreProducer, LevelCacheIter);

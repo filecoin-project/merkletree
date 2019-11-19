@@ -301,7 +301,6 @@ fn test_simple_tree() {
         }
 
         {
-            let cached_above_base_levels = 2;
             let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
                 MerkleTree::from_byte_slice(&leafs);
             assert_eq!(mt2.leafs(), items);
@@ -309,15 +308,6 @@ fn test_simple_tree() {
             for i in 0..mt2.leafs() {
                 let p = mt2.gen_proof(i);
                 assert!(p.validate::<XOR128>());
-                if items >= 7 {
-                    // When the tree is large enough to have some
-                    // cached levels, test the proof generation from a
-                    // partial store.
-                    let pat = mt2
-                        .gen_proof_and_partial_tree(i, cached_above_base_levels)
-                        .unwrap();
-                    assert!(pat.proof.validate::<XOR128>());
-                }
             }
         }
     }
@@ -357,19 +347,21 @@ fn test_large_tree() {
 
 #[test]
 fn test_various_trees_with_partial_cache() {
+    env_logger::init();
     let mut a = XOR128::new();
 
+    // Attempt to allow this test to move along relatively quickly.
     let min_count = SMALL_TREE_BUILD / 16;
-    let max_count = SMALL_TREE_BUILD * 16;
+    let max_count = SMALL_TREE_BUILD * 4;
     let mut count = min_count;
-
-    let pow = next_pow2(min_count);
-    let height = log2_pow2(2 * pow);
-
-    let cached_above_base_levels = height - 1;
 
     // Test a range of tree sizes, given a range of leaf elements.
     while count <= max_count {
+        let pow = next_pow2(count);
+        let height = log2_pow2(2 * pow);
+
+        let cached_above_base_levels = height;
+
         // Test a range of heights to cache above the base (for
         // different partial tree sizes).
         for i in 0..cached_above_base_levels {
@@ -408,6 +400,14 @@ fn test_various_trees_with_partial_cache() {
             let p = mt_cache.gen_proof(0);
             assert!(p.validate::<XOR128>());
 
+            /*
+            // This is commented out because it's no longer necessary.
+            // The idea below is that we generate 2 partial merkle
+            // trees and then all of the proofs re-using those trees.
+            // With the optimal partial tree generation imlemented
+            // now, this use case is not as appealing as it once was
+            // envisioned to be.
+
             // Generate and validate proof on the first element and also
             // retrieve the partial tree needed for future proof
             // generation.  This is an optimization that lets us re-use
@@ -429,6 +429,7 @@ fn test_various_trees_with_partial_cache() {
                 .gen_proof_and_partial_tree(mt_cache.leafs() / 2, i)
                 .unwrap();
             assert!(pat2.proof.validate::<XOR128>());
+            */
 
             for j in 1..mt_cache.leafs() {
                 // First generate and validate the proof using the full
@@ -436,6 +437,9 @@ fn test_various_trees_with_partial_cache() {
                 // is built or used in this case).
                 let p = mt_cache.gen_proof(j);
                 assert!(p.validate::<XOR128>());
+
+                /*
+                // See comment above on why this is no longer necessary.
 
                 // Then generate proofs using a combination of data in the
                 // partial tree generated outside of this loop, and data
@@ -448,6 +452,7 @@ fn test_various_trees_with_partial_cache() {
                     let p2 = mt_cache.gen_proof_with_partial_tree(j, i, &pat2.merkle_tree);
                     assert!(p2.validate::<XOR128>());
                 }
+                */
             }
 
             // Once we have the full on-disk MT data, we can optimize
@@ -478,17 +483,24 @@ fn test_various_trees_with_partial_cache() {
             assert_eq!(mt_level_cache.len(), mt_cache_len);
             assert_eq!(mt_level_cache.leafs(), mt_cache.leafs());
 
-            // This is the proper way to generate a single proof using the
-            // LevelCacheStore.  If generating more than 1 proof, it's
-            // terribly slow though since the partial tree(s) generated
-            // are not re-used across calls.  For that example, see the
-            // next test below.
-            //
-            // This is commented out because it adds a lot of runtime waiting.
-            // for j in 0..mt_level_cache.leafs() {
-            //     let pat = mt_level_cache.gen_proof_and_partial_tree(j, i);
-            //     assert!(pat.proof.validate::<XOR128>());
-            // }
+            // This is the proper way to generate a single proof using
+            // the LevelCacheStore.  The optimal partial tree is
+            // built, given the cached parameters and the properly
+            // recorded LevelCacheStore.
+            for j in 0..mt_level_cache.leafs() {
+                let pat = mt_level_cache
+                    .gen_proof_and_partial_tree(j, i)
+                    .expect("Failed to generate proof and partial tree");
+                assert!(pat.proof.validate::<XOR128>());
+            }
+
+            /*
+            // This is commented out because it's no longer necessary.
+            // The idea below is that we generate 2 partial merkle
+            // trees and then all of the proofs re-using those trees.
+            // With the optimal partial tree generation imlemented
+            // now, this use case is not as appealing as it once was
+            // envisioned to be.
 
             // Optimized proof generation based on simple generation pattern:
             let pat1 = mt_level_cache.gen_proof_and_partial_tree(0, i).unwrap();
@@ -515,6 +527,7 @@ fn test_various_trees_with_partial_cache() {
                     assert!(p2.validate::<XOR128>());
                 }
             }
+            */
 
             // Delete the single store backing this MT (for this test,
             // the DiskStore is compacted and then shared with the

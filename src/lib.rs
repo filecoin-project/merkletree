@@ -158,6 +158,8 @@
 )]
 #![cfg_attr(feature = "nightly", allow(unstable_features))]
 
+extern crate log;
+
 extern crate failure;
 
 extern crate rayon;

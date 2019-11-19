@@ -498,10 +498,12 @@ impl<E: Element> DiskStore<E> {
 
         self.file
             .read_exact_at(start as u64, &mut read_data)
-            .unwrap_or_else(|_| panic!(
-                "failed to read {} bytes from file at offset {}",
-                read_len, start
-            ));
+            .unwrap_or_else(|_| {
+                panic!(
+                    "failed to read {} bytes from file at offset {}",
+                    read_len, start
+                )
+            });
 
         assert_eq!(read_data.len(), read_len);
 
@@ -511,11 +513,13 @@ impl<E: Element> DiskStore<E> {
     pub fn store_read_into(&self, start: usize, end: usize, buf: &mut [u8]) {
         self.file
             .read_exact_at(start as u64, buf)
-            .unwrap_or_else(|_| panic!(
-                "failed to read {} bytes from file at offset {}",
-                end - start,
-                start
-            ));
+            .unwrap_or_else(|_| {
+                panic!(
+                    "failed to read {} bytes from file at offset {}",
+                    end - start,
+                    start
+                )
+            });
 
         assert_eq!(buf.len(), end - start);
     }
@@ -769,10 +773,12 @@ impl<E: Element> LevelCacheStore<E> {
 
         self.file
             .read_exact_at(adjusted_start as u64, &mut read_data)
-            .unwrap_or_else(|_| panic!(
-                "failed to read {} bytes from file at offset {}",
-                read_len, start
-            ));
+            .unwrap_or_else(|_| {
+                panic!(
+                    "failed to read {} bytes from file at offset {}",
+                    read_len, start
+                )
+            });
 
         assert_eq!(read_data.len(), read_len);
 
@@ -782,11 +788,13 @@ impl<E: Element> LevelCacheStore<E> {
     pub fn store_read_into(&self, start: usize, end: usize, buf: &mut [u8]) {
         self.file
             .read_exact_at(start as u64, buf)
-            .unwrap_or_else(|_| panic!(
-                "failed to read {} bytes from file at offset {}",
-                end - start,
-                start
-            ));
+            .unwrap_or_else(|_| {
+                panic!(
+                    "failed to read {} bytes from file at offset {}",
+                    end - start,
+                    start
+                )
+            });
 
         assert_eq!(buf.len(), end - start);
     }

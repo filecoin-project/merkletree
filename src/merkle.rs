@@ -1,5 +1,6 @@
 use failure::Error;
 use hash::{Algorithm, Hashable};
+use log::info;
 use proof::Proof;
 use rayon::prelude::*;
 use std::iter::FromIterator;
@@ -276,7 +277,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         while width > 1 {
             if width & 1 == 1 {
-                let last_node = data.read_at(data.len() - 1);
+                let last_node = data.read_at(Store::len(&data) - 1);
                 data.push(last_node);
 
                 width += 1;
@@ -317,7 +318,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 
-        let root = { data.read_at(data.len() - 1) };
+        let root = { data.read_at(Store::len(&data) - 1) };
 
         MerkleTree {
             data,
@@ -334,21 +335,20 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         mut data: VecStore<T>,
         leafs: usize,
         height: usize,
-        stop_index: usize,
     ) -> Result<MerkleTree<T, A, VecStore<T>>> {
         let mut level: usize = 0;
         let mut width = leafs;
         let mut level_node_index = 0;
 
         while width > 1 {
-            // NOTE: We assert that the data leaf has already been
-            // duplicated if needed from the initial store/data build.
-            assert!(leafs % 2 == 0);
+            // For partial tree building, the data layers can never be
+            // odd lengths.
+            assert!(width % 2 == 0);
 
-            // Same indexing logic as `build_small_tree`.
+            // Same indexing logic as `build`.
             let (layer, write_start) = {
                 let (read_start, write_start) = if level == 0 {
-                    (0, leafs)
+                    (0, Store::len(&data))
                 } else {
                     (level_node_index, level_node_index + width)
                 };
@@ -371,27 +371,15 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             }
 
             level_node_index += width;
-
-            // If we get into the already cached region (based on the
-            // specified stop_index), stop building the tree since
-            // it'll never be accessed by properly behaving callers.
-            if level_node_index >= stop_index {
-                break;
-            }
-
             level += 1;
             width >>= 1;
         }
 
-        // This root may not be a real root in the case of a partial
-        // tree build for the same reason that the height may be
-        // incorrect (i.e. we aborted early because we hit the
-        // stop_index).
-        let root = { data.read_at(Store::len(&data) - 1) };
+        assert_eq!(height, level + 1);
+        // The root isn't part of the previous loop so `height` is
+        // missing one level.
 
-        // Re-claim any memory that was allocated and unused at this
-        // point in the data.
-        data.compact(Default::default())?;
+        let root = { data.read_at(Store::len(&data) - 1) };
 
         Ok(MerkleTree {
             data,
@@ -457,18 +445,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         i: usize,
         levels: usize,
     ) -> Result<ProofAndTree<T, A, VecStore<T>>> {
-        assert!(i < self.leafs); // i in [0 .. self.leafs)
+        assert!(i < self.leafs); // i in [0 .. self.leafs]
 
-        let mut width = self.leafs;
-        if width & 1 == 1 {
-            width += 1;
-        }
+        // For partial tree building, the data layer width must be a
+        // power of 2.
+        assert_eq!(self.leafs, next_pow2(self.leafs));
 
-        assert_eq!(width, next_pow2(width));
-
-        let total_size = 2 * width - 1;
+        let total_size = 2 * self.leafs - 1;
         let cache_size = total_size >> levels;
-        let partial_height = self.height - levels;
         if cache_size >= total_size {
             return Ok(ProofAndTree {
                 proof: self.gen_proof(i),
@@ -476,41 +460,55 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             });
         }
 
-        // Before generating the proof, build the partial tree based
-        // on the data side we need it on.
-        //
-        // FIXME: These perhaps could be smarter about the partial
-        // tree width to not overbuild the partial tree.
-        let partial_width = width >> 1;
-        let offset = if i + 1 > width >> 1 { width >> 1 } else { 0 };
+        let cached_leafs = get_merkle_tree_leafs(cache_size);
+        // Special case: if only the root is cached, we need to rebuild the entire tree,
+        // so we set the partial tree height to be the entire tree height.  This is the
+        // only acceptable case where cached_leafs may not be an even power of 2.
+        let cache_height = if cached_leafs == 1 {
+            0
+        } else {
+            assert_eq!(cached_leafs, next_pow2(cached_leafs));
+            log2_pow2(cached_leafs)
+        };
 
-        // Copy the proper half of the base data into memory and
+        let partial_height = self.height - cache_height;
+        let segment_width = self.leafs / cached_leafs;
+        let segment_start = (i / segment_width) * segment_width;
+        let segment_end = segment_start + segment_width;
+
+        info!("leafs {}, total size {}, total height {}, cache_size {}, cached levels above base {}, \
+               partial_height {}, cached_leafs {}, segment_width {}, segment range {}-{} for {}",
+              self.leafs, total_size, self.height, cache_size, levels, partial_height,
+              cached_leafs, segment_width, segment_start, segment_end, i);
+
+        // Copy the proper segment of the base data into memory and
         // initialize a VecStore to back a new, smaller MT.
-        let mut data_copy = vec![0; partial_width * T::byte_len()];
+        let mut data_copy = vec![0; segment_width * T::byte_len()];
         self.data
-            .read_range_into(offset, offset + partial_width, &mut data_copy);
-        let partial_store = VecStore::new_from_slice(partial_width, &data_copy)
+            .read_range_into(segment_start, segment_end, &mut data_copy);
+        let partial_store = VecStore::new_from_slice(segment_width, &data_copy)
             .expect("Failed to create intermediate Store");
-        assert_eq!(Store::len(&partial_store), partial_width);
+        assert_eq!(Store::len(&partial_store), segment_width);
 
         // Before building the tree, resize the store where the tree
         // will be built to allow space for the newly constructed layers.
-        data_copy.resize(((2 * partial_width) - 1) * T::byte_len(), 0);
+        data_copy.resize(((2 * segment_width) - 1) * T::byte_len(), 0);
 
-        // Build the small tree.  Note that this 'partial_tree' can be
-        // trapezoidal in shape, as it stops building upward when it
-        // runs into the cached region.
-        //
-        // FIXME: Eventually that will not be true when we're building
-        // only the proper/minimal tree required for the proof.
-        let partial_tree: MerkleTree<T, A, VecStore<T>> = Self::build_partial_small_tree(
-            partial_store,
-            partial_width,
-            partial_height,
-            total_size - width - cache_size,
-        )?;
+        // Build the optimally small tree.
+        let partial_tree: MerkleTree<T, A, VecStore<T>> =
+            Self::build_partial_small_tree(partial_store, segment_width, partial_height)?;
+        assert_eq!(partial_height, partial_tree.height());
 
+        // Generate entire proof with access to the base data, the
+        // cached data, and the partial tree.
         let proof = self.gen_proof_with_partial_tree(i, levels, &partial_tree);
+
+        info!(
+            "generated partial_tree of height {} and len {} for proof at {}",
+            partial_tree.height,
+            partial_tree.len(),
+            i
+        );
 
         Ok(ProofAndTree {
             proof,
@@ -528,26 +526,27 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     ) -> Proof<T> {
         assert!(i < self.leafs); // i in [0 .. self.leafs)
 
-        let mut lemma: Vec<T> = Vec::with_capacity(self.height + 1); // path + root
-        let mut path: Vec<bool> = Vec::with_capacity(self.height - 1); // path - 1
-
-        let mut base = 0;
-        let mut j = i;
+        // For partial tree building, the data layer width must be a
+        // power of 2.
         let mut width = self.leafs;
-        if width & 1 == 1 {
-            width += 1;
-        }
+        assert_eq!(width, next_pow2(width));
 
         let data_width = width;
         let total_size = 2 * data_width - 1;
         let cache_size = total_size >> levels;
-
-        // Determine the offset where the partial tree provided should
-        // have been built from.
-        let offset = if i + 1 > width >> 1 { width >> 1 } else { 0 };
-
-        let mut offset_level_index = 0;
         let cache_index_start = total_size - cache_size;
+        let cached_leafs = get_merkle_tree_leafs(cache_size);
+
+        let mut segment_width = width / cached_leafs;
+        let segment_start = (i / segment_width) * segment_width;
+
+        let mut j = i;
+        let mut base = 0;
+        let mut partial_base = 0;
+        let mut current_height = 0;
+
+        let mut lemma: Vec<T> = Vec::with_capacity(self.height + 1); // path + root
+        let mut path: Vec<bool> = Vec::with_capacity(self.height - 1); // path - 1
 
         lemma.push(self.read_at(j));
         while base + 1 < self.len() {
@@ -555,29 +554,31 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 // j is left
                 let left_index = base + j + 1;
 
-                // Check if we can read from either the base data
-                // layer, or the cached region (accessed the same way
-                // via the store interface).
+                // Check if we can read from either the base data layer, or the cached region
+                // (accessed the same way via the store interface).
                 if left_index < data_width || left_index >= cache_index_start {
                     self.read_at(left_index)
                 } else {
-                    // Otherwise, read from the partially built sub-tree.
-                    let index = (base >> 1) + j + 1 - (offset >> offset_level_index);
-                    partial_tree.read_at(index)
+                    // Otherwise, read from the partially built sub-tree with a properly
+                    // adjusted index.
+                    let partial_tree_index =
+                        partial_base + j + 1 - (segment_start >> current_height);
+                    partial_tree.read_at(partial_tree_index)
                 }
             } else {
                 // j is right
                 let right_index = base + j - 1;
 
-                // Check if we can read from either the base data
-                // layer, or the cached region (accessed the same way
-                // via the store interface).
+                // Check if we can read from either the base data layer, or the cached region
+                // (accessed the same way via the store interface).
                 if right_index < data_width || right_index >= cache_index_start {
                     self.read_at(right_index)
                 } else {
-                    // Otherwise, read from the partially built sub-tree.
-                    let index = (base >> 1) + j - 1 - (offset >> offset_level_index);
-                    partial_tree.read_at(index)
+                    // Otherwise, read from the partially built sub-tree with a properly
+                    // adjusted index.
+                    let partial_tree_index =
+                        partial_base + j - 1 - (segment_start >> current_height);
+                    partial_tree.read_at(partial_tree_index)
                 }
             });
 
@@ -585,16 +586,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
             base += width;
             width >>= 1;
-            if width & 1 == 1 {
-                width += 1;
-            }
+
+            partial_base += segment_width;
+            segment_width >>= 1;
+
             j >>= 1;
-            if offset != 0 {
-                // This keeps track of the sub-tree height, which is
-                // required to help us determine the sub-tree offset
-                // needed.
-                offset_level_index += 1;
-            }
+            current_height += 1;
         }
 
         // root is final
@@ -868,6 +865,12 @@ impl Element for [u8; 32] {
 // constructed while also considering 'leafs' inputs that are not
 // powers of 2.
 pub fn get_merkle_tree_len(leafs: usize) -> usize {
+    if leafs == 1 {
+        // With a single leaf, the normal build algorithm will add a
+        // leaf, which causes a parent to also be required.
+        return 3;
+    }
+
     let mut len = 0;
     let mut width = leafs;
     while width > 1 {
@@ -885,7 +888,13 @@ pub fn get_merkle_tree_len(leafs: usize) -> usize {
 // This method returns the minimal number of 'leafs' given a merkle
 // tree length of 'len'.
 pub fn get_merkle_tree_leafs(len: usize) -> usize {
-    let mut leafs = len >> 2;
+    let mut leafs = len >> 1;
+    if leafs == 1 {
+        return 2;
+    } else {
+        leafs >>= 1;
+    }
+
     while leafs < len {
         if get_merkle_tree_len(leafs) == len {
             break;
@@ -903,6 +912,10 @@ pub fn get_merkle_tree_leafs(len: usize) -> usize {
 /// [](http://locklessinc.com/articles/next_pow2/)
 /// [](https://stackoverflow.com/questions/466204/rounding-up-to-next-power-of-2/466242#466242)
 pub fn next_pow2(mut n: usize) -> usize {
+    if n == 1 {
+        return 2;
+    }
+
     n -= 1;
     n |= n >> 1;
     n |= n >> 2;

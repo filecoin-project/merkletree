@@ -496,30 +496,28 @@ impl<E: Element> DiskStore<E> {
         let read_len = end - start;
         let mut read_data = vec![0; read_len];
 
-        assert_eq!(
-            self.file
-                .read_at(start as u64, &mut read_data)
-                .unwrap_or_else(|_| panic!(
-                    "failed to read {} bytes from file at offset {}",
-                    read_len, start
-                )),
-            read_len
-        );
+        self.file
+            .read_exact_at(start as u64, &mut read_data)
+            .unwrap_or_else(|_| panic!(
+                "failed to read {} bytes from file at offset {}",
+                read_len, start
+            ));
+
+        assert_eq!(read_data.len(), read_len);
 
         read_data
     }
 
     pub fn store_read_into(&self, start: usize, end: usize, buf: &mut [u8]) {
-        assert_eq!(
-            self.file
-                .read_at(start as u64, buf)
-                .unwrap_or_else(|_| panic!(
-                    "failed to read {} bytes from file at offset {}",
-                    end - start,
-                    start
-                )),
-            end - start
-        );
+        self.file
+            .read_exact_at(start as u64, buf)
+            .unwrap_or_else(|_| panic!(
+                "failed to read {} bytes from file at offset {}",
+                end - start,
+                start
+            ));
+
+        assert_eq!(buf.len(), end - start);
     }
 
     pub fn store_copy_from_slice(&mut self, start: usize, slice: &[u8]) {
@@ -769,30 +767,28 @@ impl<E: Element> LevelCacheStore<E> {
             adjusted_start = start - self.cache_index_start + (self.data_width * self.elem_len);
         }
 
-        assert_eq!(
-            self.file
-                .read_at(adjusted_start as u64, &mut read_data)
-                .unwrap_or_else(|_| panic!(
-                    "failed to read {} bytes from file at offset {}",
-                    read_len, start
-                )),
-            read_len
-        );
+        self.file
+            .read_exact_at(adjusted_start as u64, &mut read_data)
+            .unwrap_or_else(|_| panic!(
+                "failed to read {} bytes from file at offset {}",
+                read_len, start
+            ));
+
+        assert_eq!(read_data.len(), read_len);
 
         read_data
     }
 
     pub fn store_read_into(&self, start: usize, end: usize, buf: &mut [u8]) {
-        assert_eq!(
-            self.file
-                .read_at(start as u64, buf)
-                .unwrap_or_else(|_| panic!(
-                    "failed to read {} bytes from file at offset {}",
-                    end - start,
-                    start
-                )),
-            end - start
-        );
+        self.file
+            .read_exact_at(start as u64, buf)
+            .unwrap_or_else(|_| panic!(
+                "failed to read {} bytes from file at offset {}",
+                end - start,
+                start
+            ));
+
+        assert_eq!(buf.len(), end - start);
     }
 
     pub fn store_copy_from_slice(&mut self, _start: usize, _slice: &[u8]) {

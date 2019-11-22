@@ -488,10 +488,10 @@ fn test_various_trees_with_partial_cache() {
             // built, given the cached parameters and the properly
             // recorded LevelCacheStore.
             for j in 0..mt_level_cache.leafs() {
-                let pat = mt_level_cache
+                let (proof, _) = mt_level_cache
                     .gen_proof_and_partial_tree(j, i)
                     .expect("Failed to generate proof and partial tree");
-                assert!(pat.proof.validate::<XOR128>());
+                assert!(proof.validate::<XOR128>());
             }
 
             /*

@@ -10,17 +10,6 @@ use store::{Store, StoreConfig, VecStore};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug)]
-pub struct ProofAndTree<T, A, K>
-where
-    T: Element,
-    A: Algorithm<T>,
-    K: Store<T>,
-{
-    pub proof: Proof<T>,
-    pub merkle_tree: MerkleTree<T, A, K>,
-}
-
 /// Tree size (number of nodes) used as threshold to decide which build algorithm
 /// to use. Small trees (below this value) use the old build algorithm, optimized
 /// for speed rather than memory, allocating as much as needed to allow multiple
@@ -440,11 +429,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
     /// Generate merkle tree inclusion proof for leaf `i` by first
     /// building a partial tree (returned) along with the proof.
+    /// Return value is a Result tuple of the proof and the partial
+    /// tree that was constructed.
+    #[allow(clippy::type_complexity)]
     pub fn gen_proof_and_partial_tree(
         &self,
         i: usize,
         levels: usize,
-    ) -> Result<ProofAndTree<T, A, VecStore<T>>> {
+    ) -> Result<(Proof<T>, MerkleTree<T, A, VecStore<T>>)> {
         assert!(i < self.leafs); // i in [0 .. self.leafs]
 
         // For partial tree building, the data layer width must be a
@@ -454,24 +446,19 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let total_size = 2 * self.leafs - 1;
         let cache_size = total_size >> levels;
         if cache_size >= total_size {
-            return Ok(ProofAndTree {
-                proof: self.gen_proof(i),
-                merkle_tree: Default::default(),
-            });
+            return Ok((self.gen_proof(i), Default::default()));
         }
 
         let cached_leafs = get_merkle_tree_leafs(cache_size);
-        // Special case: if only the root is cached, we need to rebuild the entire tree,
-        // so we set the partial tree height to be the entire tree height.  This is the
-        // only acceptable case where cached_leafs may not be an even power of 2.
-        let cache_height = if cached_leafs == 1 {
-            0
-        } else {
-            assert_eq!(cached_leafs, next_pow2(cached_leafs));
-            log2_pow2(cached_leafs)
-        };
+        assert_eq!(cached_leafs, next_pow2(cached_leafs));
 
+        let cache_height = log2_pow2(cached_leafs);
         let partial_height = self.height - cache_height;
+
+        // Calculate the data layer width (termed 'segment_width')
+        // that we need in order to build the partial tree required to
+        // build the proof, given the data configuration specified by
+        // 'levels'.
         let segment_width = self.leafs / cached_leafs;
         let segment_start = (i / segment_width) * segment_width;
         let segment_end = segment_start + segment_width;
@@ -510,10 +497,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             i
         );
 
-        Ok(ProofAndTree {
-            proof,
-            merkle_tree: partial_tree,
-        })
+        Ok((proof, partial_tree))
     }
 
     /// Generate merkle tree inclusion proof for leaf `i` given a
@@ -536,13 +520,29 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let cache_size = total_size >> levels;
         let cache_index_start = total_size - cache_size;
         let cached_leafs = get_merkle_tree_leafs(cache_size);
+        assert_eq!(cached_leafs, next_pow2(cached_leafs));
 
+        // Calculate the subset of the data layer width that we need
+        // in order to build the partial tree required to build the
+        // proof (termed 'segment_width').
         let mut segment_width = width / cached_leafs;
         let segment_start = (i / segment_width) * segment_width;
 
+        // 'j' is used to track the challenged nodes required for the
+        // proof up the tree.
         let mut j = i;
+
+        // 'base' is used to track the data index of the layer that
+        // we're currently processing in the main merkle tree that's
+        // represented by the store.
         let mut base = 0;
+
+        // 'partial_base' is used to track the data index of the layer
+        // that we're currently processing in the partial tree.
         let mut partial_base = 0;
+
+        // 'current_height' tracks the layer count being processed,
+        // starting from the bottom and increasing toward the root.
         let mut current_height = 0;
 
         let mut lemma: Vec<T> = Vec::with_capacity(self.height + 1); // path + root
@@ -912,10 +912,6 @@ pub fn get_merkle_tree_leafs(len: usize) -> usize {
 /// [](http://locklessinc.com/articles/next_pow2/)
 /// [](https://stackoverflow.com/questions/466204/rounding-up-to-next-power-of-2/466242#466242)
 pub fn next_pow2(mut n: usize) -> usize {
-    if n == 1 {
-        return 2;
-    }
-
     n -= 1;
     n |= n >> 1;
     n |= n >> 2;

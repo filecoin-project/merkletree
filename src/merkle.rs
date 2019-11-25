@@ -1,6 +1,6 @@
 use failure::Error;
 use hash::{Algorithm, Hashable};
-use log::info;
+use log::debug;
 use proof::Proof;
 use rayon::prelude::*;
 use std::iter::FromIterator;
@@ -455,26 +455,25 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let cache_height = log2_pow2(cached_leafs);
         let partial_height = self.height - cache_height;
 
-        // Calculate the data layer width (termed 'segment_width')
-        // that we need in order to build the partial tree required to
-        // build the proof, given the data configuration specified by
-        // 'levels'.
+        // Calculate the subset of the base layer data width that we
+        // need in order to build the partial tree required to build
+        // the proof (termed 'segment_width'), given the data
+        // configuration specified by 'levels'.
         let segment_width = self.leafs / cached_leafs;
         let segment_start = (i / segment_width) * segment_width;
         let segment_end = segment_start + segment_width;
 
-        info!("leafs {}, total size {}, total height {}, cache_size {}, cached levels above base {}, \
-               partial_height {}, cached_leafs {}, segment_width {}, segment range {}-{} for {}",
-              self.leafs, total_size, self.height, cache_size, levels, partial_height,
-              cached_leafs, segment_width, segment_start, segment_end, i);
+        debug!("leafs {}, total size {}, total height {}, cache_size {}, cached levels above base {}, \
+                partial_height {}, cached_leafs {}, segment_width {}, segment range {}-{} for {}",
+               self.leafs, total_size, self.height, cache_size, levels, partial_height,
+               cached_leafs, segment_width, segment_start, segment_end, i);
 
         // Copy the proper segment of the base data into memory and
         // initialize a VecStore to back a new, smaller MT.
         let mut data_copy = vec![0; segment_width * T::byte_len()];
         self.data
             .read_range_into(segment_start, segment_end, &mut data_copy);
-        let partial_store = VecStore::new_from_slice(segment_width, &data_copy)
-            .expect("Failed to create intermediate Store");
+        let partial_store = VecStore::new_from_slice(segment_width, &data_copy)?;
         assert_eq!(Store::len(&partial_store), segment_width);
 
         // Before building the tree, resize the store where the tree
@@ -490,7 +489,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // cached data, and the partial tree.
         let proof = self.gen_proof_with_partial_tree(i, levels, &partial_tree);
 
-        info!(
+        debug!(
             "generated partial_tree of height {} and len {} for proof at {}",
             partial_tree.height,
             partial_tree.len(),

@@ -1,5 +1,6 @@
+use std::fmt;
 use std::fs::{remove_file, File, OpenOptions};
-use std::io::{copy, Seek, SeekFrom};
+use std::io::{copy, Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 use std::ops::{self, Index};
 use std::path::{Path, PathBuf};
@@ -15,7 +16,9 @@ use crate::merkle::{get_merkle_tree_leafs, next_pow2, Element};
 
 pub const DEFAULT_CACHED_ABOVE_BASE_LAYER: usize = 7;
 
-const STORE_CONFIG_DATA_VERSION: u32 = 1;
+// Version 1 always contained the base layer data (even after 'compact').
+// Version 2 no longer contains the base layer data after compact.
+const STORE_CONFIG_DATA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct StoreConfig {
@@ -66,6 +69,24 @@ impl StoreConfig {
             size: val,
             levels: config.levels,
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct ExternalReader<R: Read + Send + Sync> {
+    pub source: R,
+    pub read_fn: (fn(start: usize, end: usize, buf: &mut [u8], source: &R) -> Result<usize>),
+}
+
+impl<R: Read + Send + Sync> ExternalReader<R> {
+    pub fn read(&self, start: usize, end: usize, buf: &mut [u8]) -> Result<usize> {
+        (self.read_fn)(start, end, buf, &self.source)
+    }
+}
+
+impl<R: Read + Send + Sync> fmt::Debug for ExternalReader<R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ExternalReader")
     }
 }
 
@@ -448,7 +469,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
 
         // Calculate how large the cache should be (based on the
         // config.levels param).
-        let mut cache_size = (2 * data_width) >> config.levels;
+        let mut cache_size = (2 * data_width - 1) >> config.levels;
         // The file cannot be compacted (to fix, provide a sane
         // configuration).
         ensure!(
@@ -467,21 +488,19 @@ impl<E: Element> Store<E> for DiskStore<E> {
             .open(StoreConfig::data_path(&config.path, &config.id))?;
         reader.seek(SeekFrom::Start(cache_start as u64))?;
 
-        // Seek the writer to the end of the base layer data.
-        self.file.seek(SeekFrom::Start(data_width as u64))?;
+        // Seek the writer to the start of the file.
+        self.file.seek(SeekFrom::Start(0))?;
 
-        // Copy the data from the cached region to just after the base
-        // layer data.
+        // Copy the data from the cached region to the start of the file.
         let written = copy(&mut reader, &mut self.file)?;
         ensure!(written == cache_size as u64, "Failed to copy all data");
 
-        // Truncate the data on-disk just after the base layer data
-        // and cached data that should be persisted.
-        self.file.set_len((data_width + cache_size) as u64)?;
+        // Truncate the data on-disk to be only the cached data.
+        self.file.set_len(cache_size as u64)?;
 
-        // Adjust our length to be data_width + cached_layers for
+        // Adjust our length to be the cached elements only for
         // internal consistency.
-        self.len = (data_width + cache_size) / self.elem_len;
+        self.len = cache_size / self.elem_len;
 
         // Sync and sanity check that we match on disk (this can be
         // removed if needed).
@@ -594,8 +613,7 @@ impl<E: Element> Clone for DiskStore<E> {
 /// supported (except deletion) since we're accessing specially
 /// crafted on-disk data that requires a particular access pattern
 /// dictated at the time of creation/compaction.
-#[derive(Debug)]
-pub struct LevelCacheStore<E: Element> {
+pub struct LevelCacheStore<E: Element, R: Read + Send + Sync> {
     len: usize,
     elem_len: usize,
     file: File,
@@ -610,10 +628,26 @@ pub struct LevelCacheStore<E: Element> {
     // unnecessarily.
     store_size: usize,
 
+    // If provided, the store will use this method to access base
+    // layer data.
+    reader: Option<ExternalReader<R>>,
+
     _e: PhantomData<E>,
 }
 
-impl<E: Element> ops::Deref for LevelCacheStore<E> {
+impl<E: Element, R: Read + Send + Sync> fmt::Debug for LevelCacheStore<E, R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "LevelCacheStore")
+    }
+}
+
+impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
+    pub fn set_external_reader(&mut self, reader: ExternalReader<R>) {
+        self.reader = Some(reader)
+    }
+}
+
+impl<E: Element, R: Read + Send + Sync> ops::Deref for LevelCacheStore<E, R> {
     type Target = [E];
 
     fn deref(&self) -> &Self::Target {
@@ -621,7 +655,7 @@ impl<E: Element> ops::Deref for LevelCacheStore<E> {
     }
 }
 
-impl<E: Element> Store<E> for LevelCacheStore<E> {
+impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
     fn new_with_config(size: usize, config: StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
@@ -673,17 +707,17 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
         let store_range = store_range * E::byte_len();
         let data_len = size * E::byte_len();
 
-        // Calculate cache start and the updated size with repect to
-        // the data size.
-        let mut cache_size = (2 * data_len) >> config.levels;
-        let cache_start = std::cmp::max(store_size - cache_size, data_len);
-        cache_size = store_size - cache_start;
+        // LevelCacheStore on disk file is only the cached data, so
+        // the file size dictates the cache_size.  Calculate cache
+        // start and the updated size with repect to the file size.
+        let mut cache_size = (2 * data_len - 1) >> config.levels;
+        cache_size = std::cmp::min(store_size, cache_size);
         let cache_index_start = store_range - cache_size;
 
         // Sanity checks that the StoreConfig levels matches this
         // particular on-disk file.
         ensure!(
-            store_size == data_len + cache_size,
+            store_size == cache_size,
             "Inconsistent store size detected"
         );
 
@@ -694,6 +728,7 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
             data_width: size,
             cache_index_start,
             store_size,
+            reader: None,
             _e: Default::default(),
         })
     }
@@ -809,7 +844,7 @@ impl<E: Element> Store<E> for LevelCacheStore<E> {
     }
 }
 
-impl<E: Element> LevelCacheStore<E> {
+impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
     pub fn store_size(&self) -> usize {
         self.store_size
     }
@@ -824,10 +859,25 @@ impl<E: Element> LevelCacheStore<E> {
             "out of bounds"
         );
 
+        if start < self.data_width * self.elem_len && self.reader.is_some() {
+            self.reader
+                .as_ref()
+                .unwrap()
+                .read(start, end, &mut read_data)
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "failed to read {} bytes externally at offset {}",
+                        read_len, start
+                    )
+                });
+
+            return Ok(read_data);
+        }
+
         // Adjust read index if in the cached ranged to be shifted
         // over since the data stored is compacted.
         if start >= self.cache_index_start {
-            adjusted_start = start - self.cache_index_start + (self.data_width * self.elem_len);
+            adjusted_start = start - self.cache_index_start;
         }
 
         self.file
@@ -843,15 +893,39 @@ impl<E: Element> LevelCacheStore<E> {
     }
 
     pub fn store_read_into(&self, start: usize, end: usize, buf: &mut [u8]) -> Result<()> {
-        self.file
-            .read_exact_at(start as u64, buf)
-            .with_context(|| {
-                format!(
-                    "failed to read {} bytes from file at offset {}",
-                    end - start,
-                    start
-                )
-            })?;
+        assert!(start <= self.data_width * self.elem_len || start >= self.cache_index_start);
+
+        if start < self.data_width * self.elem_len && self.reader.is_some() {
+            self.reader
+                .as_ref()
+                .unwrap()
+                .read(start, end, buf)
+                .with_context(|| {
+                    format!(
+                        "failed to read {} bytes from file at offset {}",
+                        end - start,
+                        start
+                    )
+                })?;
+        } else {
+            // Adjust read index if in the cached ranged to be shifted
+            // over since the data stored is compacted.
+            let adjusted_start = if start >= self.cache_index_start {
+                start - self.cache_index_start
+            } else {
+                start
+            };
+
+            self.file
+                .read_exact_at(adjusted_start as u64, buf)
+                .with_context(|| {
+                    format!(
+                        "failed to read {} bytes from file at offset {}",
+                        end - start,
+                        start
+                    )
+                })?;
+        }
 
         Ok(())
     }
@@ -864,8 +938,8 @@ impl<E: Element> LevelCacheStore<E> {
 // FIXME: Fake `Clone` implementation to accommodate the artificial call in
 //  `from_data_with_store`, we won't actually duplicate the mmap memory,
 //  just recreate the same object (as the original will be dropped).
-impl<E: Element> Clone for LevelCacheStore<E> {
-    fn clone(&self) -> LevelCacheStore<E> {
+impl<E: Element, R: Read + Send + Sync> Clone for LevelCacheStore<E, R> {
+    fn clone(&self) -> LevelCacheStore<E, R> {
         unimplemented!("We can't clone a store with an already associated file");
     }
 }
@@ -1074,4 +1148,4 @@ macro_rules! impl_parallel_iter {
 
 impl_parallel_iter!(VecStore, VecStoreProducer, VecStoreIter);
 impl_parallel_iter!(DiskStore, DiskStoreProducer, DiskIter);
-impl_parallel_iter!(LevelCacheStore, LevelCacheStoreProducer, LevelCacheIter);
+//impl_parallel_iter!(LevelCacheStore, LevelCacheStoreProducer, LevelCacheIter);

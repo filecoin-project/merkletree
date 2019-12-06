@@ -656,7 +656,13 @@ pub struct LevelCacheStore<E: Element, R: Read + Send + Sync> {
 
 impl<E: Element, R: Read + Send + Sync> fmt::Debug for LevelCacheStore<E, R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "LevelCacheStore")
+        f.debug_struct("LevelCacheStore")
+            .field("len", &self.len)
+            .field("elem_len", &self.len)
+            .field("data_width", &self.data_width)
+            .field("cache_index_start", &self.cache_index_start)
+            .field("store_size", &self.store_size)
+            .finish()
     }
 }
 

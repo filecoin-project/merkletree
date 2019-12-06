@@ -652,8 +652,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     /// Truncates the data for later access via LevelCacheStore
     /// interface.
     #[inline]
-    pub fn compact(&mut self, config: StoreConfig) -> Result<bool> {
-        self.data.compact(config)
+    pub fn compact(&mut self, config: StoreConfig, store_version: u32) -> Result<bool> {
+        self.data.compact(config, store_version)
     }
 
     /// Removes the backing store for this merkle tree.

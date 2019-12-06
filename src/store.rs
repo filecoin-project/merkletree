@@ -18,7 +18,13 @@ pub const DEFAULT_CACHED_ABOVE_BASE_LAYER: usize = 7;
 
 // Version 1 always contained the base layer data (even after 'compact').
 // Version 2 no longer contains the base layer data after compact.
-const STORE_CONFIG_DATA_VERSION: u32 = 2;
+#[derive(Clone, Copy, Debug)]
+pub enum StoreConfigDataVersion {
+    One = 1,
+    Two = 2,
+}
+
+const DEFAULT_STORE_CONFIG_DATA_VERSION: u32 = StoreConfigDataVersion::Two as u32;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct StoreConfig {
@@ -52,7 +58,7 @@ impl StoreConfig {
     pub fn data_path(path: &PathBuf, id: &str) -> PathBuf {
         Path::new(&path).join(format!(
             "sc-{:0>2}-data-{}.dat",
-            STORE_CONFIG_DATA_VERSION, id
+            DEFAULT_STORE_CONFIG_DATA_VERSION, id
         ))
     }
 
@@ -86,7 +92,10 @@ impl<R: Read + Send + Sync> ExternalReader<R> {
 
 impl<R: Read + Send + Sync> fmt::Debug for ExternalReader<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ExternalReader")
+        f.debug_struct("ExternalReader")
+            .field("source: Read + Send + Sync", &1)
+            .field("read_fn: callback(start: usize, end: usize, buf: &mut [u8])", &2)
+            .finish()
     }
 }
 
@@ -110,7 +119,7 @@ pub trait Store<E: Element>:
     // `buf` is a slice of converted `E`s and `start` is its
     // position in `E` sizes (*not* in `u8`).
     fn copy_from_slice(&mut self, buf: &[u8], start: usize) -> Result<()>;
-    fn compact(&mut self, config: StoreConfig) -> Result<bool>;
+    fn compact(&mut self, config: StoreConfig, store_version: u32) -> Result<bool>;
 
     // Removes the store backing (does not require a mutable reference
     // since the config should provide stateless context to what's
@@ -232,7 +241,7 @@ impl<E: Element> Store<E> for VecStore<E> {
         false
     }
 
-    fn compact(&mut self, _config: StoreConfig) -> Result<bool> {
+    fn compact(&mut self, _config: StoreConfig, _store_version: u32) -> Result<bool> {
         self.0.shrink_to_fit();
 
         Ok(true)
@@ -463,13 +472,14 @@ impl<E: Element> Store<E> for DiskStore<E> {
     // Specifically, this method truncates an existing DiskStore and
     // formats the data in such a way that is compatible with future
     // access using LevelCacheStore::new_from_disk.
-    fn compact(&mut self, config: StoreConfig) -> Result<bool> {
-        // Determine how many leafs there are (in bytes).
-        let data_width = get_merkle_tree_leafs(self.len) * self.elem_len;
+    fn compact(&mut self, config: StoreConfig, store_version: u32) -> Result<bool> {
+        // Determine how many base layer leafs there are (and in bytes).
+        let leafs = get_merkle_tree_leafs(self.len);
+        let data_width = leafs * self.elem_len;
 
         // Calculate how large the cache should be (based on the
         // config.levels param).
-        let mut cache_size = (2 * data_width - 1) >> config.levels;
+        let cache_size = ((2 * leafs - 1) >> config.levels) * self.elem_len;
         // The file cannot be compacted (to fix, provide a sane
         // configuration).
         ensure!(
@@ -479,8 +489,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
 
         // Calculate cache start and updated size with repect to the
         // data size.
-        let cache_start = std::cmp::max(self.store_size - cache_size, data_width);
-        cache_size = self.store_size - cache_start;
+        let cache_start = self.store_size - cache_size;
 
         // Seek the reader to the start of the cached data.
         let mut reader = OpenOptions::new()
@@ -488,19 +497,29 @@ impl<E: Element> Store<E> for DiskStore<E> {
             .open(StoreConfig::data_path(&config.path, &config.id))?;
         reader.seek(SeekFrom::Start(cache_start as u64))?;
 
-        // Seek the writer to the start of the file.
-        self.file.seek(SeekFrom::Start(0))?;
+        let v1 = store_version == StoreConfigDataVersion::One as u32;
+        let start: u64 = if v1 { data_width as u64 } else { 0 };
 
-        // Copy the data from the cached region to the start of the file.
+        // Seek the writer.
+        self.file.seek(SeekFrom::Start(start))?;
+
+        // Copy the data from the cached region to the writer.
         let written = copy(&mut reader, &mut self.file)?;
         ensure!(written == cache_size as u64, "Failed to copy all data");
+        if v1 {
+            // Truncate the data on-disk to be the base layer data
+            // followed by the cached data.
+            self.file.set_len((data_width + cache_size) as u64)?;
+            // Adjust our length for internal consistency.
+            self.len = (data_width + cache_size) / self.elem_len;
+        } else {
+            // Truncate the data on-disk to be only the cached data.
+            self.file.set_len(cache_size as u64)?;
 
-        // Truncate the data on-disk to be only the cached data.
-        self.file.set_len(cache_size as u64)?;
-
-        // Adjust our length to be the cached elements only for
-        // internal consistency.
-        self.len = cache_size / self.elem_len;
+            // Adjust our length to be the cached elements only for
+            // internal consistency.
+            self.len = cache_size / self.elem_len;
+        }
 
         // Sync and sanity check that we match on disk (this can be
         // removed if needed).
@@ -642,8 +661,66 @@ impl<E: Element, R: Read + Send + Sync> fmt::Debug for LevelCacheStore<E, R> {
 }
 
 impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
-    pub fn set_external_reader(&mut self, reader: ExternalReader<R>) {
-        self.reader = Some(reader)
+    // Used for opening v2 compacted DiskStores.
+    pub fn new_from_disk_with_reader(
+        store_range: usize,
+        config: &StoreConfig,
+        reader: Option<ExternalReader<R>>,
+    ) -> Result<Self> {
+        let data_path = StoreConfig::data_path(&config.path, &config.id);
+
+        let file = File::open(data_path)?;
+        let metadata = file.metadata()?;
+        let store_size = metadata.len() as usize;
+
+        // The LevelCacheStore base data layer must already be a
+        // massaged next pow2 (guaranteed if created with
+        // DiskStore::compact, which is the only supported method at
+        // the moment).
+        let size = get_merkle_tree_leafs(store_range);
+        ensure!(
+            size == next_pow2(size),
+            "Inconsistent merkle tree height detected"
+        );
+
+        // Values below in bytes.
+        // Convert store_range from an element count to bytes.
+        let store_range = store_range * E::byte_len();
+
+        // LevelCacheStore on disk file is only the cached data, so
+        // the file size dictates the cache_size.  Calculate cache
+        // start and the updated size with repect to the file size.
+        let cache_size = ((2 * size - 1) >> config.levels) * E::byte_len();
+        let cache_index_start = store_range - cache_size;
+
+        // Sanity checks that the StoreConfig levels matches this
+        // particular on-disk file.  Since an external reader *is*
+        // set, we check to make sure that the data on disk is *only*
+        // the cached element data.
+        ensure!(
+            store_size == cache_size,
+            "Inconsistent store size detected with external reader"
+        );
+
+        Ok(LevelCacheStore {
+            len: store_range / E::byte_len(),
+            elem_len: E::byte_len(),
+            file,
+            data_width: size,
+            cache_index_start,
+            store_size,
+            reader,
+            _e: Default::default(),
+        })
+    }
+
+    pub fn set_external_reader(&mut self, reader: ExternalReader<R>) -> Result<bool> {
+        let cache_size = (2 * self.data_width - 1) * self.elem_len - self.cache_index_start;
+        self.reader = Some(reader);
+
+        // If we're using an external reader, check that the data on
+        // disk is only the cached elements.
+        Ok(self.store_size == cache_size)
     }
 }
 
@@ -685,6 +762,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         unimplemented!("LevelCacheStore requires a StoreConfig");
     }
 
+    // Used for opening v1 compacted DiskStores.
     fn new_from_disk(store_range: usize, config: &StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
@@ -705,19 +783,16 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         // Values below in bytes.
         // Convert store_range from an element count to bytes.
         let store_range = store_range * E::byte_len();
-        let data_len = size * E::byte_len();
 
-        // LevelCacheStore on disk file is only the cached data, so
-        // the file size dictates the cache_size.  Calculate cache
-        // start and the updated size with repect to the file size.
-        let mut cache_size = (2 * data_len - 1) >> config.levels;
-        cache_size = std::cmp::min(store_size, cache_size);
+        // Calculate cache start and the updated size with repect to
+        // the data size.
+        let cache_size = ((2 * size - 1) >> config.levels) * E::byte_len();
         let cache_index_start = store_range - cache_size;
 
         // Sanity checks that the StoreConfig levels matches this
         // particular on-disk file.
         ensure!(
-            store_size == cache_size,
+            store_size == size * E::byte_len() + cache_size,
             "Inconsistent store size detected"
         );
 
@@ -813,7 +888,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         true
     }
 
-    fn compact(&mut self, _config: StoreConfig) -> Result<bool> {
+    fn compact(&mut self, _config: StoreConfig, _store_version: u32) -> Result<bool> {
         bail!("Cannot compact this type of Store");
     }
 
@@ -859,17 +934,19 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
             "out of bounds"
         );
 
+        // If an external reader was specified for the base layer, use it.
         if start < self.data_width * self.elem_len && self.reader.is_some() {
             self.reader
                 .as_ref()
                 .unwrap()
                 .read(start, end, &mut read_data)
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "failed to read {} bytes externally at offset {}",
-                        read_len, start
+                .with_context(|| {
+                    format!(
+                        "failed to read {} bytes from file at offset {}",
+                        end - start,
+                        start
                     )
-                });
+                })?;
 
             return Ok(read_data);
         }
@@ -877,7 +954,12 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         // Adjust read index if in the cached ranged to be shifted
         // over since the data stored is compacted.
         if start >= self.cache_index_start {
-            adjusted_start = start - self.cache_index_start;
+            let v1 = self.reader.is_none();
+            adjusted_start = if v1 {
+                start - self.cache_index_start + (self.data_width * self.elem_len)
+            } else {
+                start - self.cache_index_start
+            };
         }
 
         self.file
@@ -895,6 +977,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
     pub fn store_read_into(&self, start: usize, end: usize, buf: &mut [u8]) -> Result<()> {
         assert!(start <= self.data_width * self.elem_len || start >= self.cache_index_start);
 
+        // If an external reader was specified for the base layer, use it.
         if start < self.data_width * self.elem_len && self.reader.is_some() {
             self.reader
                 .as_ref()
@@ -911,7 +994,12 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
             // Adjust read index if in the cached ranged to be shifted
             // over since the data stored is compacted.
             let adjusted_start = if start >= self.cache_index_start {
-                start - self.cache_index_start
+                if self.reader.is_none() {
+                    // if v1
+                    start - self.cache_index_start + (self.data_width * self.elem_len)
+                } else {
+                    start - self.cache_index_start
+                }
             } else {
                 start
             };

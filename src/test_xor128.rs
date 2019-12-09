@@ -12,7 +12,6 @@ use rayon::iter::{plumbing::*, IntoParallelIterator, ParallelIterator};
 use std::fmt;
 use std::fs::OpenOptions;
 use std::hash::Hasher;
-//use std::io::prelude::*;
 use std::iter::FromIterator;
 use std::os::unix::prelude::FileExt;
 

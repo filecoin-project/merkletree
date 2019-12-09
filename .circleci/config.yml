@@ -101,6 +101,15 @@ jobs:
           name: Run cargo build --benches
           command: cargo build --benches --all-features --all --release
 
+  doc:
+    executor: default
+    steps:
+      - *restore-workspace
+      - *restore-cache
+      - run:
+          name: Run cargo doc
+          command: cargo doc --all-features --no-deps
+
 workflows:
   version: 2.1
 
@@ -120,5 +129,8 @@ workflows:
           requires:
             - cargo_fetch
       - benches:
+          requires:
+            - cargo_fetch
+      - doc:
           requires:
             - cargo_fetch

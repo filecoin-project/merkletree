@@ -81,7 +81,7 @@ impl StoreConfig {
 #[derive(Clone)]
 pub struct ExternalReader<R: Read + Send + Sync> {
     pub source: R,
-    pub read_fn: (fn(start: usize, end: usize, buf: &mut [u8], source: &R) -> Result<usize>),
+    pub read_fn: fn(start: usize, end: usize, buf: &mut [u8], source: &R) -> Result<usize>,
 }
 
 impl<R: Read + Send + Sync> ExternalReader<R> {

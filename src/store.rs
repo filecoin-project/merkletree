@@ -94,7 +94,10 @@ impl<R: Read + Send + Sync> fmt::Debug for ExternalReader<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExternalReader")
             .field("source: Read + Send + Sync", &1)
-            .field("read_fn: callback(start: usize, end: usize, buf: &mut [u8])", &2)
+            .field(
+                "read_fn: callback(start: usize, end: usize, buf: &mut [u8])",
+                &2,
+            )
             .finish()
     }
 }

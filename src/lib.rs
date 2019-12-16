@@ -130,7 +130,6 @@
 //!     use example::ExampleAlgorithm;
 //!     use merkletree::merkle::MerkleTree;
 //!     use merkletree::store::VecStore;
-//!     use std::iter::FromIterator;
 //!
 //!     let mut h1 = [0u8; 32];
 //!     let mut h2 = [0u8; 32];
@@ -139,7 +138,7 @@
 //!     h2[0] = 0x22;
 //!     h3[0] = 0x33;
 //!
-//!     let t: MerkleTree<[u8; 32], ExampleAlgorithm, VecStore<_>> = MerkleTree::from_iter(vec![h1, h2, h3]);
+//!     let t: MerkleTree<[u8; 32], ExampleAlgorithm, VecStore<_>> = MerkleTree::try_from_iter(vec![h1, h2, h3].into_iter().map(Ok)).unwrap();
 //!     println!("{:?}", t.root());
 //! }
 //! }

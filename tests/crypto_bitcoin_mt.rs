@@ -8,7 +8,6 @@ use merkletree::merkle::MerkleTree;
 use merkletree::store::VecStore;
 use std::fmt;
 use std::hash::Hasher;
-use std::iter::FromIterator;
 
 #[derive(Clone)]
 struct CryptoBitcoinAlgorithm(Sha256);
@@ -144,7 +143,7 @@ fn test_crypto_bitcoin_node() {
     );
 
     let t: MerkleTree<CryptoSHA256Hash, CryptoBitcoinAlgorithm, VecStore<_>> =
-        MerkleTree::from_iter(vec![h1, h2, h3]);
+        MerkleTree::try_from_iter(vec![h1, h2, h3].into_iter().map(Ok)).unwrap();
     assert_eq!(
         format!("{}", HexSlice::new(t.root().as_ref())),
         "5ba580c87c9bae263e6186318d77963846ff7a3e92b45f2ed30495ccf52b4731"

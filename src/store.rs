@@ -490,6 +490,9 @@ impl<E: Element> Store<E> for DiskStore<E> {
             "Cannot compact with this configuration"
         );
 
+        let v1 = store_version == StoreConfigDataVersion::One as u32;
+        let start: u64 = if v1 { data_width as u64 } else { 0 };
+
         // Calculate cache start and updated size with repect to the
         // data size.
         let cache_start = self.store_size - cache_size;
@@ -500,8 +503,11 @@ impl<E: Element> Store<E> for DiskStore<E> {
             .open(StoreConfig::data_path(&config.path, &config.id))?;
         reader.seek(SeekFrom::Start(cache_start as u64))?;
 
-        let v1 = store_version == StoreConfigDataVersion::One as u32;
-        let start: u64 = if v1 { data_width as u64 } else { 0 };
+        // Make sure the store file is opened for read/write.
+        self.file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(StoreConfig::data_path(&config.path, &config.id))?;
 
         // Seek the writer.
         self.file.seek(SeekFrom::Start(start))?;

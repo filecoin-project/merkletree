@@ -383,7 +383,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
         // Sanity check.
         ensure!(
             store_size == size * E::byte_len(),
-            "Invalid formatted file provided. Expected {}bytes, found {}bytes",
+            "Invalid formatted file provided. Expected {} bytes, found {} bytes",
             size * E::byte_len(),
             store_size
         );

@@ -53,6 +53,20 @@ impl StoreConfig {
         }
     }
 
+    // If the tree is large enough to use the default, use it.  If
+    // it's too small to cache anything, don't cache anything.
+    // Otherwise, the tree is 'small' so a fixed value of 2 levels
+    // above the base should be sufficient.
+    pub fn default_cached_above_base_layer(leafs: usize) -> usize {
+        if leafs < 5 {
+            0
+        } else if leafs >> DEFAULT_CACHED_ABOVE_BASE_LAYER == 0 {
+            2
+        } else {
+            DEFAULT_CACHED_ABOVE_BASE_LAYER
+        }
+    }
+
     // Deterministically create the data_path on-disk location from a
     // path and specified id.
     pub fn data_path(path: &PathBuf, id: &str) -> PathBuf {

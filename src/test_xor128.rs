@@ -366,7 +366,7 @@ fn test_level_cache_tree_v1() {
         let config = StoreConfig::new(
             &temp_path,
             String::from(format!("test-cache-v1-{}", i)),
-            DEFAULT_CACHED_ABOVE_BASE_LAYER,
+            StoreConfig::default_cached_above_base_layer(count),
         );
 
         let mut mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
@@ -411,7 +411,7 @@ fn test_level_cache_tree_v1() {
         // Generate proofs on tree.
         for j in 0..mt_level_cache.leafs() {
             let (proof, _) = mt_level_cache
-                .gen_proof_and_partial_tree(j, DEFAULT_CACHED_ABOVE_BASE_LAYER)
+                .gen_proof_and_partial_tree(j, config.levels)
                 .expect("Failed to generate proof and partial tree");
             assert!(proof.validate::<XOR128>());
         }
@@ -431,7 +431,7 @@ fn test_level_cache_tree_v2() {
         let config = StoreConfig::new(
             &temp_path,
             String::from(format!("test-cache-v2-{}", i)),
-            DEFAULT_CACHED_ABOVE_BASE_LAYER,
+            StoreConfig::default_cached_above_base_layer(count),
         );
 
         let mut mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
@@ -514,7 +514,7 @@ fn test_level_cache_tree_v2() {
         // Generate proofs on tree.
         for j in 0..mt_level_cache.leafs() {
             let (proof, _) = mt_level_cache
-                .gen_proof_and_partial_tree(j, DEFAULT_CACHED_ABOVE_BASE_LAYER)
+                .gen_proof_and_partial_tree(j, config.levels)
                 .expect("Failed to generate proof and partial tree");
             assert!(proof.validate::<XOR128>());
         }

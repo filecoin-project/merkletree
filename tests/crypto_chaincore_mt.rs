@@ -9,6 +9,7 @@ use merkletree::proof::Proof;
 use merkletree::store::VecStore;
 use std::fmt;
 use std::hash::Hasher;
+use typenum::U2;
 
 #[derive(Clone)]
 struct CryptoChainCoreAlgorithm(Sha3);
@@ -77,6 +78,7 @@ impl<'a> fmt::Display for HexSlice<'a> {
 }
 
 /*
+// Pow2 leafs is now required
 #[test]
 fn test_crypto_chaincore_node() {
     let mut h1 = [0u8; 32];
@@ -100,11 +102,11 @@ fn test_merkle_tree_validate_data() {
     let data = vec![1, 2, 3, 4];
     let proof_item = data[0];
 
-    let t: MerkleTree<CryptoSHA256Hash, CryptoChainCoreAlgorithm, VecStore<_>> =
+    let t: MerkleTree<CryptoSHA256Hash, CryptoChainCoreAlgorithm, VecStore<_>, U2> =
         MerkleTree::from_data(data).unwrap();
     let generated_proof = t.gen_proof(0).unwrap();
 
-    let proof = Proof::new(
+    let proof: Proof<CryptoSHA256Hash, U2> = Proof::new(
         generated_proof.lemma().to_owned(),
         generated_proof.path().to_owned(),
     );

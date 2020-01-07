@@ -17,6 +17,7 @@ use rand::Rng;
 use ringx::Context;
 use ringx::SHA512;
 use test::Bencher;
+use typenum::U2;
 
 use crate::hash512::Hash512;
 
@@ -95,12 +96,13 @@ fn bench_ringx_sha512(b: &mut Bencher) {
 
 #[bench]
 fn bench_ringx_sha512_from_data_5(b: &mut Bencher) {
-    b.iter(|| MerkleTree::<Hash512, B, VecStore<_>>::try_from_iter(tree_5()).unwrap());
+    b.iter(|| MerkleTree::<Hash512, B, VecStore<_>, U2>::try_from_iter(tree_5()).unwrap());
 }
 
 #[bench]
 fn bench_ringx_sha512_from_data_5_proof(b: &mut Bencher) {
-    let tree: MerkleTree<Hash512, B, VecStore<_>> = MerkleTree::try_from_iter(tree_5()).unwrap();
+    let tree: MerkleTree<Hash512, B, VecStore<_>, U2> =
+        MerkleTree::try_from_iter(tree_5()).unwrap();
 
     b.iter(|| {
         for i in 0..tree.len() {
@@ -112,7 +114,8 @@ fn bench_ringx_sha512_from_data_5_proof(b: &mut Bencher) {
 
 #[bench]
 fn bench_ringx_sha512_from_data_5_proof_check(b: &mut Bencher) {
-    let tree: MerkleTree<Hash512, B, VecStore<_>> = MerkleTree::try_from_iter(tree_5()).unwrap();
+    let tree: MerkleTree<Hash512, B, VecStore<_>, U2> =
+        MerkleTree::try_from_iter(tree_5()).unwrap();
     let proofs = (0..tree.len())
         .map(|i| tree.gen_proof(i).unwrap())
         .collect::<Vec<_>>();
@@ -126,12 +129,13 @@ fn bench_ringx_sha512_from_data_5_proof_check(b: &mut Bencher) {
 
 #[bench]
 fn bench_ringx_sha512_from_data_160(b: &mut Bencher) {
-    b.iter(|| MerkleTree::<Hash512, B, VecStore<_>>::try_from_iter(tree_160()).unwrap());
+    b.iter(|| MerkleTree::<Hash512, B, VecStore<_>, U2>::try_from_iter(tree_160()).unwrap());
 }
 
 #[bench]
 fn bench_ringx_sha512_from_data_160_proof(b: &mut Bencher) {
-    let tree: MerkleTree<Hash512, B, VecStore<_>> = MerkleTree::try_from_iter(tree_160()).unwrap();
+    let tree: MerkleTree<Hash512, B, VecStore<_>, U2> =
+        MerkleTree::try_from_iter(tree_160()).unwrap();
 
     b.iter(|| {
         for i in 0..tree.len() {
@@ -144,7 +148,7 @@ fn bench_ringx_sha512_from_data_160_proof(b: &mut Bencher) {
 #[bench]
 fn bench_ringx_sha512_from_data_160_proof_check(b: &mut Bencher) {
     let values = tree_160();
-    let tree: MerkleTree<Hash512, B, VecStore<_>> = MerkleTree::try_from_iter(values).unwrap();
+    let tree: MerkleTree<Hash512, B, VecStore<_>, U2> = MerkleTree::try_from_iter(values).unwrap();
     let proofs = (0..tree.len())
         .map(|i| tree.gen_proof(i).unwrap())
         .collect::<Vec<_>>();

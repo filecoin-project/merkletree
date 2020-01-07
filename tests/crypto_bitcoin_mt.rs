@@ -4,8 +4,8 @@
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
 use merkletree::hash::{Algorithm, Hashable};
-use merkletree::merkle::MerkleTree;
-use merkletree::store::VecStore;
+//use merkletree::merkle::MerkleTree;
+//use merkletree::store::VecStore;
 use std::fmt;
 use std::hash::Hasher;
 
@@ -109,6 +109,7 @@ fn test_crypto_bitcoin_leaf_hash() {
 }
 
 /*
+// Pow2 leafs only supported.
 /// [](http://chimera.labs.oreilly.com/books/1234000001802/ch07.html#merkle_trees)
 #[test]
 fn test_crypto_bitcoin_node() {

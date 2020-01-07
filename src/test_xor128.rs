@@ -2,8 +2,10 @@
 
 use crate::hash::*;
 use crate::merkle::FromIndexedParallelIterator;
-use crate::merkle::{log2_pow2, next_pow2};
-use crate::merkle::{Element, MerkleTree};
+use crate::merkle::{
+    get_merkle_tree_height, get_merkle_tree_len, log2_pow2, next_pow2, Element, MerkleTree,
+    SMALL_TREE_BUILD,
+};
 use crate::store::{
     DiskStore, DiskStoreProducer, ExternalReader, LevelCacheStore, MmapStore, Store, StoreConfig,
     StoreConfigDataVersion, VecStore, DEFAULT_CACHED_ABOVE_BASE_LAYER, SMALL_TREE_BUILD,
@@ -13,8 +15,11 @@ use std::fmt;
 use std::fs::OpenOptions;
 use std::hash::Hasher;
 use std::os::unix::prelude::FileExt;
+use typenum::marker_traits::Unsigned;
+use typenum::{U2, U4, U8};
 
 const SIZE: usize = 0x10;
+const DEFAULT_NUM_BRANCHES: usize = 2;
 
 type Item = [u8; SIZE];
 
@@ -74,19 +79,6 @@ impl fmt::UpperHex for XOR128 {
     }
 }
 
-#[test]
-fn test_hasher_light() {
-    let mut h = XOR128::new();
-    "1234567812345678".hash(&mut h);
-    h.reset();
-    String::from("1234567812345678").hash(&mut h);
-    assert_eq!(format!("{:#X}", h), "0x31323334353637383132333435363738");
-    String::from("1234567812345678").hash(&mut h);
-    assert_eq!(format!("{:#X}", h), "0x00000000000000000000000000000000");
-    String::from("1234567812345678").hash(&mut h);
-    assert_eq!(format!("{:#X}", h), "0x31323334353637383132333435363738");
-}
-
 impl Element for [u8; 16] {
     fn byte_len() -> usize {
         16
@@ -104,8 +96,192 @@ impl Element for [u8; 16] {
     }
 }
 
+fn test_vec_tree_from_slice<U: Unsigned>(
+    leafs: usize,
+    len: usize,
+    height: usize,
+    num_challenges: usize,
+) {
+    let mut x = [0; 16];
+    for i in 0..leafs {
+        x[i] = i * 93;
+    }
+    let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>, U> =
+        MerkleTree::from_data(&x).expect("failed to create tree from slice");
+    assert_eq!(mt.len(), len);
+    assert_eq!(mt.leafs(), leafs);
+    assert_eq!(mt.height(), height);
+
+    for i in 0..num_challenges {
+        let index = i * (leafs / num_challenges);
+        let p = mt.gen_proof(index).unwrap();
+        assert!(p.validate::<XOR128>());
+    }
+}
+
+fn test_vec_tree_from_iter<U: Unsigned>(
+    leafs: usize,
+    len: usize,
+    height: usize,
+    num_challenges: usize,
+) {
+    let branches = <U as Unsigned>::to_usize();
+    assert_eq!(len, get_merkle_tree_len(leafs, branches));
+    assert_eq!(height, get_merkle_tree_height(leafs, branches));
+
+    let mut a = XOR128::new();
+    let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>, U> =
+        MerkleTree::try_from_iter((0..leafs).map(|x| {
+            a.reset();
+            (x * 3).hash(&mut a);
+            leafs.hash(&mut a);
+            Ok(a.hash())
+        }))
+        .expect("failed to create octree from iter");
+
+    assert_eq!(mt.len(), len);
+    assert_eq!(mt.leafs(), leafs);
+    assert_eq!(mt.height(), height);
+
+    for i in 0..num_challenges {
+        let index = i * (leafs / num_challenges);
+        let p = mt.gen_proof(index).unwrap();
+        assert!(p.validate::<XOR128>());
+    }
+}
+
+fn build_disk_tree_from_iter<U: Unsigned>(
+    leafs: usize,
+    len: usize,
+    height: usize,
+    config: &StoreConfig,
+) {
+    let branches = <U as Unsigned>::to_usize();
+    assert_eq!(len, get_merkle_tree_len(leafs, branches));
+    assert_eq!(height, get_merkle_tree_height(leafs, branches));
+
+    let mut a = XOR128::new();
+
+    // Construct and store an MT using a named DiskStore.
+    let mt: MerkleTree<[u8; 16], XOR128, DiskStore<_>, U> = MerkleTree::try_from_iter_with_config(
+        (0..leafs).map(|x| {
+            a.reset();
+            (x * 3).hash(&mut a);
+            leafs.hash(&mut a);
+            Ok(a.hash())
+        }),
+        config.clone(),
+    )
+    .expect("failed to create quad tree");
+
+    assert_eq!(mt.len(), len);
+    assert_eq!(mt.leafs(), leafs);
+    assert_eq!(mt.height(), height);
+}
+
+fn test_disk_tree_from_iter<U: Unsigned>(
+    leafs: usize,
+    len: usize,
+    height: usize,
+    num_challenges: usize,
+) {
+    let branches = <U as Unsigned>::to_usize();
+
+    let name = format!("test_disk_tree_from_iter-{}-{}-{}", leafs, len, height);
+    let temp_dir = tempdir::TempDir::new(&name).unwrap();
+
+    // Construct and store an MT using a named DiskStore.
+    let config = StoreConfig::new(temp_dir.path(), String::from(name), 2);
+    build_disk_tree_from_iter::<U>(leafs, len, height, &config);
+
+    // Sanity check loading the store from disk and then re-creating
+    // the MT from it.
+    let store = DiskStore::new_from_disk(len, branches, &config).unwrap();
+    let mt_cache: MerkleTree<[u8; 16], XOR128, DiskStore<_>, U> =
+        MerkleTree::from_data_store(store, leafs).unwrap();
+
+    assert_eq!(mt_cache.len(), len);
+    assert_eq!(mt_cache.leafs(), leafs);
+    assert_eq!(mt_cache.height(), height);
+
+    for i in 0..num_challenges {
+        let index = i * (leafs / num_challenges);
+        let p = mt_cache.gen_proof(index).unwrap();
+        assert!(p.validate::<XOR128>());
+    }
+}
+
+fn test_levelcache_v1_tree_from_iter<U: Unsigned>(
+    leafs: usize,
+    len: usize,
+    height: usize,
+    num_challenges: usize,
+    cached_above_base: usize,
+) {
+    let branches = <U as Unsigned>::to_usize();
+
+    let name = format!(
+        "test_levelcache_v1_tree_from_iter-{}-{}-{}",
+        leafs, len, height
+    );
+    let temp_dir = tempdir::TempDir::new(&name).unwrap();
+
+    // Construct and store an MT using a named DiskStore.
+    let config = StoreConfig::new(temp_dir.path(), String::from(name), cached_above_base);
+    build_disk_tree_from_iter::<U>(leafs, len, height, &config);
+
+    // Sanity check loading the store from disk and then re-creating
+    // the MT from it.
+    let store = DiskStore::new_from_disk(len, branches, &config).unwrap();
+    let mut mt_cache: MerkleTree<[u8; 16], XOR128, DiskStore<_>, U> =
+        MerkleTree::from_data_store(store, leafs).unwrap();
+
+    assert_eq!(mt_cache.len(), len);
+    assert_eq!(mt_cache.leafs(), leafs);
+    assert_eq!(mt_cache.height(), height);
+
+    match mt_cache.compact(config.clone(), StoreConfigDataVersion::One as u32) {
+        Ok(x) => assert_eq!(x, true),
+        Err(_) => panic!("Compaction failed"),
+    }
+
+    // Then re-create an MT using LevelCacheStore and generate all proofs.
+    let level_cache_store: LevelCacheStore<[u8; 16], std::fs::File> =
+        LevelCacheStore::new_from_disk(len, branches, &config).unwrap();
+
+    let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, _>, U> =
+        MerkleTree::from_data_store(level_cache_store, leafs)
+            .expect("Failed to create MT from data store");
+
+    assert_eq!(mt_level_cache.len(), len);
+    assert_eq!(mt_level_cache.leafs(), leafs);
+    assert_eq!(mt_level_cache.height(), height);
+
+    // Verify all proofs are still working.
+    for i in 0..num_challenges {
+        let index = i * (leafs / num_challenges);
+        let (proof, _) = mt_level_cache
+            .gen_proof_and_partial_tree(index, config.levels)
+            .expect("Failed to generate proof and partial tree");
+        assert!(proof.validate::<XOR128>());
+    }
+}
+
 #[test]
-fn test_from_slice() {
+fn test_hasher_light() {
+    let mut h = XOR128::new();
+    "1234567812345678".hash(&mut h);
+    h.reset();
+    String::from("1234567812345678").hash(&mut h);
+    assert_eq!(format!("{:#X}", h), "0x31323334353637383132333435363738");
+    String::from("1234567812345678").hash(&mut h);
+    assert_eq!(format!("{:#X}", h), "0x00000000000000000000000000000000");
+    String::from("1234567812345678").hash(&mut h);
+    assert_eq!(format!("{:#X}", h), "0x31323334353637383132333435363738");
+}
+
+#[test]
+fn test_vec_from_slice() {
     let x = [String::from("ars"), String::from("zxc")];
     let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> =
         MerkleTree::from_data(&x).expect("failed to create tree");
@@ -124,6 +300,115 @@ fn test_from_slice() {
         mt.root(),
         [1, 0, 27, 10, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     );
+
+    for i in 0..mt.leafs() {
+        let p = mt.gen_proof(i).unwrap();
+        assert!(p.validate::<XOR128>());
+    }
+}
+
+#[test]
+fn test_quad_from_slice() {
+    let (leafs, len, height, num_challenges) = { (16, 21, 3, 16) };
+    test_vec_tree_from_slice::<U4>(leafs, len, height, num_challenges);
+}
+
+#[test]
+fn test_quad_from_iter() {
+    let (leafs, len, height, num_challenges) = { (16384, 21845, 8, 16384) };
+    test_vec_tree_from_iter::<U4>(leafs, len, height, num_challenges);
+}
+
+#[test]
+#[ignore]
+fn test_xlarge_quad_with_disk_store() {
+    let (leafs, len, height, num_challenges) = { (1073741824, 1431655765, 16, 2048) };
+    test_disk_tree_from_iter::<U4>(leafs, len, height, num_challenges);
+}
+
+#[test]
+fn test_small_quad_with_partial_cache() {
+    let (leafs, len, height, num_challenges) = { (256, 341, 5, 256) };
+    for cached_above_base in 1..height - 1 {
+        test_levelcache_v1_tree_from_iter::<U4>(
+            leafs,
+            len,
+            height,
+            num_challenges,
+            cached_above_base,
+        );
+    }
+}
+
+#[test]
+fn test_large_quad_with_partial_cache() {
+    let (leafs, len, height, num_challenges) = { (1048576, 1398101, 11, 2048) };
+    for cached_above_base in 5..7 {
+        test_levelcache_v1_tree_from_iter::<U4>(
+            leafs,
+            len,
+            height,
+            num_challenges,
+            cached_above_base,
+        );
+    }
+}
+
+#[test]
+#[ignore]
+fn test_large_quad_with_partial_cache_full() {
+    let (leafs, len, height, num_challenges, cached_above_base) =
+        { (1048576, 1398101, 11, 1048576, 5) };
+    test_levelcache_v1_tree_from_iter::<U4>(leafs, len, height, num_challenges, cached_above_base);
+}
+
+#[test]
+fn test_octo_from_iter() {
+    let (leafs, len, height, num_challenges) = { (64, 73, 3, 64) };
+    test_vec_tree_from_iter::<U8>(leafs, len, height, num_challenges);
+}
+
+#[test]
+fn test_large_octo_with_disk_store() {
+    let (leafs, len, height, num_challenges) = { (2097152, 2396745, 8, 2048) };
+    test_disk_tree_from_iter::<U8>(leafs, len, height, num_challenges);
+}
+
+#[test]
+fn test_large_octo_with_partial_cache() {
+    let (leafs, len, height, num_challenges) = { (2097152, 2396745, 8, 2048) };
+    for cached_above_base in 5..7 {
+        test_levelcache_v1_tree_from_iter::<U8>(
+            leafs,
+            len,
+            height,
+            num_challenges,
+            cached_above_base,
+        );
+    }
+}
+
+#[test]
+#[ignore]
+fn test_large_octo_with_partial_cache_full() {
+    let (leafs, len, height, num_challenges, cached_above_base) =
+        { (2097152, 2396745, 8, 2048, 3) };
+    test_levelcache_v1_tree_from_iter::<U8>(leafs, len, height, num_challenges, cached_above_base);
+}
+
+#[test]
+#[ignore]
+fn test_xlarge_octo_with_disk_store() {
+    let (leafs, len, height, num_challenges) = { (1073741824, 1227133513, 11, 2048) };
+    test_disk_tree_from_iter::<U8>(leafs, len, height, num_challenges);
+}
+
+#[test]
+#[ignore]
+fn test_xlarge_octo_with_partial_cache() {
+    let (leafs, len, height, num_challenges, cached_above_base) =
+        { (1073741824, 1227133513, 11, 2048, 6) };
+    test_levelcache_v1_tree_from_iter::<U8>(leafs, len, height, num_challenges, cached_above_base);
 }
 
 #[test]
@@ -322,46 +607,9 @@ fn test_simple_tree() {
 
 #[test]
 fn test_large_tree() {
-    let mut a = XOR128::new();
     let count = SMALL_TREE_BUILD * 2;
-
-    // The large `build` algorithm uses a ad hoc parallel solution (instead
-    // of the standard `par_iter()` from Rayon) so test these many times
-    // to increase the chances of finding a data-parallelism bug. (We're
-    // using a size close to the `SMALL_TREE_BUILD` threshold so this
-    // shouldn't increase test times considerably.)
-    for i in 50..100 {
-        let mt_vec: MerkleTree<[u8; 16], XOR128, VecStore<_>> =
-            MerkleTree::try_from_iter((0..count).map(|x| {
-                a.reset();
-                x.hash(&mut a);
-                i.hash(&mut a);
-                Ok(a.hash())
-            }))
-            .unwrap();
-        assert_eq!(mt_vec.len(), 2 * count - 1);
-
-        let mt_map: MerkleTree<[u8; 16], XOR128, MmapStore<_>> =
-            MerkleTree::try_from_iter((0..count).map(|x| {
-                a.reset();
-                x.hash(&mut a);
-                i.hash(&mut a);
-                Ok(a.hash())
-            }))
-            .unwrap();
-        assert_eq!(mt_map.len(), 2 * count - 1);
-
-        let mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
-            MerkleTree::from_par_iter((0..count).into_par_iter().map(|x| {
-                let mut xor_128 = a.clone();
-                xor_128.reset();
-                x.hash(&mut xor_128);
-                i.hash(&mut xor_128);
-                xor_128.hash()
-            }))
-            .unwrap();
-        assert_eq!(mt_disk.len(), 2 * count - 1);
-    }
+    test_vec_tree_from_iter::<U2>(count, 2 * count - 1, log2_pow2(2 * count), 0);
+    test_disk_tree_from_iter::<U2>(count, 2 * count - 1, log2_pow2(2 * count), 0);
 }
 
 #[test]
@@ -430,67 +678,15 @@ fn test_mmap_tree() {
 
 #[test]
 fn test_level_cache_tree_v1() {
-    let a = XOR128::new();
+    let cached_above_base = 4;
     let count = SMALL_TREE_BUILD * 2;
-
-    for i in 50..100 {
-        let temp_dir = tempdir::TempDir::new("test_level_cache_tree_v1").unwrap();
-        let temp_path = temp_dir.path();
-
-        // Construct and store an MT using a named DiskStore.
-        let config = StoreConfig::new(
-            &temp_path,
-            String::from(format!("test-cache-v1-{}", i)),
-            StoreConfig::default_cached_above_base_layer(count),
-        );
-
-        let mut mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
-            MerkleTree::from_par_iter_with_config(
-                (0..count).into_par_iter().map(|x| {
-                    let mut xor_128 = a.clone();
-                    xor_128.reset();
-                    x.hash(&mut xor_128);
-                    i.hash(&mut xor_128);
-                    xor_128.hash()
-                }),
-                config.clone(),
-            )
-            .expect("Failed to create MT");
-        assert_eq!(mt_disk.len(), 2 * count - 1);
-
-        // Generate proofs on tree.
-        for j in 0..mt_disk.leafs() {
-            // First generate and validate the proof using the full
-            // range of data we have stored on disk (no partial tree
-            // is built or used in this case).
-            let p = mt_disk.gen_proof(j).unwrap();
-            assert!(p.validate::<XOR128>());
-        }
-
-        // Compact the disk store for use as a LevelCacheStore (v1
-        // keeps the base layer of data, followed by the cached data).
-        match mt_disk.compact(config.clone(), StoreConfigDataVersion::One as u32) {
-            Ok(x) => assert_eq!(x, true),
-            Err(_) => panic!("Compaction failed"), // Could not do any compaction with this configuration.
-        }
-
-        // Then re-create an MT using LevelCacheStore and generate all proofs.
-        let level_cache_store: LevelCacheStore<[u8; 16], std::fs::File> =
-            LevelCacheStore::new_from_disk(2 * count - 1, &config).unwrap();
-
-        let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, _>> =
-            MerkleTree::from_data_store(level_cache_store, count)
-                .expect("Failed to create MT from data store");
-        assert_eq!(mt_level_cache.len(), 2 * count - 1);
-
-        // Generate proofs on tree.
-        for j in 0..mt_level_cache.leafs() {
-            let (proof, _) = mt_level_cache
-                .gen_proof_and_partial_tree(j, config.levels)
-                .expect("Failed to generate proof and partial tree");
-            assert!(proof.validate::<XOR128>());
-        }
-    }
+    test_levelcache_v1_tree_from_iter::<U2>(
+        count,
+        2 * count - 1,
+        log2_pow2(2 * count),
+        count,
+        cached_above_base,
+    );
 }
 
 #[test]
@@ -498,97 +694,100 @@ fn test_level_cache_tree_v2() {
     let a = XOR128::new();
     let count = SMALL_TREE_BUILD * 2;
 
-    for i in 0..100 {
-        let temp_dir = tempdir::TempDir::new("test_level_cache_tree_v2").unwrap();
-        let temp_path = temp_dir.path();
+    let temp_dir = tempdir::TempDir::new("test_level_cache_tree_v2").unwrap();
+    let temp_path = temp_dir.path();
 
-        // Construct and store an MT using a named DiskStore.
-        let config = StoreConfig::new(
-            &temp_path,
-            String::from(format!("test-cache-v2-{}", i)),
-            StoreConfig::default_cached_above_base_layer(count),
-        );
+    // Construct and store an MT using a named DiskStore.
+    let config = StoreConfig::new(
+        &temp_path,
+        String::from("test-cache-v2"),
+        StoreConfig::default_cached_above_base_layer(count),
+    );
 
-        let mut mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
-            MerkleTree::from_par_iter_with_config(
-                (0..count).into_par_iter().map(|x| {
-                    let mut xor_128 = a.clone();
-                    xor_128.reset();
-                    x.hash(&mut xor_128);
-                    i.hash(&mut xor_128);
-                    xor_128.hash()
-                }),
-                config.clone(),
-            )
-            .expect("Failed to create MT");
-        assert_eq!(mt_disk.len(), 2 * count - 1);
+    let mut mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
+        MerkleTree::from_par_iter_with_config(
+            (0..count).into_par_iter().map(|x| {
+                let mut xor_128 = a.clone();
+                xor_128.reset();
+                x.hash(&mut xor_128);
+                99.hash(&mut xor_128);
+                xor_128.hash()
+            }),
+            config.clone(),
+        )
+        .expect("Failed to create MT");
+    assert_eq!(mt_disk.len(), 2 * count - 1);
 
-        // Generate proofs on tree.
-        for j in 0..mt_disk.leafs() {
-            // First generate and validate the proof using the full
-            // range of data we have stored on disk (no partial tree
-            // is built or used in this case).
-            let p = mt_disk.gen_proof(j).unwrap();
-            assert!(p.validate::<XOR128>());
-        }
+    // Generate proofs on tree.
+    for j in 0..mt_disk.leafs() {
+        // First generate and validate the proof using the full
+        // range of data we have stored on disk (no partial tree
+        // is built or used in this case).
+        let p = mt_disk.gen_proof(j).unwrap();
+        assert!(p.validate::<XOR128>());
+    }
 
-        // Copy the base data from the store to a separate file that
-        // is not managed by the store (for use later with an
-        // ExternalReader).
-        let reader = OpenOptions::new()
-            .read(true)
-            .open(StoreConfig::data_path(&config.path, &config.id))
-            .expect("Failed to open base layer data");
-        let mut base_layer = vec![0; count * 16];
-        reader
-            .read_exact_at(&mut base_layer, 0)
-            .expect("Failed to read");
+    // Copy the base data from the store to a separate file that
+    // is not managed by the store (for use later with an
+    // ExternalReader).
+    let reader = OpenOptions::new()
+        .read(true)
+        .open(StoreConfig::data_path(&config.path, &config.id))
+        .expect("Failed to open base layer data");
+    let mut base_layer = vec![0; count * 16];
+    reader
+        .read_exact_at(&mut base_layer, 0)
+        .expect("Failed to read");
 
-        let output_file = temp_path.join(format!("base-data-only-{}", i));
-        std::fs::write(&output_file, &base_layer).expect("Failed to write output file");
+    let output_file = temp_path.join("base-data-only");
+    std::fs::write(&output_file, &base_layer).expect("Failed to write output file");
 
-        // Re-open the reader for the newly created output file.
-        let reader = OpenOptions::new()
-            .read(true)
-            .open(&output_file)
-            .expect("Failed to open base layer data");
+    // Re-open the reader for the newly created output file.
+    let reader = OpenOptions::new()
+        .read(true)
+        .open(&output_file)
+        .expect("Failed to open base layer data");
 
-        // Compact the disk store for use as a LevelCacheStore (v2
-        // stores only the cached data and requires the ExternalReader
-        // for base data retrieval).
-        match mt_disk.compact(config.clone(), StoreConfigDataVersion::Two as u32) {
-            Ok(x) => assert_eq!(x, true),
-            Err(_) => panic!("Compaction failed"), // Could not do any compaction with this configuration.
-        }
+    // Compact the disk store for use as a LevelCacheStore (v2
+    // stores only the cached data and requires the ExternalReader
+    // for base data retrieval).
+    match mt_disk.compact(config.clone(), StoreConfigDataVersion::Two as u32) {
+        Ok(x) => assert_eq!(x, true),
+        Err(_) => panic!("Compaction failed"), // Could not do any compaction with this configuration.
+    }
 
-        // Then re-create an MT using LevelCacheStore and generate all proofs.
-        let external_reader = ExternalReader {
-            source: reader,
-            read_fn: |start, end, buf: &mut [u8], reader: &std::fs::File| {
-                reader
-                    .read_exact_at(&mut buf[0..end - start], start as u64)
-                    .expect("Failed to read");
+    // Then re-create an MT using LevelCacheStore and generate all proofs.
+    let external_reader = ExternalReader {
+        source: reader,
+        read_fn: |start, end, buf: &mut [u8], reader: &std::fs::File| {
+            reader
+                .read_exact_at(&mut buf[0..end - start], start as u64)
+                .expect("Failed to read");
 
-                Ok(end - start)
-            },
-        };
+            Ok(end - start)
+        },
+    };
 
-        let level_cache_store: LevelCacheStore<[u8; 16], _> =
-            LevelCacheStore::new_from_disk_with_reader(2 * count - 1, &config, external_reader)
-                .unwrap();
+    let level_cache_store: LevelCacheStore<[u8; 16], _> =
+        LevelCacheStore::new_from_disk_with_reader(
+            2 * count - 1,
+            DEFAULT_NUM_BRANCHES,
+            &config,
+            external_reader,
+        )
+        .unwrap();
 
-        let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, _>> =
-            MerkleTree::from_data_store(level_cache_store, count)
-                .expect("Failed to create MT from data store");
-        assert_eq!(mt_level_cache.len(), 2 * count - 1);
+    let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, _>> =
+        MerkleTree::from_data_store(level_cache_store, count)
+            .expect("Failed to create MT from data store");
+    assert_eq!(mt_level_cache.len(), 2 * count - 1);
 
-        // Generate proofs on tree.
-        for j in 0..mt_level_cache.leafs() {
-            let (proof, _) = mt_level_cache
-                .gen_proof_and_partial_tree(j, config.levels)
-                .expect("Failed to generate proof and partial tree");
-            assert!(proof.validate::<XOR128>());
-        }
+    // Generate proofs on tree.
+    for j in 0..mt_level_cache.leafs() {
+        let (proof, _) = mt_level_cache
+            .gen_proof_and_partial_tree(j, config.levels)
+            .expect("Failed to generate proof and partial tree");
+        assert!(proof.validate::<XOR128>());
     }
 }
 
@@ -598,7 +797,7 @@ fn test_various_trees_with_partial_cache_v2_only() {
     let mut a = XOR128::new();
 
     // Attempt to allow this test to move along relatively quickly.
-    let min_count = SMALL_TREE_BUILD / 16;
+    let min_count = SMALL_TREE_BUILD / 4;
     let max_count = SMALL_TREE_BUILD * 4;
     let mut count = min_count;
 
@@ -607,11 +806,11 @@ fn test_various_trees_with_partial_cache_v2_only() {
         let pow = next_pow2(count);
         let height = log2_pow2(2 * pow);
 
-        let cached_above_base_levels = height;
-
         // Test a range of heights to cache above the base (for
         // different partial tree sizes).
-        for i in 0..cached_above_base_levels {
+        //
+        // compaction correctly fails at 0 and height
+        for i in 1..height - 1 {
             let temp_dir = tempdir::TempDir::new("test_various_trees_with_partial_cache").unwrap();
             let temp_path = temp_dir.path();
 
@@ -636,7 +835,8 @@ fn test_various_trees_with_partial_cache_v2_only() {
 
             // Sanity check loading the store from disk and then
             // re-creating the MT from it.
-            let store = DiskStore::new_from_disk(2 * count - 1, &config).unwrap();
+            let store =
+                DiskStore::new_from_disk(2 * count - 1, DEFAULT_NUM_BRANCHES, &config).unwrap();
             let mt_cache2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
                 MerkleTree::from_data_store(store, count).unwrap();
 
@@ -726,7 +926,7 @@ fn test_various_trees_with_partial_cache_v2_only() {
                 .read_exact_at(&mut base_layer, 0)
                 .expect("Failed to read");
 
-            let output_file = temp_path.join(format!("base-data-only-{}", i));
+            let output_file = temp_path.join("base-data-only");
             std::fs::write(&output_file, &base_layer).expect("Failed to write output file");
 
             // Re-open the reader for the newly created output file.
@@ -763,8 +963,13 @@ fn test_various_trees_with_partial_cache_v2_only() {
             };
 
             let level_cache_store: LevelCacheStore<[u8; 16], _> =
-                LevelCacheStore::new_from_disk_with_reader(2 * count - 1, &config, external_reader)
-                    .unwrap();
+                LevelCacheStore::new_from_disk_with_reader(
+                    2 * count - 1,
+                    DEFAULT_NUM_BRANCHES,
+                    &config,
+                    external_reader,
+                )
+                .unwrap();
 
             let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, _>> =
                 MerkleTree::from_data_store(level_cache_store, count)

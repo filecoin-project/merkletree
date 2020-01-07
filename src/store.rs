@@ -690,11 +690,11 @@ impl<E: Element, R: Read + Send + Sync> fmt::Debug for LevelCacheStore<E, R> {
 }
 
 impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
-    // Used for opening v2 compacted DiskStores.
+    /// Used for opening v2 compacted DiskStores.
     pub fn new_from_disk_with_reader(
         store_range: usize,
         config: &StoreConfig,
-        reader: Option<ExternalReader<R>>,
+        reader: ExternalReader<R>,
     ) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
@@ -738,7 +738,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
             data_width: size,
             cache_index_start,
             store_size,
-            reader,
+            reader: Some(reader),
             _e: Default::default(),
         })
     }

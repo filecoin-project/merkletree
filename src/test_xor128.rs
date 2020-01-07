@@ -499,12 +499,8 @@ fn test_level_cache_tree_v2() {
         };
 
         let level_cache_store: LevelCacheStore<[u8; 16], _> =
-            LevelCacheStore::new_from_disk_with_reader(
-                2 * count - 1,
-                &config,
-                external_reader,
-            )
-            .unwrap();
+            LevelCacheStore::new_from_disk_with_reader(2 * count - 1, &config, external_reader)
+                .unwrap();
 
         let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, _>> =
             MerkleTree::from_data_store(level_cache_store, count)
@@ -692,12 +688,8 @@ fn test_various_trees_with_partial_cache_v2_only() {
             };
 
             let level_cache_store: LevelCacheStore<[u8; 16], _> =
-                LevelCacheStore::new_from_disk_with_reader(
-                    2 * count - 1,
-                    &config,
-                    external_reader,
-                )
-                .unwrap();
+                LevelCacheStore::new_from_disk_with_reader(2 * count - 1, &config, external_reader)
+                    .unwrap();
 
             let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, _>> =
                 MerkleTree::from_data_store(level_cache_store, count)

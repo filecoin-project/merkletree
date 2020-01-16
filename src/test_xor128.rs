@@ -354,6 +354,23 @@ fn test_large_tree() {
 }
 
 #[test]
+fn test_large_tree_disk() {
+    let a = XOR128::new();
+    let count = SMALL_TREE_BUILD * SMALL_TREE_BUILD * 8;
+
+    let mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
+        MerkleTree::from_par_iter((0..count).into_par_iter().map(|x| {
+            let mut xor_128 = a.clone();
+            xor_128.reset();
+            x.hash(&mut xor_128);
+            93.hash(&mut xor_128);
+            xor_128.hash()
+        }))
+        .unwrap();
+    assert_eq!(mt_disk.len(), 2 * count - 1);
+}
+
+#[test]
 fn test_level_cache_tree_v1() {
     let a = XOR128::new();
     let count = SMALL_TREE_BUILD * 2;

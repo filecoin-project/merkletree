@@ -24,6 +24,13 @@ pub enum StoreConfigDataVersion {
     Two = 2,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum StoreType {
+    Vec = 1,
+    Disk = 2,
+    LevelCache = 3,
+}
+
 const DEFAULT_STORE_CONFIG_DATA_VERSION: u32 = StoreConfigDataVersion::Two as u32;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -153,6 +160,9 @@ pub trait Store<E: Element>:
     fn loaded_from_disk(&self) -> bool;
     fn is_empty(&self) -> bool;
     fn push(&mut self, el: E) -> Result<()>;
+    fn store_type(&self) -> StoreType;
+    fn set_len(&mut self, len: usize);
+    fn back(&self) -> Result<E>;
 
     // Sync contents to disk (if it exists). This function is used to avoid
     // unnecessary flush calls at the cost of added code complexity.
@@ -275,6 +285,18 @@ impl<E: Element> Store<E> for VecStore<E> {
     fn push(&mut self, el: E) -> Result<()> {
         self.0.push(el);
         Ok(())
+    }
+
+    fn store_type(&self) -> StoreType {
+        StoreType::Vec
+    }
+
+    fn set_len(&mut self, _len: usize) {
+        unimplemented!("Cannot set the length on this type of store");
+    }
+
+    fn back(&self) -> Result<E> {
+        self.read_at(self.0.len() - 1)
     }
 }
 
@@ -577,6 +599,18 @@ impl<E: Element> Store<E> for DiskStore<E> {
         );
 
         self.write_at(el, len)
+    }
+
+    fn store_type(&self) -> StoreType {
+        StoreType::Disk
+    }
+
+    fn set_len(&mut self, len: usize) {
+        self.len = len;
+    }
+
+    fn back(&self) -> Result<E> {
+        self.read_at(self.len - 1)
     }
 
     fn sync(&self) -> Result<()> {
@@ -941,6 +975,18 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         );
 
         self.write_at(el, len)
+    }
+
+    fn store_type(&self) -> StoreType {
+        StoreType::LevelCache
+    }
+
+    fn set_len(&mut self, _len: usize) {
+        unimplemented!("Cannot set the length on this type of store");
+    }
+
+    fn back(&self) -> Result<E> {
+        self.read_at(self.len - 1)
     }
 
     fn sync(&self) -> Result<()> {

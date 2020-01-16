@@ -1,3 +1,5 @@
+use memmap::MmapOptions;
+use std::fs::OpenOptions;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
@@ -8,7 +10,7 @@ use rayon::prelude::*;
 
 use crate::hash::{Algorithm, Hashable};
 use crate::proof::Proof;
-use crate::store::{Store, StoreConfig, VecStore};
+use crate::store::{Store, StoreConfig, StoreType, VecStore};
 
 /// Tree size (number of nodes) used as threshold to decide which build algorithm
 /// to use. Small trees (below this value) use the old build algorithm, optimized
@@ -19,7 +21,7 @@ use crate::store::{Store, StoreConfig, VecStore};
 pub const SMALL_TREE_BUILD: usize = 1024;
 
 // Number of nodes to process in parallel during the `build` stage.
-pub const BUILD_CHUNK_NODES: usize = 1024;
+pub const BUILD_CHUNK_NODES: usize = 1024 * 4;
 
 // Number of batched nodes processed and stored together when
 // populating from the data leaves.
@@ -137,7 +139,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     pub fn from_data_store(data: K, size: usize) -> Result<MerkleTree<T, A, K>> {
         let pow = next_pow2(size);
         let height = log2_pow2(2 * pow);
-        let root = data.read_at(data.len() - 1)?;
+        let root = data.back()?;
 
         Ok(MerkleTree {
             data,
@@ -168,7 +170,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             if width & 1 == 1 {
                 // Odd number of nodes, duplicate last.
                 let mut active_store = data_lock.write().unwrap();
-                let last_node = active_store.read_at(active_store.len() - 1)?;
+                let last_node = active_store.back()?;
                 active_store.push(last_node)?;
 
                 width += 1;
@@ -185,13 +187,55 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 (level_node_index, level_node_index + width)
             };
 
-            // Allocate `width` indexes during operation (which is a negligible memory bloat
-            // compared to the 32-bytes size of the nodes stored in the `Store`s) and hash each
-            // pair of nodes to write them to the next level in concurrent threads.
-            // Process `BUILD_CHUNK_NODES` nodes in each thread at a time to reduce contention,
-            // optimized for big sector sizes (small ones will just have one thread doing all
-            // the work).
-            debug_assert_eq!(BUILD_CHUNK_NODES % 2, 0);
+            MerkleTree::<T, A, K>::process_layer(
+                data_lock.clone(),
+                width,
+                level,
+                read_start,
+                write_start,
+            )?;
+
+            level_node_index += width;
+            level += 1;
+            width >>= 1;
+
+            data_lock.write().unwrap().sync()?;
+        }
+
+        assert_eq!(height, level + 1);
+        // The root isn't part of the previous loop so `height` is
+        // missing one level.
+
+        let root = {
+            let data = data_lock.read().unwrap();
+            data.back()?
+        };
+
+        Ok(MerkleTree {
+            data: Arc::try_unwrap(data_lock).unwrap().into_inner().unwrap(),
+            leafs,
+            height,
+            root,
+            _a: PhantomData,
+            _t: PhantomData,
+        })
+    }
+
+    fn process_layer(
+        data_lock: Arc<RwLock<K>>,
+        width: usize,
+        level: usize,
+        read_start: usize,
+        write_start: usize,
+    ) -> Result<()> {
+        // Allocate `width` indexes during operation (which is a negligible memory bloat
+        // compared to the 32-bytes size of the nodes stored in the `Store`s) and hash each
+        // pair of nodes to write them to the next level in concurrent threads.
+        // Process `BUILD_CHUNK_NODES` nodes in each thread at a time to reduce contention,
+        // optimized for big sector sizes (small ones will just have one thread doing all
+        // the work).
+        debug_assert_eq!(BUILD_CHUNK_NODES % 2, 0);
+        Ok(
             Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
                 .par_iter()
                 .try_for_each(|&chunk_index| -> Result<()> {
@@ -232,27 +276,144 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                         .write()
                         .unwrap()
                         .copy_from_slice(&hashed_nodes_as_bytes, write_start + write_delta)?;
+
                     Ok(())
-                })?;
+                })?,
+        )
+    }
+
+    fn process_disk_layer(
+        data: &mut K,
+        file: &std::fs::File,
+        width: usize,
+        level: usize,
+        read_start: usize,
+        write_start: usize,
+    ) -> Result<()> {
+        let data_lock = Arc::new(RwLock::new(data));
+
+        Ok(
+            Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
+                .par_iter()
+                .try_for_each(move |&chunk_index| -> Result<()> {
+                    let chunk_size =
+                        std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
+
+                    let chunk_nodes = {
+                        // Read everything taking the lock once.
+                        data_lock
+                            .read()
+                            .unwrap()
+                            .read_range(chunk_index..chunk_index + chunk_size)?
+                    };
+
+                    // We write the hashed nodes to the next level in the position that
+                    // would be "in the middle" of the previous pair (dividing by 2).
+                    let write_delta = (chunk_index - read_start) / 2;
+
+                    let nodes_size = (chunk_nodes.len() / 2) * T::byte_len();
+                    let hashed_nodes_as_bytes = chunk_nodes.chunks(2).fold(
+                        Vec::with_capacity(nodes_size),
+                        |mut acc, node_pair| {
+                            let h = A::default().node(
+                                node_pair[0].clone(),
+                                node_pair[1].clone(),
+                                level,
+                            );
+                            acc.extend_from_slice(h.as_ref());
+                            acc
+                        },
+                    );
+
+                    // Check that we correctly pre-allocated the space.
+                    let chunk_size =
+                        std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
+
+                    let hashed_nodes_as_bytes_len = hashed_nodes_as_bytes.len();
+                    debug_assert_eq!(hashed_nodes_as_bytes_len, chunk_size / 2 * T::byte_len());
+
+                    let map_write_start =
+                        (write_start * T::byte_len() + write_delta * T::byte_len()) as u64;
+
+                    // Safety: this operation is safe becase it's a limited
+                    // writable region that is not overlapped with any
+                    // other mapping that could happen in parallel.
+                    let mut mmap = unsafe {
+                        let mut mmap_options = MmapOptions::new();
+                        mmap_options
+                            .offset(map_write_start)
+                            .len(hashed_nodes_as_bytes_len)
+                            .map_mut(&file)?
+                    };
+
+                    mmap[0..hashed_nodes_as_bytes_len].copy_from_slice(&hashed_nodes_as_bytes);
+
+                    Ok(())
+                })?,
+        )
+    }
+
+    fn build_from_disk_store(
+        mut data: K,
+        leafs: usize,
+        height: usize,
+        config: StoreConfig,
+    ) -> Result<Self> {
+        ensure!(data.len() == leafs, "Inconsistent data");
+
+        // Open the backing file of the store for future mmap'd writes.
+        let data_path = StoreConfig::data_path(&config.path, &config.id);
+        let file = OpenOptions::new().read(true).write(true).open(data_path)?;
+
+        // Process one `level` at a time of `width` nodes. Each level has half the nodes
+        // as the previous one; the first level, completely stored in `data`, has `leafs`
+        // nodes. We guarantee an even number of nodes per `level`, duplicating the last
+        // node if necessary.
+        let mut level: usize = 0;
+        let mut width = leafs;
+        let mut level_node_index = 0;
+        while width > 1 {
+            // Start reading at the beginning of the current level, and writing the next
+            // level immediate after.  `level_node_index` keeps track of the current read
+            // starts, and width is updated accordingly at each level so that we know where
+            // to start writing.
+            let (read_start, write_start) = if level == 0 {
+                // Note that we previously asserted that data.len() == leafs.
+                (0, leafs)
+            } else {
+                (level_node_index, level_node_index + width)
+            };
+
+            MerkleTree::<T, A, K>::process_disk_layer(
+                &mut data,
+                &file,
+                width,
+                level,
+                read_start,
+                write_start,
+            )?;
 
             level_node_index += width;
             level += 1;
             width >>= 1;
 
-            data_lock.write().unwrap().sync()?;
+            // When the layer is complete, update the store length
+            // since we know the backing file was updated outside of
+            // the store interface.
+            data.set_len(Store::len(&data) + width);
         }
+
+        // Ensure every element is accounted for.
+        assert_eq!(Store::len(&data), get_merkle_tree_len(leafs));
 
         assert_eq!(height, level + 1);
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 
-        let root = {
-            let data = data_lock.read().unwrap();
-            data.read_at(data.len() - 1)?
-        };
+        let root = data.back()?;
 
         Ok(MerkleTree {
-            data: Arc::try_unwrap(data_lock).unwrap().into_inner().unwrap(),
+            data,
             leafs,
             height,
             root,
@@ -310,7 +471,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 
-        let root = { data.read_at(Store::len(&data) - 1)? };
+        let root = data.back()?;
 
         Ok(MerkleTree {
             data,
@@ -323,8 +484,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     }
 
     #[inline]
-    fn build_partial_small_tree(
-        mut data: VecStore<T>,
+    fn build_partial_tree(
+        data: VecStore<T>,
         leafs: usize,
         height: usize,
     ) -> Result<MerkleTree<T, A, VecStore<T>>> {
@@ -332,35 +493,28 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let mut width = leafs;
         let mut level_node_index = 0;
 
+        let data_len = Store::len(&data);
+        let data_lock = Arc::new(RwLock::new(data));
+
         while width > 1 {
             // For partial tree building, the data layers can never be
             // odd lengths.
             assert!(width % 2 == 0);
 
             // Same indexing logic as `build`.
-            let (layer, write_start) = {
-                let (read_start, write_start) = if level == 0 {
-                    (0, Store::len(&data))
-                } else {
-                    (level_node_index, level_node_index + width)
-                };
-
-                let layer: Vec<_> = data
-                    .read_range(read_start..read_start + width)?
-                    .par_chunks(2)
-                    .map(|v| {
-                        let lhs = v[0].to_owned();
-                        let rhs = v[1].to_owned();
-                        A::default().node(lhs, rhs, level)
-                    })
-                    .collect();
-
-                (layer, write_start)
+            let (read_start, write_start) = if level == 0 {
+                (0, data_len)
+            } else {
+                (level_node_index, level_node_index + width)
             };
 
-            for (i, node) in layer.into_iter().enumerate() {
-                data.write_at(node, write_start + i)?;
-            }
+            MerkleTree::<T, A, VecStore<T>>::process_layer(
+                data_lock.clone(),
+                width,
+                level,
+                read_start,
+                write_start,
+            )?;
 
             level_node_index += width;
             level += 1;
@@ -371,10 +525,10 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 
-        let root = { data.read_at(Store::len(&data) - 1)? };
+        let root = data_lock.read().unwrap().back()?;
 
         Ok(MerkleTree {
-            data,
+            data: Arc::try_unwrap(data_lock).unwrap().into_inner().unwrap(),
             leafs,
             height,
             root,
@@ -504,7 +658,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         // Build the optimally small tree.
         let partial_tree: MerkleTree<T, A, VecStore<T>> =
-            Self::build_partial_small_tree(partial_store, segment_width, partial_height)?;
+            Self::build_partial_tree(partial_store, segment_width, partial_height)?;
         ensure!(
             partial_height == partial_tree.height(),
             "Inconsistent partial tree height"
@@ -720,10 +874,15 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         ensure!(leafs_count > 1, "Must have at least 1 leaf");
 
         let pow = next_pow2(leafs_count);
-        let data = K::new_from_slice_with_config(get_merkle_tree_len(leafs_count), leafs, config)
-            .context("failed to create data store")?;
+        let data =
+            K::new_from_slice_with_config(get_merkle_tree_len(leafs_count), leafs, config.clone())
+                .context("failed to create data store")?;
 
-        Self::build(data, leafs_count, log2_pow2(2 * pow))
+        if data.store_type() == StoreType::Disk {
+            Self::build_from_disk_store(data, leafs_count, log2_pow2(2 * pow), config)
+        } else {
+            Self::build(data, leafs_count, log2_pow2(2 * pow))
+        }
     }
 
     /// Build the tree given a slice of all leafs, in bytes form.
@@ -794,13 +953,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
         let pow = next_pow2(leafs);
         let height = log2_pow2(2 * pow);
 
-        let mut data = K::new_with_config(get_merkle_tree_len(leafs), config)
+        let mut data = K::new_with_config(get_merkle_tree_len(leafs), config.clone())
             .context("failed to create data store")?;
 
         // If the data store was loaded from disk, we know we have
         // access to the full merkle tree.
         if data.loaded_from_disk() {
-            let root = data.read_at(data.len() - 1)?;
+            let root = data.back().context("failed to read root")?;
+
             return Ok(MerkleTree {
                 data,
                 leafs,
@@ -812,7 +972,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
         }
 
         populate_data_par::<T, A, K, _>(&mut data, iter)?;
-        Self::build(data, leafs, height)
+        if data.store_type() == StoreType::Disk {
+            Self::build_from_disk_store(data, leafs, height, config)
+        } else {
+            Self::build(data, leafs, height)
+        }
     }
 }
 
@@ -849,15 +1013,13 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         let pow = next_pow2(leafs);
         let height = log2_pow2(2 * pow);
 
-        let mut data = K::new_with_config(get_merkle_tree_len(leafs), config)
+        let mut data = K::new_with_config(get_merkle_tree_len(leafs), config.clone())
             .context("failed to create data store")?;
 
         // If the data store was loaded from disk, we know we have
         // access to the full merkle tree.
         if data.loaded_from_disk() {
-            let root = data
-                .read_at(data.len() - 1)
-                .context("failed to read root")?;
+            let root = data.back().context("failed to read root")?;
 
             return Ok(MerkleTree {
                 data,
@@ -871,7 +1033,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         populate_data::<T, A, K, I>(&mut data, iter).expect("failed to populate data");
 
-        Self::build(data, leafs, height)
+        if data.store_type() == StoreType::Disk {
+            Self::build_from_disk_store(data, leafs, height, config)
+        } else {
+            Self::build(data, leafs, height)
+        }
     }
 }
 

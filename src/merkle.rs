@@ -139,7 +139,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     pub fn from_data_store(data: K, size: usize) -> Result<MerkleTree<T, A, K>> {
         let pow = next_pow2(size);
         let height = log2_pow2(2 * pow);
-        let root = data.back()?;
+        let root = data.last()?;
 
         Ok(MerkleTree {
             data,
@@ -170,7 +170,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
             if width & 1 == 1 {
                 // Odd number of nodes, duplicate last.
                 let mut active_store = data_lock.write().unwrap();
-                let last_node = active_store.back()?;
+                let last_node = active_store.last()?;
                 active_store.push(last_node)?;
 
                 width += 1;
@@ -187,13 +187,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 (level_node_index, level_node_index + width)
             };
 
-            MerkleTree::<T, A, K>::process_layer(
-                data_lock.clone(),
-                width,
-                level,
-                read_start,
-                write_start,
-            )?;
+            Self::process_layer(data_lock.clone(), width, level, read_start, write_start)?;
 
             level_node_index += width;
             level += 1;
@@ -208,7 +202,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         let root = {
             let data = data_lock.read().unwrap();
-            data.back()?
+            data.last()?
         };
 
         Ok(MerkleTree {
@@ -235,51 +229,45 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // optimized for big sector sizes (small ones will just have one thread doing all
         // the work).
         debug_assert_eq!(BUILD_CHUNK_NODES % 2, 0);
-        Ok(
-            Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
-                .par_iter()
-                .try_for_each(|&chunk_index| -> Result<()> {
-                    let chunk_size =
-                        std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
+        Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
+            .par_iter()
+            .try_for_each(|&chunk_index| -> Result<()> {
+                let chunk_size = std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
 
-                    let chunk_nodes = {
-                        // Read everything taking the lock once.
-                        data_lock
-                            .read()
-                            .unwrap()
-                            .read_range(chunk_index..chunk_index + chunk_size)?
-                    };
-
-                    // We write the hashed nodes to the next level in the position that
-                    // would be "in the middle" of the previous pair (dividing by 2).
-                    let write_delta = (chunk_index - read_start) / 2;
-
-                    let nodes_size = (chunk_nodes.len() / 2) * T::byte_len();
-                    let hashed_nodes_as_bytes = chunk_nodes.chunks(2).fold(
-                        Vec::with_capacity(nodes_size),
-                        |mut acc, node_pair| {
-                            let h = A::default().node(
-                                node_pair[0].clone(),
-                                node_pair[1].clone(),
-                                level,
-                            );
-                            acc.extend_from_slice(h.as_ref());
-                            acc
-                        },
-                    );
-
-                    // Check that we correctly pre-allocated the space.
-                    debug_assert_eq!(hashed_nodes_as_bytes.len(), chunk_size / 2 * T::byte_len());
-
-                    // Write the data into the store.
+                let chunk_nodes = {
+                    // Read everything taking the lock once.
                     data_lock
-                        .write()
+                        .read()
                         .unwrap()
-                        .copy_from_slice(&hashed_nodes_as_bytes, write_start + write_delta)?;
+                        .read_range(chunk_index..chunk_index + chunk_size)?
+                };
 
-                    Ok(())
-                })?,
-        )
+                // We write the hashed nodes to the next level in the position that
+                // would be "in the middle" of the previous pair (dividing by 2).
+                let write_delta = (chunk_index - read_start) / 2;
+
+                let nodes_size = (chunk_nodes.len() / 2) * T::byte_len();
+                let hashed_nodes_as_bytes = chunk_nodes.chunks(2).fold(
+                    Vec::with_capacity(nodes_size),
+                    |mut acc, node_pair| {
+                        let h =
+                            A::default().node(node_pair[0].clone(), node_pair[1].clone(), level);
+                        acc.extend_from_slice(h.as_ref());
+                        acc
+                    },
+                );
+
+                // Check that we correctly pre-allocated the space.
+                debug_assert_eq!(hashed_nodes_as_bytes.len(), chunk_size / 2 * T::byte_len());
+
+                // Write the data into the store.
+                data_lock
+                    .write()
+                    .unwrap()
+                    .copy_from_slice(&hashed_nodes_as_bytes, write_start + write_delta)?;
+
+                Ok(())
+            })
     }
 
     fn process_disk_layer(
@@ -292,65 +280,58 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     ) -> Result<()> {
         let data_lock = Arc::new(RwLock::new(data));
 
-        Ok(
-            Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
-                .par_iter()
-                .try_for_each(move |&chunk_index| -> Result<()> {
-                    let chunk_size =
-                        std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
+        Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
+            .par_iter()
+            .try_for_each(move |&chunk_index| -> Result<()> {
+                let chunk_size = std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
 
-                    let chunk_nodes = {
-                        // Read everything taking the lock once.
-                        data_lock
-                            .read()
-                            .unwrap()
-                            .read_range(chunk_index..chunk_index + chunk_size)?
-                    };
+                let chunk_nodes = {
+                    // Read everything taking the lock once.
+                    data_lock
+                        .read()
+                        .unwrap()
+                        .read_range(chunk_index..chunk_index + chunk_size)?
+                };
 
-                    // We write the hashed nodes to the next level in the position that
-                    // would be "in the middle" of the previous pair (dividing by 2).
-                    let write_delta = (chunk_index - read_start) / 2;
+                // We write the hashed nodes to the next level in the position that
+                // would be "in the middle" of the previous pair (dividing by 2).
+                let write_delta = (chunk_index - read_start) / 2;
 
-                    let nodes_size = (chunk_nodes.len() / 2) * T::byte_len();
-                    let hashed_nodes_as_bytes = chunk_nodes.chunks(2).fold(
-                        Vec::with_capacity(nodes_size),
-                        |mut acc, node_pair| {
-                            let h = A::default().node(
-                                node_pair[0].clone(),
-                                node_pair[1].clone(),
-                                level,
-                            );
-                            acc.extend_from_slice(h.as_ref());
-                            acc
-                        },
-                    );
+                let nodes_size = (chunk_nodes.len() / 2) * T::byte_len();
+                let hashed_nodes_as_bytes = chunk_nodes.chunks(2).fold(
+                    Vec::with_capacity(nodes_size),
+                    |mut acc, node_pair| {
+                        let h =
+                            A::default().node(node_pair[0].clone(), node_pair[1].clone(), level);
+                        acc.extend_from_slice(h.as_ref());
+                        acc
+                    },
+                );
 
-                    // Check that we correctly pre-allocated the space.
-                    let chunk_size =
-                        std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
+                // Check that we correctly pre-allocated the space.
+                let chunk_size = std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
 
-                    let hashed_nodes_as_bytes_len = hashed_nodes_as_bytes.len();
-                    debug_assert_eq!(hashed_nodes_as_bytes_len, chunk_size / 2 * T::byte_len());
+                let hashed_nodes_as_bytes_len = hashed_nodes_as_bytes.len();
+                debug_assert_eq!(hashed_nodes_as_bytes_len, chunk_size / 2 * T::byte_len());
 
-                    let map_write_start =
-                        (write_start * T::byte_len() + write_delta * T::byte_len()) as u64;
+                let map_write_start =
+                    (write_start * T::byte_len() + write_delta * T::byte_len()) as u64;
 
-                    // Safety: this operation is safe becase it's a limited
-                    // writable region that is not overlapped with any
-                    // other mapping that could happen in parallel.
-                    let mut mmap = unsafe {
-                        let mut mmap_options = MmapOptions::new();
-                        mmap_options
-                            .offset(map_write_start)
-                            .len(hashed_nodes_as_bytes_len)
-                            .map_mut(&file)?
-                    };
+                // Safety: this operation is safe becase it's a limited
+                // writable region that is not overlapped with any
+                // other mapping that could happen in parallel.
+                let mut mmap = unsafe {
+                    let mut mmap_options = MmapOptions::new();
+                    mmap_options
+                        .offset(map_write_start)
+                        .len(hashed_nodes_as_bytes_len)
+                        .map_mut(&file)?
+                };
 
-                    mmap[0..hashed_nodes_as_bytes_len].copy_from_slice(&hashed_nodes_as_bytes);
+                mmap[0..hashed_nodes_as_bytes_len].copy_from_slice(&hashed_nodes_as_bytes);
 
-                    Ok(())
-                })?,
-        )
+                Ok(())
+            })
     }
 
     fn build_from_disk_store(
@@ -384,14 +365,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 (level_node_index, level_node_index + width)
             };
 
-            MerkleTree::<T, A, K>::process_disk_layer(
-                &mut data,
-                &file,
-                width,
-                level,
-                read_start,
-                write_start,
-            )?;
+            Self::process_disk_layer(&mut data, &file, width, level, read_start, write_start)?;
 
             level_node_index += width;
             level += 1;
@@ -410,7 +384,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 
-        let root = data.back()?;
+        let root = data.last()?;
 
         Ok(MerkleTree {
             data,
@@ -471,7 +445,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 
-        let root = data.back()?;
+        let root = data.last()?;
 
         Ok(MerkleTree {
             data,
@@ -525,7 +499,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 
-        let root = data_lock.read().unwrap().back()?;
+        let root = data_lock.read().unwrap().last()?;
 
         Ok(MerkleTree {
             data: Arc::try_unwrap(data_lock).unwrap().into_inner().unwrap(),
@@ -959,7 +933,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
         // If the data store was loaded from disk, we know we have
         // access to the full merkle tree.
         if data.loaded_from_disk() {
-            let root = data.back().context("failed to read root")?;
+            let root = data.last().context("failed to read root")?;
 
             return Ok(MerkleTree {
                 data,
@@ -1019,7 +993,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
         // If the data store was loaded from disk, we know we have
         // access to the full merkle tree.
         if data.loaded_from_disk() {
-            let root = data.back().context("failed to read root")?;
+            let root = data.last().context("failed to read root")?;
 
             return Ok(MerkleTree {
                 data,

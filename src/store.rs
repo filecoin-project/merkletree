@@ -162,7 +162,9 @@ pub trait Store<E: Element>:
     fn push(&mut self, el: E) -> Result<()>;
     fn store_type(&self) -> StoreType;
     fn set_len(&mut self, len: usize);
-    fn back(&self) -> Result<E>;
+    fn last(&self) -> Result<E> {
+        self.read_at(self.len() - 1)
+    }
 
     // Sync contents to disk (if it exists). This function is used to avoid
     // unnecessary flush calls at the cost of added code complexity.
@@ -293,10 +295,6 @@ impl<E: Element> Store<E> for VecStore<E> {
 
     fn set_len(&mut self, _len: usize) {
         unimplemented!("Cannot set the length on this type of store");
-    }
-
-    fn back(&self) -> Result<E> {
-        self.read_at(self.0.len() - 1)
     }
 }
 
@@ -607,10 +605,6 @@ impl<E: Element> Store<E> for DiskStore<E> {
 
     fn set_len(&mut self, len: usize) {
         self.len = len;
-    }
-
-    fn back(&self) -> Result<E> {
-        self.read_at(self.len - 1)
     }
 
     fn sync(&self) -> Result<()> {
@@ -983,10 +977,6 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
 
     fn set_len(&mut self, _len: usize) {
         unimplemented!("Cannot set the length on this type of store");
-    }
-
-    fn back(&self) -> Result<E> {
-        self.read_at(self.len - 1)
     }
 
     fn sync(&self) -> Result<()> {

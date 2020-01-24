@@ -280,9 +280,21 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
     ) -> Result<()> {
         let data_lock = Arc::new(RwLock::new(data));
 
+        // Safety: this operation is safe becase it's a limited
+        // writable region that is not overlapped with any
+        // other mapping that could happen in parallel.
+        let mut mmap = unsafe {
+            let mut mmap_options = MmapOptions::new();
+            mmap_options
+                .offset((write_start * T::byte_len()) as u64)
+                .len(width * T::byte_len())
+                .map_mut(&file)?
+        };
+
         Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
-            .par_iter()
-            .try_for_each(move |&chunk_index| -> Result<()> {
+            .into_par_iter()
+            .zip(mmap.par_chunks_mut(BUILD_CHUNK_NODES * T::byte_len()))
+            .try_for_each(|(chunk_index, write_mmap)| -> Result<()> {
                 let chunk_size = std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
 
                 let chunk_nodes = {
@@ -309,26 +321,13 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
                 );
 
                 // Check that we correctly pre-allocated the space.
-                let chunk_size = std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
-
                 let hashed_nodes_as_bytes_len = hashed_nodes_as_bytes.len();
                 debug_assert_eq!(hashed_nodes_as_bytes_len, chunk_size / 2 * T::byte_len());
 
-                let map_write_start =
-                    (write_start * T::byte_len() + write_delta * T::byte_len()) as u64;
+                let write_start = write_delta * T::byte_len();
+                let write_end = write_start + hashed_nodes_as_bytes_len;
 
-                // Safety: this operation is safe becase it's a limited
-                // writable region that is not overlapped with any
-                // other mapping that could happen in parallel.
-                let mut mmap = unsafe {
-                    let mut mmap_options = MmapOptions::new();
-                    mmap_options
-                        .offset(map_write_start)
-                        .len(hashed_nodes_as_bytes_len)
-                        .map_mut(&file)?
-                };
-
-                mmap[0..hashed_nodes_as_bytes_len].copy_from_slice(&hashed_nodes_as_bytes);
+                write_mmap[write_start..write_end].copy_from_slice(&hashed_nodes_as_bytes);
 
                 Ok(())
             })

@@ -95,7 +95,7 @@ fn test_simple_tree() {
             8300325667420840753,
         ],
     ];
-    for items in 2..8 {
+    for items in [2, 4].iter() {
         let mut a = DefaultHasher::new();
         let mt: MerkleTree<Item, DefaultHasher, VecStore<_>> = MerkleTree::try_from_iter(
             [1, 2, 3, 4, 5, 6, 7, 8]
@@ -105,15 +105,15 @@ fn test_simple_tree() {
                     x.hash(&mut a);
                     Ok(a.hash())
                 })
-                .take(items),
+                .take(*items),
         )
         .unwrap();
 
-        assert_eq!(mt.leafs(), items);
+        assert_eq!(mt.leafs(), *items);
         assert_eq!(mt.height(), log2_pow2(next_pow2(mt.len())));
         assert_eq!(
             mt.read_range(0, mt.len()).unwrap(),
-            answer[items - 2].as_slice()
+            answer[*items - 2].as_slice()
         );
 
         for i in 0..mt.leafs() {

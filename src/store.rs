@@ -1,20 +1,36 @@
+use memmap::MmapOptions;
 use std::fmt;
 use std::fs::{remove_file, File, OpenOptions};
 use std::io::{copy, Read, Seek, SeekFrom};
+use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::ops::{self, Index};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result};
 use positioned_io::{ReadAt, WriteAt};
 use rayon::iter::plumbing::*;
 use rayon::iter::*;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tempfile::tempfile;
 
-use crate::merkle::{get_merkle_tree_leafs, next_pow2, Element};
+use crate::hash::Algorithm;
+use crate::merkle::{get_merkle_tree_leafs, get_merkle_tree_len, next_pow2, Element};
 
 pub const DEFAULT_CACHED_ABOVE_BASE_LAYER: usize = 7;
+
+/// Tree size (number of nodes) used as threshold to decide which build algorithm
+/// to use. Small trees (below this value) use the old build algorithm, optimized
+/// for speed rather than memory, allocating as much as needed to allow multiple
+/// threads to work concurrently without interrupting each other. Large trees (above)
+/// use the new build algorithm, optimized for memory rather than speed, allocating
+/// as less as possible with multiple threads competing to get the write lock.
+pub const SMALL_TREE_BUILD: usize = 1024;
+
+// Number of nodes to process in parallel during the `build` stage.
+pub const BUILD_CHUNK_NODES: usize = 1024 * 4;
 
 // Version 1 always contained the base layer data (even after 'compact').
 // Version 2 no longer contains the base layer data after compact.
@@ -160,7 +176,6 @@ pub trait Store<E: Element>:
     fn loaded_from_disk(&self) -> bool;
     fn is_empty(&self) -> bool;
     fn push(&mut self, el: E) -> Result<()>;
-    fn store_type(&self) -> StoreType;
     fn set_len(&mut self, len: usize);
     fn last(&self) -> Result<E> {
         self.read_at(self.len() - 1)
@@ -170,6 +185,161 @@ pub trait Store<E: Element>:
     // unnecessary flush calls at the cost of added code complexity.
     fn sync(&self) -> Result<()> {
         Ok(())
+    }
+
+    #[inline]
+    fn build_small_tree<A: Algorithm<E>>(
+        //data: &mut S,
+        &mut self,
+        leafs: usize,
+        height: usize,
+    ) -> Result<E> {
+        ensure!(leafs % 2 == 0, "Leafs must be a power of two");
+
+        let mut level: usize = 0;
+        let mut width = leafs;
+        let mut level_node_index = 0;
+
+        while width > 1 {
+            // Same indexing logic as `build`.
+            let (layer, write_start) = {
+                let (read_start, write_start) = if level == 0 {
+                    // Note that we previously asserted that data.len() == leafs.
+                    (0, Store::len(self))
+                } else {
+                    (level_node_index, level_node_index + width)
+                };
+
+                let layer: Vec<_> = self
+                    .read_range(read_start..read_start + width)?
+                    .par_chunks(2)
+                    .map(|v| {
+                        let lhs = v[0].to_owned();
+                        let rhs = v[1].to_owned();
+                        A::default().node(lhs, rhs, level)
+                    })
+                    .collect();
+
+                (layer, write_start)
+            };
+
+            for (i, node) in layer.into_iter().enumerate() {
+                self.write_at(node, write_start + i)?;
+            }
+
+            level_node_index += width;
+            level += 1;
+            width >>= 1;
+        }
+
+        assert_eq!(height, level + 1);
+        // The root isn't part of the previous loop so `height` is
+        // missing one level.
+
+        self.last()
+    }
+
+    fn process_layer<A: Algorithm<E>>(
+        &mut self,
+        width: usize,
+        level: usize,
+        read_start: usize,
+        write_start: usize,
+    ) -> Result<()> {
+        let data_lock = Arc::new(RwLock::new(self));
+
+        // Allocate `width` indexes during operation (which is a negligible memory bloat
+        // compared to the 32-bytes size of the nodes stored in the `Store`s) and hash each
+        // pair of nodes to write them to the next level in concurrent threads.
+        // Process `BUILD_CHUNK_NODES` nodes in each thread at a time to reduce contention,
+        // optimized for big sector sizes (small ones will just have one thread doing all
+        // the work).
+        debug_assert_eq!(BUILD_CHUNK_NODES % 2, 0);
+        Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
+            .par_iter()
+            .try_for_each(|&chunk_index| -> Result<()> {
+                let chunk_size = std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
+
+                let chunk_nodes = {
+                    // Read everything taking the lock once.
+                    data_lock
+                        .read()
+                        .unwrap()
+                        .read_range(chunk_index..chunk_index + chunk_size)?
+                };
+
+                // We write the hashed nodes to the next level in the position that
+                // would be "in the middle" of the previous pair (dividing by 2).
+                let write_delta = (chunk_index - read_start) / 2;
+
+                let nodes_size = (chunk_nodes.len() / 2) * E::byte_len();
+                let hashed_nodes_as_bytes = chunk_nodes.chunks(2).fold(
+                    Vec::with_capacity(nodes_size),
+                    |mut acc, node_pair| {
+                        let h =
+                            A::default().node(node_pair[0].clone(), node_pair[1].clone(), level);
+                        acc.extend_from_slice(h.as_ref());
+                        acc
+                    },
+                );
+
+                // Check that we correctly pre-allocated the space.
+                debug_assert_eq!(hashed_nodes_as_bytes.len(), chunk_size / 2 * E::byte_len());
+
+                // Write the data into the store.
+                data_lock
+                    .write()
+                    .unwrap()
+                    .copy_from_slice(&hashed_nodes_as_bytes, write_start + write_delta)
+            })
+    }
+
+    // Default merkle-tree build, based on store type.
+    fn build<A: Algorithm<E>>(
+        &mut self,
+        leafs: usize,
+        height: usize,
+        _config: Option<StoreConfig>,
+    ) -> Result<E> {
+        ensure!(Store::len(self) == leafs, "Inconsistent data");
+        ensure!(leafs % 2 == 0, "Leafs must be a power of two");
+        if leafs <= SMALL_TREE_BUILD {
+            return self.build_small_tree::<A>(leafs, height);
+        }
+
+        // Process one `level` at a time of `width` nodes. Each level has half the nodes
+        // as the previous one; the first level, completely stored in `data`, has `leafs`
+        // nodes. We guarantee an even number of nodes per `level`, duplicating the last
+        // node if necessary.
+        let mut level: usize = 0;
+        let mut width = leafs;
+        let mut level_node_index = 0;
+        while width > 1 {
+            // Start reading at the beginning of the current level, and writing the next
+            // level immediate after.  `level_node_index` keeps track of the current read
+            // starts, and width is updated accordingly at each level so that we know where
+            // to start writing.
+            let (read_start, write_start) = if level == 0 {
+                // Note that we previously asserted that data.len() == leafs.
+                //(0, data_lock.read().unwrap().len())
+                (0, Store::len(self))
+            } else {
+                (level_node_index, level_node_index + width)
+            };
+
+            self.process_layer::<A>(width, level, read_start, write_start)?;
+
+            level_node_index += width;
+            level += 1;
+            width >>= 1;
+        }
+
+        assert_eq!(height, level + 1);
+        // The root isn't part of the previous loop so `height` is
+        // missing one level.
+
+        // Return the root
+        self.last()
     }
 }
 
@@ -287,10 +457,6 @@ impl<E: Element> Store<E> for VecStore<E> {
     fn push(&mut self, el: E) -> Result<()> {
         self.0.push(el);
         Ok(())
-    }
-
-    fn store_type(&self) -> StoreType {
-        StoreType::Vec
     }
 
     fn set_len(&mut self, _len: usize) {
@@ -599,16 +765,120 @@ impl<E: Element> Store<E> for DiskStore<E> {
         self.write_at(el, len)
     }
 
-    fn store_type(&self) -> StoreType {
-        StoreType::Disk
-    }
-
     fn set_len(&mut self, len: usize) {
         self.len = len;
     }
 
     fn sync(&self) -> Result<()> {
         self.file.sync_all().context("failed to sync file")
+    }
+
+    fn process_layer<A: Algorithm<E>>(
+        &mut self,
+        width: usize,
+        level: usize,
+        read_start: usize,
+        write_start: usize,
+    ) -> Result<()> {
+        // Safety: this operation is safe becase it's a limited
+        // writable region on the backing store managed by this type.
+        let mut mmap = unsafe {
+            let mut mmap_options = MmapOptions::new();
+            mmap_options
+                .offset((write_start * E::byte_len()) as u64)
+                .len(width * E::byte_len())
+                .map_mut(&self.file)
+        }?;
+
+        let data_lock = Arc::new(RwLock::new(self));
+
+        debug_assert_eq!(BUILD_CHUNK_NODES % 2, 0);
+        Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
+            .into_par_iter()
+            .zip(mmap.par_chunks_mut(BUILD_CHUNK_NODES * E::byte_len()))
+            .try_for_each(|(chunk_index, write_mmap)| -> Result<()> {
+                let chunk_size = std::cmp::min(BUILD_CHUNK_NODES, read_start + width - chunk_index);
+
+                let chunk_nodes = {
+                    // Read everything taking the lock once.
+                    data_lock
+                        .read()
+                        .unwrap()
+                        .read_range(chunk_index..chunk_index + chunk_size)?
+                };
+
+                let nodes_size = (chunk_nodes.len() / 2) * E::byte_len();
+                let hashed_nodes_as_bytes = chunk_nodes.chunks(2).fold(
+                    Vec::with_capacity(nodes_size),
+                    |mut acc, node_pair| {
+                        let h =
+                            A::default().node(node_pair[0].clone(), node_pair[1].clone(), level);
+                        acc.extend_from_slice(h.as_ref());
+                        acc
+                    },
+                );
+
+                // Check that we correctly pre-allocated the space.
+                let hashed_nodes_as_bytes_len = hashed_nodes_as_bytes.len();
+                debug_assert_eq!(hashed_nodes_as_bytes_len, chunk_size / 2 * E::byte_len());
+
+                write_mmap[0..hashed_nodes_as_bytes_len].copy_from_slice(&hashed_nodes_as_bytes);
+
+                Ok(())
+            })
+    }
+
+    // DiskStore specific merkle-tree build.
+    fn build<A: Algorithm<E>>(
+        &mut self,
+        leafs: usize,
+        height: usize,
+        _config: Option<StoreConfig>,
+    ) -> Result<E> {
+        ensure!(Store::len(self) == leafs, "Inconsistent data");
+        ensure!(leafs % 2 == 0, "Leafs must be a power of two");
+
+        // Process one `level` at a time of `width` nodes. Each level has half the nodes
+        // as the previous one; the first level, completely stored in `data`, has `leafs`
+        // nodes. We guarantee an even number of nodes per `level`, duplicating the last
+        // node if necessary.
+        let mut level: usize = 0;
+        let mut width = leafs;
+        let mut level_node_index = 0;
+
+        while width > 1 {
+            // Start reading at the beginning of the current level, and writing the next
+            // level immediate after.  `level_node_index` keeps track of the current read
+            // starts, and width is updated accordingly at each level so that we know where
+            // to start writing.
+            let (read_start, write_start) = if level == 0 {
+                // Note that we previously asserted that data.len() == leafs.
+                (0, Store::len(self))
+            } else {
+                (level_node_index, level_node_index + width)
+            };
+
+            self.process_layer::<A>(width, level, read_start, write_start)?;
+
+            level_node_index += width;
+            level += 1;
+            width >>= 1;
+
+            // When the layer is complete, update the store length
+            // since we know the backing file was updated outside of
+            // the store interface.
+            self.set_len(Store::len(self) + width);
+        }
+
+        // Ensure every element is accounted for.
+        assert_eq!(Store::len(self), get_merkle_tree_len(leafs));
+
+        assert_eq!(height, level + 1);
+        // The root isn't part of the previous loop so `height` is
+        // missing one level.
+
+        // Return the root
+        self.last()
     }
 }
 
@@ -969,10 +1239,6 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         );
 
         self.write_at(el, len)
-    }
-
-    fn store_type(&self) -> StoreType {
-        StoreType::LevelCache
     }
 
     fn set_len(&mut self, _len: usize) {

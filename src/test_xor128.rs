@@ -3,10 +3,10 @@
 use crate::hash::*;
 use crate::merkle::FromIndexedParallelIterator;
 use crate::merkle::{log2_pow2, next_pow2};
-use crate::merkle::{Element, MerkleTree, SMALL_TREE_BUILD};
+use crate::merkle::{Element, MerkleTree};
 use crate::store::{
     DiskStore, DiskStoreProducer, ExternalReader, LevelCacheStore, Store, StoreConfig,
-    StoreConfigDataVersion, VecStore, DEFAULT_CACHED_ABOVE_BASE_LAYER,
+    StoreConfigDataVersion, VecStore, DEFAULT_CACHED_ABOVE_BASE_LAYER, SMALL_TREE_BUILD,
 };
 use rayon::iter::{plumbing::*, IntoParallelIterator, ParallelIterator};
 use std::fmt;
@@ -163,7 +163,7 @@ fn test_from_iter() {
     let mut a = XOR128::new();
 
     let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> =
-        MerkleTree::try_from_iter(["a", "b", "c"].iter().map(|x| {
+        MerkleTree::try_from_iter(["a", "b", "c", "d"].iter().map(|x| {
             a.reset();
             x.hash(&mut a);
             Ok(a.hash())
@@ -248,7 +248,8 @@ fn test_simple_tree() {
         ],
     ];
 
-    for items in 2..8 {
+    // pow 2 only supported
+    for items in [2, 4].iter() {
         let mut a = XOR128::new();
         let mt_base: MerkleTree<[u8; 16], XOR128, VecStore<_>> = MerkleTree::try_from_iter(
             [1, 2, 3, 4, 5, 6, 7, 8]
@@ -258,15 +259,15 @@ fn test_simple_tree() {
                     x.hash(&mut a);
                     Ok(a.hash())
                 })
-                .take(items),
+                .take(*items),
         )
         .unwrap();
 
-        assert_eq!(mt_base.leafs(), items);
+        assert_eq!(mt_base.leafs(), *items);
         assert_eq!(mt_base.height(), log2_pow2(next_pow2(mt_base.len())));
         assert_eq!(
             mt_base.read_range(0, mt_base.len()).unwrap(),
-            answer[items - 2].as_slice()
+            answer[*items - 2].as_slice()
         );
         assert_eq!(mt_base.read_at(0).unwrap(), mt_base.read_at(0).unwrap());
 
@@ -283,7 +284,7 @@ fn test_simple_tree() {
                 x.hash(&mut a);
                 a.hash()
             })
-            .take(items)
+            .take(*items)
             .map(|item| {
                 a2.reset();
                 a2.leaf(item).as_ref().to_vec()
@@ -293,11 +294,11 @@ fn test_simple_tree() {
         {
             let mt1: MerkleTree<[u8; 16], XOR128, VecStore<_>> =
                 MerkleTree::from_byte_slice(&leafs).unwrap();
-            assert_eq!(mt1.leafs(), items);
+            assert_eq!(mt1.leafs(), *items);
             assert_eq!(mt1.height(), log2_pow2(next_pow2(mt1.len())));
             assert_eq!(
                 mt_base.read_range(0, mt_base.len()).unwrap(),
-                answer[items - 2].as_slice()
+                answer[*items - 2].as_slice()
             );
 
             for i in 0..mt1.leafs() {
@@ -309,7 +310,7 @@ fn test_simple_tree() {
         {
             let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
                 MerkleTree::from_byte_slice(&leafs).unwrap();
-            assert_eq!(mt2.leafs(), items);
+            assert_eq!(mt2.leafs(), *items);
             assert_eq!(mt2.height(), log2_pow2(next_pow2(mt2.len())));
             for i in 0..mt2.leafs() {
                 let p = mt2.gen_proof(i).unwrap();

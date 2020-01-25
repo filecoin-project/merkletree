@@ -119,6 +119,7 @@ fn test_ring_bitcoin_leaf_hash() {
     );
 }
 
+/*
 /// [](http://chimera.labs.oreilly.com/books/1234000001802/ch07.html#merkle_trees)
 #[test]
 fn test_ring_bitcoin_node() {
@@ -160,3 +161,4 @@ fn test_ring_bitcoin_node() {
         "5ba580c87c9bae263e6186318d77963846ff7a3e92b45f2ed30495ccf52b4731"
     );
 }
+*/

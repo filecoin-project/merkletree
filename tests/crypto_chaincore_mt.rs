@@ -76,6 +76,7 @@ impl<'a> fmt::Display for HexSlice<'a> {
     }
 }
 
+/*
 #[test]
 fn test_crypto_chaincore_node() {
     let mut h1 = [0u8; 32];
@@ -92,6 +93,7 @@ fn test_crypto_chaincore_node() {
         "23704c527ffb21d1b1816938114c2fb0f6e50475d4ab5d07ebff855e7fd20335"
     );
 }
+ */
 
 #[test]
 fn test_merkle_tree_validate_data() {

@@ -520,25 +520,10 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         let pow = next_pow2(leafs_count);
         let height = log2_pow2(2 * pow);
+
         let mut data =
             K::new_from_slice_with_config(get_merkle_tree_len(leafs_count), leafs, config.clone())
                 .context("failed to create data store")?;
-
-        // If the data store was loaded from disk, we know we have
-        // access to the full merkle tree.
-        if data.loaded_from_disk() {
-            let root = data.last().context("failed to read root")?;
-
-            return Ok(MerkleTree {
-                data,
-                leafs: leafs_count,
-                height,
-                root,
-                _a: PhantomData,
-                _t: PhantomData,
-            });
-        }
-
         let root = K::build::<A>(&mut data, leafs_count, height, Some(config))?;
 
         Ok(MerkleTree {
@@ -612,22 +597,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> FromIndexedParallelIterator<T>
         let height = log2_pow2(2 * pow);
 
         let mut data = K::new(get_merkle_tree_len(leafs)).expect("failed to create data store");
-
-        // If the data store was loaded from disk, we know we have
-        // access to the full merkle tree.
-        if data.loaded_from_disk() {
-            let root = data.last().context("failed to read root")?;
-
-            return Ok(MerkleTree {
-                data,
-                leafs,
-                height,
-                root,
-                _a: PhantomData,
-                _t: PhantomData,
-            });
-        }
-
         populate_data_par::<T, A, K, _>(&mut data, iter)?;
         let root = K::build::<A>(&mut data, leafs, height, None)?;
 
@@ -698,23 +667,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>> MerkleTree<T, A, K> {
 
         let pow = next_pow2(leafs);
         let height = log2_pow2(2 * pow);
+
         let mut data = K::new(get_merkle_tree_len(leafs)).context("failed to create data store")?;
-
-        // If the data store was loaded from disk, we know we have
-        // access to the full merkle tree.
-        if data.loaded_from_disk() {
-            let root = data.last().context("failed to read root")?;
-
-            return Ok(MerkleTree {
-                data,
-                leafs,
-                height,
-                root,
-                _a: PhantomData,
-                _t: PhantomData,
-            });
-        }
-
         populate_data::<T, A, K, I>(&mut data, iter).context("failed to populate data")?;
         let root = K::build::<A>(&mut data, leafs, height, None)?;
 

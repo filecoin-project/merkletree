@@ -40,13 +40,6 @@ pub enum StoreConfigDataVersion {
     Two = 2,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum StoreType {
-    Vec = 1,
-    Disk = 2,
-    LevelCache = 3,
-}
-
 const DEFAULT_STORE_CONFIG_DATA_VERSION: u32 = StoreConfigDataVersion::Two as u32;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

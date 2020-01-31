@@ -4,7 +4,6 @@ use crate::hash::*;
 use crate::merkle::FromIndexedParallelIterator;
 use crate::merkle::{
     get_merkle_tree_height, get_merkle_tree_len, log2_pow2, next_pow2, Element, MerkleTree,
-    SMALL_TREE_BUILD,
 };
 use crate::store::{
     DiskStore, DiskStoreProducer, ExternalReader, LevelCacheStore, MmapStore, Store, StoreConfig,

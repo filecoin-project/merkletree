@@ -10,9 +10,10 @@ use rayon::iter::plumbing::*;
 use rayon::iter::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use typenum::marker_traits::Unsigned;
 
 use crate::hash::Algorithm;
-use crate::merkle::Element;
+use crate::merkle::{log2_pow2, next_pow2, Element};
 
 pub const DEFAULT_CACHED_ABOVE_BASE_LAYER: usize = 7;
 
@@ -140,13 +141,19 @@ impl StoreConfig {
 /// Backing store of the merkle tree.
 pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
     /// Creates a new store which can store up to `size` elements.
-    fn new_with_config(size: usize, config: StoreConfig) -> Result<Self>;
+    fn new_with_config(size: usize, branches: usize, config: StoreConfig) -> Result<Self>;
     fn new(size: usize) -> Result<Self>;
 
-    fn new_from_slice_with_config(size: usize, data: &[u8], config: StoreConfig) -> Result<Self>;
+    fn new_from_slice_with_config(
+        size: usize,
+        branches: usize,
+        data: &[u8],
+        config: StoreConfig,
+    ) -> Result<Self>;
+
     fn new_from_slice(size: usize, data: &[u8]) -> Result<Self>;
 
-    fn new_from_disk(size: usize, config: &StoreConfig) -> Result<Self>;
+    fn new_from_disk(size: usize, branches: usize, config: &StoreConfig) -> Result<Self>;
 
     fn write_at(&mut self, el: E, index: usize) -> Result<()>;
 
@@ -157,7 +164,9 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
     fn copy_from_slice(&mut self, buf: &[u8], start: usize) -> Result<()>;
 
     // compact/shrink resources used where possible.
-    fn compact(&mut self, config: StoreConfig, store_version: u32) -> Result<bool>;
+    fn compact(&mut self, branches: usize, config: StoreConfig, store_version: u32)
+        -> Result<bool>;
+
     // re-instate resource usage where needed.
     fn reinit(&mut self) -> Result<()> {
         Ok(())
@@ -189,8 +198,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
     }
 
     #[inline]
-    fn build_small_tree<A: Algorithm<E>>(
-        //data: &mut S,
+    fn build_small_tree<A: Algorithm<E>, U: Unsigned>(
         &mut self,
         leafs: usize,
         height: usize,
@@ -200,6 +208,8 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
         let mut level: usize = 0;
         let mut width = leafs;
         let mut level_node_index = 0;
+        let branches = <U as Unsigned>::to_usize();
+        let shift = log2_pow2(branches);
 
         while width > 1 {
             // Same indexing logic as `build`.
@@ -213,12 +223,8 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
 
                 let layer: Vec<_> = self
                     .read_range(read_start..read_start + width)?
-                    .par_chunks(2)
-                    .map(|v| {
-                        let lhs = v[0].to_owned();
-                        let rhs = v[1].to_owned();
-                        A::default().node(lhs, rhs, level)
-                    })
+                    .par_chunks(branches)
+                    .map(|nodes| A::default().multi_node(nodes.to_vec(), level))
                     .collect();
 
                 (layer, write_start)
@@ -230,7 +236,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
 
             level_node_index += width;
             level += 1;
-            width >>= 1;
+            width >>= shift; // width /= branches;
         }
 
         assert_eq!(height, level + 1);
@@ -240,13 +246,14 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
         self.last()
     }
 
-    fn process_layer<A: Algorithm<E>>(
+    fn process_layer<A: Algorithm<E>, U: Unsigned>(
         &mut self,
         width: usize,
         level: usize,
         read_start: usize,
         write_start: usize,
     ) -> Result<()> {
+        let branches = <U as Unsigned>::to_usize();
         let data_lock = Arc::new(RwLock::new(self));
 
         // Allocate `width` indexes during operation (which is a negligible memory bloat
@@ -255,7 +262,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
         // Process `BUILD_CHUNK_NODES` nodes in each thread at a time to reduce contention,
         // optimized for big sector sizes (small ones will just have one thread doing all
         // the work).
-        debug_assert_eq!(BUILD_CHUNK_NODES % 2, 0);
+        debug_assert_eq!(BUILD_CHUNK_NODES % branches, 0);
         Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
             .par_iter()
             .try_for_each(|&chunk_index| -> Result<()> {
@@ -269,23 +276,31 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
                         .read_range(chunk_index..chunk_index + chunk_size)?
                 };
 
-                // We write the hashed nodes to the next level in the position that
-                // would be "in the middle" of the previous pair (dividing by 2).
-                let write_delta = (chunk_index - read_start) / 2;
+                // We write the hashed nodes to the next level in the
+                // position that would be "in the middle" of the
+                // previous pair (dividing by branches).
+                let write_delta = (chunk_index - read_start) / branches;
 
-                let nodes_size = (chunk_nodes.len() / 2) * E::byte_len();
-                let hashed_nodes_as_bytes = chunk_nodes.chunks(2).fold(
+                let nodes_size = (chunk_nodes.len() / branches) * E::byte_len();
+                let hashed_nodes_as_bytes = chunk_nodes.chunks(branches).fold(
                     Vec::with_capacity(nodes_size),
-                    |mut acc, node_pair| {
-                        let h =
-                            A::default().node(node_pair[0].clone(), node_pair[1].clone(), level);
+                    |mut acc, nodes| {
+                        // Special case binary tree here (provided based on feedback).
+                        let h = if branches == 2 {
+                            A::default().node(nodes[0].clone(), nodes[1].clone(), level)
+                        } else {
+                            A::default().multi_node(nodes.to_vec(), level)
+                        };
                         acc.extend_from_slice(h.as_ref());
                         acc
                     },
                 );
 
                 // Check that we correctly pre-allocated the space.
-                debug_assert_eq!(hashed_nodes_as_bytes.len(), chunk_size / 2 * E::byte_len());
+                debug_assert_eq!(
+                    hashed_nodes_as_bytes.len(),
+                    chunk_size / branches * E::byte_len()
+                );
 
                 // Write the data into the store.
                 data_lock
@@ -296,17 +311,25 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
     }
 
     // Default merkle-tree build, based on store type.
-    fn build<A: Algorithm<E>>(
+    fn build<A: Algorithm<E>, U: Unsigned>(
         &mut self,
         leafs: usize,
         height: usize,
         _config: Option<StoreConfig>,
     ) -> Result<E> {
+        let branches = <U as Unsigned>::to_usize();
+        ensure!(
+            next_pow2(branches) == branches,
+            "branches MUST be a power of 2"
+        );
         ensure!(Store::len(self) == leafs, "Inconsistent data");
         ensure!(leafs % 2 == 0, "Leafs must be a power of two");
+
         if leafs <= SMALL_TREE_BUILD {
-            return self.build_small_tree::<A>(leafs, height);
+            return self.build_small_tree::<A, U>(leafs, height);
         }
+
+        let shift = log2_pow2(branches);
 
         // Process one `level` at a time of `width` nodes. Each level has half the nodes
         // as the previous one; the first level, completely stored in `data`, has `leafs`
@@ -328,11 +351,11 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
                 (level_node_index, level_node_index + width)
             };
 
-            self.process_layer::<A>(width, level, read_start, write_start)?;
+            self.process_layer::<A, U>(width, level, read_start, write_start)?;
 
             level_node_index += width;
             level += 1;
-            width >>= 1;
+            width >>= shift; // width /= branches;
         }
 
         assert_eq!(height, level + 1);

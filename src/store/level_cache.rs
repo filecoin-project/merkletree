@@ -8,7 +8,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use positioned_io::ReadAt;
 
-use crate::merkle::{get_merkle_tree_leafs, next_pow2, Element};
+use crate::merkle::{get_merkle_tree_cache_size, get_merkle_tree_leafs, next_pow2, Element};
 use crate::store::{ExternalReader, Store, StoreConfig};
 
 /// The LevelCacheStore is used to reduce the on-disk footprint even
@@ -62,6 +62,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
     /// Used for opening v2 compacted DiskStores.
     pub fn new_from_disk_with_reader(
         store_range: usize,
+        branches: usize,
         config: &StoreConfig,
         reader: ExternalReader<R>,
     ) -> Result<Self> {
@@ -75,7 +76,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         // massaged next pow2 (guaranteed if created with
         // DiskStore::compact, which is the only supported method at
         // the moment).
-        let size = get_merkle_tree_leafs(store_range);
+        let size = get_merkle_tree_leafs(store_range, branches);
         ensure!(
             size == next_pow2(size),
             "Inconsistent merkle tree height detected"
@@ -88,7 +89,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         // LevelCacheStore on disk file is only the cached data, so
         // the file size dictates the cache_size.  Calculate cache
         // start and the updated size with repect to the file size.
-        let cache_size = ((2 * size - 1) >> config.levels) * E::byte_len();
+        let cache_size = get_merkle_tree_cache_size(size, branches, config.levels) * E::byte_len();
         let cache_index_start = store_range - cache_size;
 
         // Sanity checks that the StoreConfig levels matches this
@@ -123,14 +124,14 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
 }
 
 impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
-    fn new_with_config(size: usize, config: StoreConfig) -> Result<Self> {
+    fn new_with_config(size: usize, branches: usize, config: StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
         // If the specified file exists, load it from disk.  This is
         // the only supported usage of this call for this type of
         // Store.
         if Path::new(&data_path).exists() {
-            return Self::new_from_disk(size, &config);
+            return Self::new_from_disk(size, branches, &config);
         }
 
         bail!("Cannot create a LevelCacheStore in this way. Try DiskStore::compact");
@@ -142,6 +143,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
 
     fn new_from_slice_with_config(
         _size: usize,
+        _branches: usize,
         _data: &[u8],
         _config: StoreConfig,
     ) -> Result<Self> {
@@ -153,7 +155,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
     }
 
     // Used for opening v1 compacted DiskStores.
-    fn new_from_disk(store_range: usize, config: &StoreConfig) -> Result<Self> {
+    fn new_from_disk(store_range: usize, branches: usize, config: &StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
         let file = File::open(data_path)?;
@@ -164,7 +166,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         // massaged next pow2 (guaranteed if created with
         // DiskStore::compact, which is the only supported method at
         // the moment).
-        let size = get_merkle_tree_leafs(store_range);
+        let size = get_merkle_tree_leafs(store_range, branches);
         ensure!(
             size == next_pow2(size),
             "Inconsistent merkle tree height detected"
@@ -176,7 +178,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
 
         // Calculate cache start and the updated size with repect to
         // the data size.
-        let cache_size = ((2 * size - 1) >> config.levels) * E::byte_len();
+        let cache_size = get_merkle_tree_cache_size(size, branches, config.levels) * E::byte_len();
         let cache_index_start = store_range - cache_size;
 
         // Sanity checks that the StoreConfig levels matches this
@@ -278,7 +280,12 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         true
     }
 
-    fn compact(&mut self, _config: StoreConfig, _store_version: u32) -> Result<bool> {
+    fn compact(
+        &mut self,
+        _branches: usize,
+        _config: StoreConfig,
+        _store_version: u32,
+    ) -> Result<bool> {
         bail!("Cannot compact this type of Store");
     }
 

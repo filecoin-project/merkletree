@@ -30,12 +30,12 @@ impl<E: Element> ops::Deref for MmapStore<E> {
 
 impl<E: Element> Store<E> for MmapStore<E> {
     #[allow(unsafe_code)]
-    fn new_with_config(size: usize, config: StoreConfig) -> Result<Self> {
+    fn new_with_config(size: usize, branches: usize, config: StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
         // If the specified file exists, load it from disk.
         if Path::new(&data_path).exists() {
-            return Self::new_from_disk(size, &config);
+            return Self::new_from_disk(size, branches, &config);
         }
 
         // Otherwise, create the file and allow it to be the on-disk store.
@@ -80,7 +80,7 @@ impl<E: Element> Store<E> for MmapStore<E> {
     }
 
     #[allow(unsafe_code)]
-    fn new_from_disk(size: usize, config: &StoreConfig) -> Result<Self> {
+    fn new_from_disk(size: usize, _branches: usize, config: &StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
         let file = File::open(&data_path)?;
@@ -141,14 +141,19 @@ impl<E: Element> Store<E> for MmapStore<E> {
         Ok(())
     }
 
-    fn new_from_slice_with_config(size: usize, data: &[u8], config: StoreConfig) -> Result<Self> {
+    fn new_from_slice_with_config(
+        size: usize,
+        branches: usize,
+        data: &[u8],
+        config: StoreConfig,
+    ) -> Result<Self> {
         ensure!(
             data.len() % E::byte_len() == 0,
             "data size must be a multiple of {}",
             E::byte_len()
         );
 
-        let mut store = Self::new_with_config(size, config)?;
+        let mut store = Self::new_with_config(size, branches, config)?;
 
         // If the store was loaded from disk (based on the config
         // information, avoid re-populating the store at this point
@@ -241,7 +246,12 @@ impl<E: Element> Store<E> for MmapStore<E> {
         false
     }
 
-    fn compact(&mut self, _config: StoreConfig, _store_version: u32) -> Result<bool> {
+    fn compact(
+        &mut self,
+        _branches: usize,
+        _config: StoreConfig,
+        _store_version: u32,
+    ) -> Result<bool> {
         let map = self.map.take();
 
         Ok(map.is_some())

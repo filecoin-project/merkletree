@@ -17,7 +17,7 @@ impl<E: Element> ops::Deref for VecStore<E> {
 }
 
 impl<E: Element> Store<E> for VecStore<E> {
-    fn new_with_config(size: usize, _config: StoreConfig) -> Result<Self> {
+    fn new_with_config(size: usize, _branches: usize, _config: StoreConfig) -> Result<Self> {
         Self::new(size)
     }
 
@@ -58,7 +58,12 @@ impl<E: Element> Store<E> for VecStore<E> {
         Ok(())
     }
 
-    fn new_from_slice_with_config(size: usize, data: &[u8], _config: StoreConfig) -> Result<Self> {
+    fn new_from_slice_with_config(
+        size: usize,
+        _branches: usize,
+        data: &[u8],
+        _config: StoreConfig,
+    ) -> Result<Self> {
         Self::new_from_slice(size, &data)
     }
 
@@ -73,7 +78,7 @@ impl<E: Element> Store<E> for VecStore<E> {
         Ok(VecStore(v))
     }
 
-    fn new_from_disk(_size: usize, _config: &StoreConfig) -> Result<Self> {
+    fn new_from_disk(_size: usize, _branches: usize, _config: &StoreConfig) -> Result<Self> {
         unimplemented!("Cannot load a VecStore from disk");
     }
 
@@ -102,7 +107,12 @@ impl<E: Element> Store<E> for VecStore<E> {
         false
     }
 
-    fn compact(&mut self, _config: StoreConfig, _store_version: u32) -> Result<bool> {
+    fn compact(
+        &mut self,
+        _branches: usize,
+        _config: StoreConfig,
+        _store_version: u32,
+    ) -> Result<bool> {
         self.0.shrink_to_fit();
 
         Ok(true)

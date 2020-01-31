@@ -154,38 +154,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         leafs: usize,
         height: usize,
     ) -> Result<MerkleTree<T, A, VecStore<T>, U>> {
-        let mut level: usize = 0;
-        let mut width = leafs;
-        let mut level_node_index = 0;
-        let branches = <U as Unsigned>::to_usize();
-        ensure!(width == next_pow2(width), "Must be a power of 2 tree");
-        ensure!(
-            branches == next_pow2(branches),
-            "branches must be a power of 2"
-        );
-        let shift = log2_pow2(branches);
-
-        while width > 1 {
-            // Same indexing logic as `build`.
-            let (read_start, write_start) = if level == 0 {
-                (0, Store::len(&data))
-            } else {
-                (level_node_index, level_node_index + width)
-            };
-
-            VecStore::process_layer::<A>(&mut data, width, level, read_start, write_start)?;
-
-            level_node_index += width;
-            level += 1;
-
-            width >>= shift; // width /= branches;
-        }
-
-        // The root isn't part of the previous loop so `height` is
-        // missing one level.
-        ensure!(height == level + 1, "MerkleTree Integrity is lost");
-
-        let root = data.last()?;
+        let root = VecStore::build::<A, U>(&mut data, leafs, height, None)?;
 
         Ok(MerkleTree {
             data,
@@ -321,7 +290,10 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
 
         // Before building the tree, resize the store where the tree
         // will be built to allow space for the newly constructed layers.
-        data_copy.resize(((2 * segment_width) - 1) * T::byte_len(), 0);
+        data_copy.resize(
+            get_merkle_tree_len(segment_width, branches) * T::byte_len(),
+            0,
+        );
 
         // Build the optimally small tree.
         let partial_tree: MerkleTree<T, A, VecStore<T>, U> =
@@ -560,15 +532,16 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         let size = get_merkle_tree_len(leafs_count, branches);
         let height = get_merkle_tree_height(leafs_count, branches);
 
-        let mut data = K::new_from_slice_with_config(size, branches, leafs, config)
+        let mut data = K::new_from_slice_with_config(size, branches, leafs, config.clone())
             .context("failed to create data store")?;
-        let root = K::build::<A>(&mut data, leafs_count, height, Some(config))?;
+        let root = K::build::<A, U>(&mut data, leafs_count, height, Some(config))?;
 
         Ok(MerkleTree {
             data,
             leafs: leafs_count,
             height,
             root,
+            _u: PhantomData,
             _a: PhantomData,
             _t: PhantomData,
         })
@@ -597,16 +570,17 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
 
         let size = get_merkle_tree_len(leafs_count, branches);
         let height = get_merkle_tree_height(leafs_count, branches);
-        let mut data = K::new_from_slice(size, leafs)
-            .context("failed to create data store")?;
 
-        let root = K::build::<A>(&mut data, leafs_count, height, None)?;
+        let mut data = K::new_from_slice(size, leafs).context("failed to create data store")?;
+
+        let root = K::build::<A, U>(&mut data, leafs_count, height, None)?;
 
         Ok(MerkleTree {
             data,
             leafs: leafs_count,
             height,
             root,
+            _u: PhantomData,
             _a: PhantomData,
             _t: PhantomData,
         })
@@ -654,14 +628,16 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> FromIndexedParallelI
         let height = get_merkle_tree_height(leafs, branches);
 
         let mut data = K::new(size).expect("failed to create data store");
+
         populate_data_par::<T, A, K, U, _>(&mut data, iter)?;
-        let root = K::build::<A>(&mut data, leafs, height, None)?;
+        let root = K::build::<A, U>(&mut data, leafs, height, None)?;
 
         Ok(MerkleTree {
             data,
             leafs,
             height,
             root,
+            _u: PhantomData,
             _a: PhantomData,
             _t: PhantomData,
         })
@@ -688,8 +664,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> FromIndexedParallelI
         let size = get_merkle_tree_len(leafs, branches);
         let height = get_merkle_tree_height(leafs, branches);
 
-        let mut data =
-            K::new_with_config(size, branches, config).context("failed to create data store")?;
+        let mut data = K::new_with_config(size, branches, config.clone())
+            .context("failed to create data store")?;
 
         // If the data store was loaded from disk, we know we have
         // access to the full merkle tree.
@@ -707,14 +683,15 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> FromIndexedParallelI
             });
         }
 
-        populate_data_par::<T, A, K, _>(&mut data, iter)?;
-        let root = K::build::<A>(&mut data, leafs, height, Some(config))?;
+        populate_data_par::<T, A, K, U, _>(&mut data, iter)?;
+        let root = K::build::<A, U>(&mut data, leafs, height, Some(config))?;
 
         Ok(MerkleTree {
             data,
             leafs,
             height,
             root,
+            _u: PhantomData,
             _a: PhantomData,
             _t: PhantomData,
         })
@@ -743,13 +720,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
 
         let mut data = K::new(size).context("failed to create data store")?;
         populate_data::<T, A, K, U, I>(&mut data, iter).context("failed to populate data")?;
-        let root = K::build::<A>(&mut data, leafs, height, None)?;
+        let root = K::build::<A, U>(&mut data, leafs, height, None)?;
 
         Ok(MerkleTree {
             data,
             leafs,
             height,
             root,
+            _u: PhantomData,
             _a: PhantomData,
             _t: PhantomData,
         })
@@ -777,8 +755,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         let size = get_merkle_tree_len(leafs, branches);
         let height = get_merkle_tree_height(leafs, branches);
 
-        let mut data =
-            K::new_with_config(size, branches, config).context("failed to create data store")?;
+        let mut data = K::new_with_config(size, branches, config.clone())
+            .context("failed to create data store")?;
 
         // If the data store was loaded from disk, we know we have
         // access to the full merkle tree.
@@ -797,13 +775,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         }
 
         populate_data::<T, A, K, U, I>(&mut data, iter).expect("failed to populate data");
-        let root = K::build::<A>(&mut data, leafs, height, Some(config))?;
+        let root = K::build::<A, U>(&mut data, leafs, height, Some(config))?;
 
         Ok(MerkleTree {
             data,
             leafs,
             height,
             root,
+            _u: PhantomData,
             _a: PhantomData,
             _t: PhantomData,
         })

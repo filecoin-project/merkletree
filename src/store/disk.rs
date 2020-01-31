@@ -12,9 +12,13 @@ use positioned_io::{ReadAt, WriteAt};
 use rayon::iter::*;
 use rayon::prelude::*;
 use tempfile::tempfile;
+use typenum::marker_traits::Unsigned;
 
 use crate::hash::Algorithm;
-use crate::merkle::{get_merkle_tree_leafs, get_merkle_tree_len, Element};
+use crate::merkle::{
+    get_merkle_tree_cache_size, get_merkle_tree_leafs, get_merkle_tree_len, log2_pow2, next_pow2,
+    Element,
+};
 use crate::store::{Store, StoreConfig, StoreConfigDataVersion, BUILD_CHUNK_NODES};
 
 /// The Disk-only store is used to reduce memory to the minimum at the
@@ -39,12 +43,12 @@ pub struct DiskStore<E: Element> {
 }
 
 impl<E: Element> Store<E> for DiskStore<E> {
-    fn new_with_config(size: usize, config: StoreConfig) -> Result<Self> {
+    fn new_with_config(size: usize, branches: usize, config: StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
         // If the specified file exists, load it from disk.
         if Path::new(&data_path).exists() {
-            return Self::new_from_disk(size, &config);
+            return Self::new_from_disk(size, branches, &config);
         }
 
         // Otherwise, create the file and allow it to be the on-disk store.
@@ -82,14 +86,19 @@ impl<E: Element> Store<E> for DiskStore<E> {
         })
     }
 
-    fn new_from_slice_with_config(size: usize, data: &[u8], config: StoreConfig) -> Result<Self> {
+    fn new_from_slice_with_config(
+        size: usize,
+        branches: usize,
+        data: &[u8],
+        config: StoreConfig,
+    ) -> Result<Self> {
         ensure!(
             data.len() % E::byte_len() == 0,
             "data size must be a multiple of {}",
             E::byte_len()
         );
 
-        let mut store = Self::new_with_config(size, config)?;
+        let mut store = Self::new_with_config(size, branches, config)?;
 
         // If the store was loaded from disk (based on the config
         // information, avoid re-populating the store at this point
@@ -117,7 +126,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
         Ok(store)
     }
 
-    fn new_from_disk(size: usize, config: &StoreConfig) -> Result<Self> {
+    fn new_from_disk(size: usize, _branches: usize, config: &StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
         let file = File::open(&data_path)?;
@@ -219,18 +228,28 @@ impl<E: Element> Store<E> for DiskStore<E> {
     // Specifically, this method truncates an existing DiskStore and
     // formats the data in such a way that is compatible with future
     // access using LevelCacheStore::new_from_disk.
-    fn compact(&mut self, config: StoreConfig, store_version: u32) -> Result<bool> {
+    fn compact(
+        &mut self,
+        branches: usize,
+        config: StoreConfig,
+        store_version: u32,
+    ) -> Result<bool> {
         // Determine how many base layer leafs there are (and in bytes).
-        let leafs = get_merkle_tree_leafs(self.len);
+        let leafs = get_merkle_tree_leafs(self.len, branches);
         let data_width = leafs * self.elem_len;
 
         // Calculate how large the cache should be (based on the
         // config.levels param).
-        let cache_size = ((2 * leafs - 1) >> config.levels) * self.elem_len;
-        // The file cannot be compacted (to fix, provide a sane
-        // configuration).
+        let cache_size = get_merkle_tree_cache_size(leafs, branches, config.levels) * self.elem_len;
+
+        // The file cannot be compacted if the specified configuration
+        // requires either 1) nothing to be cached, or 2) everything
+        // to be cached.  For #1, create a data store of leafs and do
+        // not use that store as backing for the MT.  For #2, avoid
+        // calling this method.  To resolve, provide a sane
+        // configuration.
         ensure!(
-            cache_size < 2 * data_width - 1,
+            cache_size < self.len * self.elem_len && cache_size != 0,
             "Cannot compact with this configuration"
         );
 
@@ -314,7 +333,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
     }
 
     #[allow(unsafe_code)]
-    fn process_layer<A: Algorithm<E>>(
+    fn process_layer<A: Algorithm<E>, U: Unsigned>(
         &mut self,
         width: usize,
         level: usize,
@@ -332,9 +351,11 @@ impl<E: Element> Store<E> for DiskStore<E> {
         }?;
 
         let data_lock = Arc::new(RwLock::new(self));
-        let write_chunk_width = (BUILD_CHUNK_NODES >> 1) * E::byte_len();
+        let branches = <U as Unsigned>::to_usize();
+        let shift = log2_pow2(branches);
+        let write_chunk_width = (BUILD_CHUNK_NODES >> shift) * E::byte_len();
 
-        debug_assert_eq!(BUILD_CHUNK_NODES % 2, 0);
+        debug_assert_eq!(BUILD_CHUNK_NODES % branches, 0);
         Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
             .into_par_iter()
             .zip(mmap.par_chunks_mut(write_chunk_width))
@@ -349,12 +370,16 @@ impl<E: Element> Store<E> for DiskStore<E> {
                         .read_range(chunk_index..chunk_index + chunk_size)?
                 };
 
-                let nodes_size = (chunk_nodes.len() / 2) * E::byte_len();
-                let hashed_nodes_as_bytes = chunk_nodes.chunks(2).fold(
+                let nodes_size = (chunk_nodes.len() / branches) * E::byte_len();
+                let hashed_nodes_as_bytes = chunk_nodes.chunks(branches).fold(
                     Vec::with_capacity(nodes_size),
-                    |mut acc, node_pair| {
-                        let h =
-                            A::default().node(node_pair[0].clone(), node_pair[1].clone(), level);
+                    |mut acc, nodes| {
+                        // Special case binary tree here (provided based on feedback).
+                        let h = if branches == 2 {
+                            A::default().node(nodes[0].clone(), nodes[1].clone(), level)
+                        } else {
+                            A::default().multi_node(nodes.to_vec(), level)
+                        };
                         acc.extend_from_slice(h.as_ref());
                         acc
                     },
@@ -362,7 +387,10 @@ impl<E: Element> Store<E> for DiskStore<E> {
 
                 // Check that we correctly pre-allocated the space.
                 let hashed_nodes_as_bytes_len = hashed_nodes_as_bytes.len();
-                debug_assert_eq!(hashed_nodes_as_bytes_len, chunk_size / 2 * E::byte_len());
+                debug_assert_eq!(
+                    hashed_nodes_as_bytes_len,
+                    chunk_size / branches * E::byte_len()
+                );
 
                 write_mmap[0..hashed_nodes_as_bytes_len].copy_from_slice(&hashed_nodes_as_bytes);
 
@@ -371,12 +399,17 @@ impl<E: Element> Store<E> for DiskStore<E> {
     }
 
     // DiskStore specific merkle-tree build.
-    fn build<A: Algorithm<E>>(
+    fn build<A: Algorithm<E>, U: Unsigned>(
         &mut self,
         leafs: usize,
         height: usize,
         _config: Option<StoreConfig>,
     ) -> Result<E> {
+        let branches = <U as Unsigned>::to_usize();
+        ensure!(
+            next_pow2(branches) == branches,
+            "branches MUST be a power of 2"
+        );
         ensure!(Store::len(self) == leafs, "Inconsistent data");
         ensure!(leafs % 2 == 0, "Leafs must be a power of two");
 
@@ -387,6 +420,8 @@ impl<E: Element> Store<E> for DiskStore<E> {
         let mut level: usize = 0;
         let mut width = leafs;
         let mut level_node_index = 0;
+
+        let shift = log2_pow2(branches);
 
         while width > 1 {
             // Start reading at the beginning of the current level, and writing the next
@@ -400,11 +435,11 @@ impl<E: Element> Store<E> for DiskStore<E> {
                 (level_node_index, level_node_index + width)
             };
 
-            self.process_layer::<A>(width, level, read_start, write_start)?;
+            self.process_layer::<A, U>(width, level, read_start, write_start)?;
 
             level_node_index += width;
             level += 1;
-            width >>= 1;
+            width >>= shift; // width /= branches;
 
             // When the layer is complete, update the store length
             // since we know the backing file was updated outside of
@@ -413,7 +448,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
         }
 
         // Ensure every element is accounted for.
-        assert_eq!(Store::len(self), get_merkle_tree_len(leafs));
+        assert_eq!(Store::len(self), get_merkle_tree_len(leafs, branches));
 
         assert_eq!(height, level + 1);
         // The root isn't part of the previous loop so `height` is

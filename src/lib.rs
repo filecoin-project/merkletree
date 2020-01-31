@@ -128,7 +128,6 @@
 //! #[cfg(feature = "chaincore")]
 //! {
 //!     use example::ExampleAlgorithm;
-//!     use typenum::U2;
 //!     use merkletree::merkle::MerkleTree;
 //!     use merkletree::store::VecStore;
 //!

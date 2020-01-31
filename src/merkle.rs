@@ -148,6 +148,59 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         })
     }
 
+    /// Represent a fully constructed merkle tree from a provided slice.
+    pub fn from_tree_slice(data: &[u8], leafs: usize) -> Result<MerkleTree<T, A, K, U>> {
+        let branches = <U as Unsigned>::to_usize();
+        let height = get_merkle_tree_height(leafs, branches);
+        let tree_len = get_merkle_tree_len(leafs, branches);
+        ensure!(
+            tree_len == data.len() / T::byte_len(),
+            "Inconsistent tree data"
+        );
+
+        let store = K::new_from_slice(tree_len, &data).context("failed to create data store")?;
+        let root = store.read_at(data.len() - 1)?;
+
+        Ok(MerkleTree {
+            data: store,
+            leafs,
+            height,
+            root,
+            _u: PhantomData,
+            _a: PhantomData,
+            _t: PhantomData,
+        })
+    }
+
+    /// Represent a fully constructed merkle tree from a provided slice.
+    pub fn from_tree_slice_with_config(
+        data: &[u8],
+        leafs: usize,
+        config: StoreConfig,
+    ) -> Result<MerkleTree<T, A, K, U>> {
+        let branches = <U as Unsigned>::to_usize();
+        let height = get_merkle_tree_height(leafs, branches);
+        let tree_len = get_merkle_tree_len(leafs, branches);
+        ensure!(
+            tree_len == data.len() / T::byte_len(),
+            "Inconsistent tree data"
+        );
+
+        let store = K::new_from_slice_with_config(tree_len, branches, &data, config)
+            .context("failed to create data store")?;
+        let root = store.read_at(data.len() - 1)?;
+
+        Ok(MerkleTree {
+            data: store,
+            leafs,
+            height,
+            root,
+            _u: PhantomData,
+            _a: PhantomData,
+            _t: PhantomData,
+        })
+    }
+
     #[inline]
     fn build_partial_tree(
         mut data: VecStore<T>,

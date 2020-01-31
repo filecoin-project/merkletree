@@ -174,8 +174,14 @@ pub mod store;
 /// Merkle tree inclusion proof.
 pub mod proof;
 
+/// Compound Merkle tree inclusion proof.
+pub mod compound_proof;
+
 /// Merkle tree abstractions, implementation and algorithms.
 pub mod merkle;
+
+/// Compound Merkle tree abstractions, implementation and algorithms.
+pub mod compound_merkle;
 
 /// Tests data.
 #[cfg(test)]

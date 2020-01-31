@@ -1,5 +1,7 @@
 #![cfg(test)]
 
+use crate::compound_merkle::CompoundMerkleTree;
+use crate::compound_proof::CompoundProof;
 use crate::hash::*;
 use crate::merkle::FromIndexedParallelIterator;
 use crate::merkle::{
@@ -7,7 +9,7 @@ use crate::merkle::{
 };
 use crate::store::{
     DiskStore, DiskStoreProducer, ExternalReader, LevelCacheStore, MmapStore, Store, StoreConfig,
-    StoreConfigDataVersion, VecStore, DEFAULT_CACHED_ABOVE_BASE_LAYER, SMALL_TREE_BUILD,
+    StoreConfigDataVersion, VecStore, SMALL_TREE_BUILD,
 };
 use rayon::iter::{plumbing::*, IntoParallelIterator, ParallelIterator};
 use std::fmt;
@@ -15,7 +17,7 @@ use std::fs::OpenOptions;
 use std::hash::Hasher;
 use std::os::unix::prelude::FileExt;
 use typenum::marker_traits::Unsigned;
-use typenum::{U2, U4, U8};
+use typenum::{U2, U3, U4, U5, U7, U8};
 
 const SIZE: usize = 0x10;
 const DEFAULT_NUM_BRANCHES: usize = 2;
@@ -95,6 +97,16 @@ impl Element for [u8; 16] {
     }
 }
 
+fn get_vec_tree_from_slice<U: Unsigned>(
+    leafs: usize,
+) -> MerkleTree<[u8; 16], XOR128, VecStore<[u8; 16]>, U> {
+    let mut x = Vec::with_capacity(leafs);
+    for i in 0..leafs {
+        x.push(i * 93);
+    }
+    MerkleTree::from_data(&x).expect("failed to create tree from slice")
+}
+
 fn test_vec_tree_from_slice<U: Unsigned>(
     leafs: usize,
     len: usize,
@@ -147,6 +159,17 @@ fn test_vec_tree_from_iter<U: Unsigned>(
         let p = mt.gen_proof(index).unwrap();
         assert!(p.validate::<XOR128>());
     }
+}
+
+fn get_disk_tree_from_slice<U: Unsigned>(
+    leafs: usize,
+    config: StoreConfig,
+) -> MerkleTree<[u8; 16], XOR128, DiskStore<[u8; 16]>, U> {
+    let mut x = Vec::with_capacity(leafs);
+    for i in 0..leafs {
+        x.push(i * 93);
+    }
+    MerkleTree::from_data_with_config(&x, config).expect("failed to create tree from slice")
 }
 
 fn build_disk_tree_from_iter<U: Unsigned>(
@@ -306,6 +329,160 @@ fn test_vec_from_slice() {
     }
 }
 
+// B: Branching factor of sub-trees
+// N: Branching factor of top-layer
+fn test_compound_tree_from_slices<B: Unsigned, N: Unsigned>(sub_tree_leafs: usize) {
+    let branches = <B as Unsigned>::to_usize();
+    let sub_tree_count = <N as Unsigned>::to_usize();
+    let mut sub_trees = Vec::with_capacity(sub_tree_count);
+    for _ in 0..sub_tree_count {
+        sub_trees.push(get_vec_tree_from_slice::<B>(sub_tree_leafs));
+    }
+
+    let tree: CompoundMerkleTree<[u8; 16], XOR128, VecStore<_>, B, N> =
+        CompoundMerkleTree::new(sub_trees).expect("Failed to build compound tree");
+
+    assert_eq!(
+        tree.len(),
+        (get_merkle_tree_len(sub_tree_leafs, branches) * sub_tree_count) + 1
+    );
+    assert_eq!(tree.leafs(), sub_tree_count * sub_tree_leafs);
+
+    for i in 0..tree.leafs() {
+        let p: CompoundProof<[u8; 16], B, N> = tree.gen_proof(i).unwrap();
+        assert!(p.validate::<XOR128>());
+    }
+}
+
+// B: Branching factor of sub-trees
+// N: Branching factor of top-layer
+fn test_compound_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leafs: usize) {
+    let branches = <B as Unsigned>::to_usize();
+    let sub_tree_count = <N as Unsigned>::to_usize();
+    let mut sub_tree_configs = Vec::with_capacity(sub_tree_count);
+
+    let temp_dir = tempdir::TempDir::new("test_read_into").unwrap();
+
+    for i in 0..sub_tree_count {
+        let config = StoreConfig::new(
+            temp_dir.path(),
+            format!("test-compound-tree-from-store-{}", i),
+            StoreConfig::default_cached_above_base_layer(sub_tree_leafs),
+        );
+        get_disk_tree_from_slice::<B>(sub_tree_leafs, config.clone());
+        sub_tree_configs.push(config);
+    }
+
+    let tree: CompoundMerkleTree<[u8; 16], XOR128, DiskStore<_>, B, N> =
+        CompoundMerkleTree::new_from_store_configs(sub_tree_leafs, sub_tree_configs)
+            .expect("Failed to build compound tree");
+
+    assert_eq!(
+        tree.len(),
+        (get_merkle_tree_len(sub_tree_leafs, branches) * sub_tree_count) + 1
+    );
+    assert_eq!(tree.leafs(), sub_tree_count * sub_tree_leafs);
+
+    for i in 0..tree.leafs() {
+        let p = tree.gen_proof(i).unwrap();
+        assert!(p.validate::<XOR128>());
+    }
+}
+
+#[test]
+fn test_compound_quad_trees_from_slices() {
+    // 3 quad trees each with 4 leafs joined by top layer
+    test_compound_tree_from_slices::<U4, U3>(4);
+
+    // 5 quad trees each with 16 leafs joined by top layer
+    test_compound_tree_from_slices::<U4, U5>(16);
+
+    // 7 quad trees each with 64 leafs joined by top layer
+    test_compound_tree_from_slices::<U4, U7>(64);
+}
+
+#[test]
+fn test_compound_quad_trees_from_store_configs() {
+    // 3 quad trees each with 4 leafs joined by top layer
+    test_compound_tree_from_store_configs::<U4, U3>(4);
+
+    // 5 quad trees each with 16 leafs joined by top layer
+    test_compound_tree_from_store_configs::<U4, U5>(16);
+
+    // 7 quad trees each with 64 leafs joined by top layer
+    test_compound_tree_from_store_configs::<U4, U7>(64);
+}
+
+#[test]
+fn test_compound_octrees_from_slices() {
+    // 3 octrees each with 8 leafs joined by top layer
+    test_compound_tree_from_slices::<U8, U3>(8);
+
+    // 5 octrees each with 64 leafs joined by top layer
+    test_compound_tree_from_slices::<U8, U5>(64);
+
+    // 7 octrees each with 320 leafs joined by top layer
+    test_compound_tree_from_slices::<U8, U7>(512);
+}
+
+#[test]
+fn test_compound_octrees_from_store_configs() {
+    // 3 octrees each with 8 leafs joined by top layer
+    test_compound_tree_from_store_configs::<U8, U3>(8);
+
+    // 5 octrees each with 64 leafs joined by top layer
+    test_compound_tree_from_store_configs::<U8, U5>(64);
+
+    // 7 octrees each with 320 leafs joined by top layer
+    test_compound_tree_from_store_configs::<U8, U7>(512);
+}
+
+#[test]
+fn test_compound_quad_tree_from_slices() {
+    // This tests a compound merkle tree that consists of 3 quad trees
+    // with 4 leafs each.  The compound tree will have 12 leaves.
+    let leafs = 4;
+    let mt1 = get_vec_tree_from_slice::<U4>(leafs);
+    let mt2 = get_vec_tree_from_slice::<U4>(leafs);
+    let mt3 = get_vec_tree_from_slice::<U4>(leafs);
+
+    let tree: CompoundMerkleTree<[u8; 16], XOR128, VecStore<_>, U4, U3> =
+        CompoundMerkleTree::new(vec![mt1, mt2, mt3]).expect("Failed to build compound tree");
+    assert_eq!(tree.len(), 16);
+    assert_eq!(tree.leafs(), 12);
+    assert_eq!(tree.height(), 3);
+
+    for i in 0..tree.leafs() {
+        let p = tree.gen_proof(i).unwrap();
+        assert!(p.validate::<XOR128>());
+    }
+}
+
+#[test]
+fn test_compound_octree_from_slices() {
+    // This tests a compound merkle tree that consists of 5 octrees
+    // with 64 leafs each.  The compound tree will have 320 leaves.
+    let leafs = 64;
+    let mt1 = get_vec_tree_from_slice::<U8>(leafs);
+    let mt2 = get_vec_tree_from_slice::<U8>(leafs);
+    let mt3 = get_vec_tree_from_slice::<U8>(leafs);
+    let mt4 = get_vec_tree_from_slice::<U8>(leafs);
+    let mt5 = get_vec_tree_from_slice::<U8>(leafs);
+
+    let tree: CompoundMerkleTree<[u8; 16], XOR128, VecStore<_>, U8, U5> =
+        CompoundMerkleTree::new(vec![mt1, mt2, mt3, mt4, mt5])
+            .expect("Failed to build compound tree");
+
+    assert_eq!(tree.len(), 366);
+    assert_eq!(tree.leafs(), 320);
+    assert_eq!(tree.height(), 4);
+
+    for i in 0..tree.leafs() {
+        let p = tree.gen_proof(i).unwrap();
+        assert!(p.validate::<XOR128>());
+    }
+}
+
 #[test]
 fn test_quad_from_slice() {
     let (leafs, len, height, num_challenges) = { (16, 21, 3, 16) };
@@ -431,7 +608,7 @@ fn test_read_into() {
     let config = StoreConfig::new(
         temp_dir.path(),
         "test-read-into",
-        DEFAULT_CACHED_ABOVE_BASE_LAYER,
+        StoreConfig::default_cached_above_base_layer(x.len()),
     );
 
     let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =

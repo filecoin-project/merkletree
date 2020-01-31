@@ -1,6 +1,7 @@
 use crate::hash::{Algorithm, Hashable};
 use std::marker::PhantomData;
 use typenum::marker_traits::Unsigned;
+use typenum::U2;
 
 /// Merkle tree inclusion proof for data element, for which item = Leaf(Hash(Data Item)).
 ///
@@ -12,7 +13,7 @@ use typenum::marker_traits::Unsigned;
 ///
 /// Proof validation is positioned hash against lemma path to match root hash.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Proof<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> {
+pub struct Proof<T: Eq + Clone + AsRef<[u8]>, U: Unsigned = U2> {
     lemma: Vec<Vec<T>>,
     path: Vec<usize>,   // branch index
     _u: PhantomData<U>, // number of branches per node

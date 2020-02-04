@@ -367,7 +367,7 @@ fn test_compound_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leaf
         let config = StoreConfig::new(
             temp_dir.path(),
             format!("test-compound-tree-from-store-{}", i),
-            StoreConfig::default_cached_above_base_layer(sub_tree_leafs),
+            StoreConfig::default_cached_above_base_layer(sub_tree_leafs, branches),
         );
         get_disk_tree_from_slice::<B>(sub_tree_leafs, config.clone());
         sub_tree_configs.push(config);
@@ -608,7 +608,7 @@ fn test_read_into() {
     let config = StoreConfig::new(
         temp_dir.path(),
         "test-read-into",
-        StoreConfig::default_cached_above_base_layer(x.len()),
+        StoreConfig::default_cached_above_base_layer(x.len(), DEFAULT_NUM_BRANCHES),
     );
 
     let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
@@ -828,7 +828,7 @@ fn test_mmap_tree() {
         StoreConfig::new(
             &temp_path,
             String::from("test-mmap-tree"),
-            StoreConfig::default_cached_above_base_layer(count),
+            StoreConfig::default_cached_above_base_layer(count, DEFAULT_NUM_BRANCHES),
         )
     };
 
@@ -877,7 +877,7 @@ fn test_level_cache_tree_v2() {
     let config = StoreConfig::new(
         &temp_path,
         String::from("test-cache-v2"),
-        StoreConfig::default_cached_above_base_layer(count),
+        StoreConfig::default_cached_above_base_layer(count, DEFAULT_NUM_BRANCHES),
     );
 
     let mut mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =

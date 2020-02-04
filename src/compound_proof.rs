@@ -29,7 +29,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
 
     /// Return tree root
     pub fn sub_tree_root(&self) -> T {
-        self.sub_tree_proof.root().clone()
+        self.sub_tree_proof.root()
     }
 
     /// Return tree root

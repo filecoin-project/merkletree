@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use typenum::marker_traits::Unsigned;
 
 use crate::hash::Algorithm;
-use crate::merkle::{log2_pow2, next_pow2, Element};
+use crate::merkle::{get_merkle_tree_height, log2_pow2, next_pow2, Element};
 
 pub const DEFAULT_CACHED_ABOVE_BASE_LAYER: usize = 7;
 
@@ -103,10 +103,11 @@ impl StoreConfig {
     // it's too small to cache anything, don't cache anything.
     // Otherwise, the tree is 'small' so a fixed value of 2 levels
     // above the base should be sufficient.
-    pub fn default_cached_above_base_layer(leafs: usize) -> usize {
-        if leafs < 5 {
+    pub fn default_cached_above_base_layer(leafs: usize, branches: usize) -> usize {
+        let height = get_merkle_tree_height(leafs, branches);
+        if height < 2 {
             0
-        } else if leafs >> DEFAULT_CACHED_ABOVE_BASE_LAYER == 0 {
+        } else if height < DEFAULT_CACHED_ABOVE_BASE_LAYER {
             2
         } else {
             DEFAULT_CACHED_ABOVE_BASE_LAYER

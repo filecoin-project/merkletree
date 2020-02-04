@@ -66,7 +66,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
                     }
                 }
                 assert_eq!(cur_index, branches - 1);
-                a.multi_node(nodes, i - 1)
+                a.multi_node(&nodes, i - 1)
             };
         }
 

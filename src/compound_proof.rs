@@ -68,7 +68,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
                 }
             }
             assert_eq!(cur_index, top_layer_nodes - 1);
-            a.multi_node(nodes, 0)
+            a.multi_node(&nodes, 0)
         };
 
         h == self.root()

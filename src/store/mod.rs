@@ -225,7 +225,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
                 let layer: Vec<_> = self
                     .read_range(read_start..read_start + width)?
                     .par_chunks(branches)
-                    .map(|nodes| A::default().multi_node(nodes.to_vec(), level))
+                    .map(|nodes| A::default().multi_node(&nodes, level))
                     .collect();
 
                 (layer, write_start)
@@ -286,12 +286,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
                 let hashed_nodes_as_bytes = chunk_nodes.chunks(branches).fold(
                     Vec::with_capacity(nodes_size),
                     |mut acc, nodes| {
-                        // Special case binary tree here (provided based on feedback).
-                        let h = if branches == 2 {
-                            A::default().node(nodes[0].clone(), nodes[1].clone(), level)
-                        } else {
-                            A::default().multi_node(nodes.to_vec(), level)
-                        };
+                        let h = A::default().multi_node(&nodes, level);
                         acc.extend_from_slice(h.as_ref());
                         acc
                     },

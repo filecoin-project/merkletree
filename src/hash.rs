@@ -134,7 +134,7 @@ where
 
     /// Returns hash value for MT leaf (prefix 0x00).
     #[inline]
-    fn multi_leaf(&mut self, leaves: Vec<T>) -> T {
+    fn multi_leaf(&mut self, leaves: &[T]) -> T {
         self.write(&[LEAF]);
         for leaf in leaves {
             self.write(leaf.as_ref());
@@ -153,7 +153,7 @@ where
 
     /// Returns hash value for MT interior node (prefix 0x01).
     #[inline]
-    fn multi_node(&mut self, nodes: Vec<T>, _height: usize) -> T {
+    fn multi_node(&mut self, nodes: &[T], _height: usize) -> T {
         self.write(&[INTERIOR]);
         for node in nodes {
             self.write(node.as_ref());

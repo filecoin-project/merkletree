@@ -55,7 +55,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
         let height = trees[0].height() + 1;
         // Calculate the compound root by hashing the top layer roots together.
         let roots: Vec<T> = trees.iter().map(|x| x.root()).collect();
-        let root = A::default().multi_node(roots, 1);
+        let root = A::default().multi_node(&roots, 1);
 
         Ok(CompoundMerkleTree {
             trees,

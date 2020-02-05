@@ -27,15 +27,17 @@ use typenum::marker_traits::Unsigned;
 /// tree composed of 3 sub-trees, each that have branching factors /
 /// arity of 4.  Graphically, this may look like this:
 ///
+/// ```text
 ///                O
 ///       ________/|\_________
 ///      /         |          \
 ///     O          O           O
 ///  / / \ \    / / \ \     / / \ \
 /// O O  O  O  O O  O  O   O O  O  O
+/// ```
 ///
 /// Once constructed, this tree structure has 12 leafs (addressable
-/// from 0-11 for read of proof generation), which is otherwise not
+/// from 0-11 for read or proof generation), which is otherwise not
 /// coherently possible to construct with pow2 binary, quad trees, or
 /// octrees.
 ///
@@ -65,7 +67,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
     /// trees.  The ordering of the trees is significant, as trees are
     /// leaf indexed / addressable in the same sequence that they are
     /// provided here.
-    pub fn from_trees(trees: Vec<MerkleTree<T, A, K, B>>) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
+    pub fn from_trees(
+        trees: Vec<MerkleTree<T, A, K, B>>,
+    ) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
         let top_layer_nodes = <N as Unsigned>::to_usize();
         ensure!(
             trees.len() == top_layer_nodes,
@@ -144,10 +148,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
     /// ordering of the stores is significant, as trees are leaf
     /// indexed / addressable in the same sequence that they are
     /// provided here.
-    pub fn from_stores(
-        leafs: usize,
-        stores: Vec<K>,
-    ) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
+    pub fn from_stores(leafs: usize, stores: Vec<K>) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
         let mut trees = Vec::with_capacity(stores.len());
         for store in stores {
             trees.push(MerkleTree::<T, A, K, B>::from_data_store(store, leafs)?);

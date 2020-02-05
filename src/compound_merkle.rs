@@ -9,6 +9,36 @@ use crate::proof::Proof;
 use crate::store::{Store, StoreConfig};
 use typenum::marker_traits::Unsigned;
 
+/// Compound Merkle Tree.
+///
+/// A compound merkle tree is a type of merkle tree in which every
+/// non-leaf node is the hash of its children nodes.
+///
+/// This structure ties together multiple Merkle Trees and allows some
+/// supported properties of the Merkle Trees across it.  The
+/// significance of this class is that it allows an arbitrary number
+/// of sub-trees to be constructed and proven against.
+///
+/// While it can be, this structure is not recommend for the case when
+/// the arity at the top-layer matches the arity of the sub-trees, as
+/// it defeats the intended purpose.
+///
+/// To show an example, this structure can be used to create a single
+/// tree composed of 3 sub-trees, each that have branching factors /
+/// arity of 4.  Graphically, this may look like this:
+///
+///                O
+///       ________/|\_________
+///      /         |          \
+///     O          O           O
+///  / / \ \    / / \ \     / / \ \
+/// O O  O  O  O O  O  O   O O  O  O
+///
+/// Once constructed, this tree structure has 12 leafs (addressable
+/// from 0-11 for read of proof generation), which is otherwise not
+/// coherently possible to construct with pow2 binary, quad trees, or
+/// octrees.
+///
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct CompoundMerkleTree<T, A, K, B, N>
 where
@@ -31,8 +61,11 @@ where
 impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
     CompoundMerkleTree<T, A, K, B, N>
 {
-    /// Creates new compound merkle tree from a vector of merkle trees.
-    pub fn new(trees: Vec<MerkleTree<T, A, K, B>>) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
+    /// Creates new compound merkle tree from a vector of merkle
+    /// trees.  The ordering of the trees is significant, as trees are
+    /// leaf indexed / addressable in the same sequence that they are
+    /// provided here.
+    pub fn from_trees(trees: Vec<MerkleTree<T, A, K, B>>) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
         let top_layer_nodes = <N as Unsigned>::to_usize();
         ensure!(
             trees.len() == top_layer_nodes,
@@ -68,36 +101,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
         })
     }
 
-    /// Given an already constructed merkle tree contained as a slice,
-    /// add it to this compound merkle tree.
-    pub fn new_from_slice(
-        tree_data: &[u8],
-        leafs: usize,
-    ) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
-        let mut trees = Vec::with_capacity(1);
-        trees.push(MerkleTree::<T, A, K, B>::from_tree_slice(tree_data, leafs)?);
-
-        CompoundMerkleTree::new(trees)
-    }
-
-    /// Given an already constructed merkle tree contained as a slice,
-    /// add it to this compound merkle tree.
-    pub fn new_from_slice_with_config(
-        tree_data: &[u8],
-        leafs: usize,
-        config: StoreConfig,
-    ) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
-        let mut trees = Vec::with_capacity(1);
-        trees.push(MerkleTree::<T, A, K, B>::from_tree_slice_with_config(
-            tree_data, leafs, config,
-        )?);
-
-        CompoundMerkleTree::new(trees)
-    }
-
-    /// Given an already constructed merkle tree contained as a slice,
-    /// add it to this compound merkle tree.
-    pub fn new_from_slices(
+    /// Create a compound merkle tree given already constructed merkle
+    /// trees contained as a slices. The ordering of the trees is
+    /// significant, as trees are leaf indexed / addressable in the
+    /// same sequence that they are provided here.
+    pub fn from_slices(
         tree_data: Vec<&[u8]>,
         leafs: usize,
     ) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
@@ -106,12 +114,15 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
             trees.push(MerkleTree::<T, A, K, B>::from_tree_slice(data, leafs)?);
         }
 
-        CompoundMerkleTree::new(trees)
+        CompoundMerkleTree::from_trees(trees)
     }
 
-    /// Given an already constructed merkle tree contained as a slice,
-    /// add it to this compound merkle tree.
-    pub fn new_from_slices_with_configs(
+    /// Create a compound merkle tree given already constructed merkle
+    /// trees contained as a slices, along with configs for
+    /// persistence.  The ordering of the trees is significant, as
+    /// trees are leaf indexed / addressable in the same sequence that
+    /// they are provided here.
+    pub fn from_slices_with_configs(
         tree_data: Vec<&[u8]>,
         leafs: usize,
         configs: Vec<StoreConfig>,
@@ -125,12 +136,15 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
             )?);
         }
 
-        CompoundMerkleTree::new(trees)
+        CompoundMerkleTree::from_trees(trees)
     }
 
-    /// Given a vector of Stores (i.e. backing to MTs), instantiate
-    /// each tree and return a compound merkle tree with them.
-    pub fn new_from_stores(
+    /// Given a set of Stores (i.e. backing to MTs), instantiate each
+    /// tree and return a compound merkle tree with them.  The
+    /// ordering of the stores is significant, as trees are leaf
+    /// indexed / addressable in the same sequence that they are
+    /// provided here.
+    pub fn from_stores(
         leafs: usize,
         stores: Vec<K>,
     ) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
@@ -139,13 +153,15 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
             trees.push(MerkleTree::<T, A, K, B>::from_data_store(store, leafs)?);
         }
 
-        CompoundMerkleTree::new(trees)
+        CompoundMerkleTree::from_trees(trees)
     }
 
-    /// Given a vector of StoreConfig's (i.e on-disk references to
+    /// Given a set of StoreConfig's (i.e on-disk references to
     /// stores), instantiate each tree and return a compound merkle
-    /// tree with them.
-    pub fn new_from_store_configs(
+    /// tree with them.  The ordering of the trees is significant, as
+    /// trees are leaf indexed / addressable in the same sequence that
+    /// they are provided here.
+    pub fn from_store_configs(
         leafs: usize,
         configs: Vec<StoreConfig>,
     ) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
@@ -157,11 +173,10 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
             trees.push(MerkleTree::<T, A, K, B>::from_data_store(data, leafs)?);
         }
 
-        CompoundMerkleTree::new(trees)
+        CompoundMerkleTree::from_trees(trees)
     }
 
     /// Generate merkle tree inclusion proof for leaf `i`
-    #[inline]
     pub fn gen_proof(&self, i: usize) -> Result<CompoundProof<T, B, N>> {
         ensure!(
             i < self.leafs,
@@ -227,5 +242,26 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
 
     pub fn root(&self) -> T {
         self.root.clone()
+    }
+
+    /// Returns merkle leaf element
+    #[inline]
+    pub fn read_at(&self, i: usize) -> Result<T> {
+        ensure!(
+            i < self.leafs,
+            "{} is out of bounds (max: {})",
+            i,
+            self.leafs
+        ); // i in [0 .. self.leafs)
+
+        // Locate the sub-tree the leaf is contained in.
+        let tree_index = i / (self.leafs / self.top_layer_nodes);
+        let tree = &self.trees[tree_index];
+        let tree_leafs = tree.leafs();
+
+        // Get the leaf index within the sub-tree.
+        let leaf_index = i % tree_leafs;
+
+        tree.read_at(leaf_index)
     }
 }

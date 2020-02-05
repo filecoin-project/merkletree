@@ -4,6 +4,29 @@ use crate::proof::Proof;
 use std::marker::PhantomData;
 use typenum::marker_traits::Unsigned;
 
+/// Compound Merkle Proof.
+///
+/// A compound merkle proof is a type of merkle tree proof.
+///
+/// Compound merkle tree inclusion proof for data element, for which item = Leaf(Hash(Data Item)).
+///
+/// Lemma layout:
+///
+/// ```text
+/// [ item h1x h2y h3z ... root ]
+/// ```
+///
+/// Proof validation is positioned hash against lemma path to match root hash.
+///
+/// Unlike the existing Proof type, this type of proof requires 2
+/// proofs, each of different arity.  If a compound merkle tree has as
+/// many top layer nodes as all of the sub-trees, the compound merkle
+/// tree structure (can, but) shouldn't be used.
+///
+/// Essentially this type of proof consists of an inner proof within a
+/// specific sub-tree as well as a proof for the top-layer to the
+/// root (a type of small proof also not supported by Proof).
+///
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CompoundProof<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> {
     sub_tree_proof: Proof<T, U>,

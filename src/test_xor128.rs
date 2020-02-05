@@ -340,7 +340,7 @@ fn test_compound_tree_from_slices<B: Unsigned, N: Unsigned>(sub_tree_leafs: usiz
     }
 
     let tree: CompoundMerkleTree<[u8; 16], XOR128, VecStore<_>, B, N> =
-        CompoundMerkleTree::new(sub_trees).expect("Failed to build compound tree");
+        CompoundMerkleTree::from_trees(sub_trees).expect("Failed to build compound tree");
 
     assert_eq!(
         tree.len(),
@@ -349,6 +349,10 @@ fn test_compound_tree_from_slices<B: Unsigned, N: Unsigned>(sub_tree_leafs: usiz
     assert_eq!(tree.leafs(), sub_tree_count * sub_tree_leafs);
 
     for i in 0..tree.leafs() {
+        // Make sure all elements are accessible.
+        let _ = tree.read_at(i).expect("Failed to read tree element");
+
+        // Make sure all proofs validate.
         let p: CompoundProof<[u8; 16], B, N> = tree.gen_proof(i).unwrap();
         assert!(p.validate::<XOR128>());
     }
@@ -374,7 +378,7 @@ fn test_compound_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leaf
     }
 
     let tree: CompoundMerkleTree<[u8; 16], XOR128, DiskStore<_>, B, N> =
-        CompoundMerkleTree::new_from_store_configs(sub_tree_leafs, sub_tree_configs)
+        CompoundMerkleTree::from_store_configs(sub_tree_leafs, sub_tree_configs)
             .expect("Failed to build compound tree");
 
     assert_eq!(
@@ -384,6 +388,10 @@ fn test_compound_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leaf
     assert_eq!(tree.leafs(), sub_tree_count * sub_tree_leafs);
 
     for i in 0..tree.leafs() {
+        // Make sure all elements are accessible.
+        let _ = tree.read_at(i).expect("Failed to read tree element");
+
+        // Make sure all proofs validate.
         let p = tree.gen_proof(i).unwrap();
         assert!(p.validate::<XOR128>());
     }
@@ -447,7 +455,7 @@ fn test_compound_quad_tree_from_slices() {
     let mt3 = get_vec_tree_from_slice::<U4>(leafs);
 
     let tree: CompoundMerkleTree<[u8; 16], XOR128, VecStore<_>, U4, U3> =
-        CompoundMerkleTree::new(vec![mt1, mt2, mt3]).expect("Failed to build compound tree");
+        CompoundMerkleTree::from_trees(vec![mt1, mt2, mt3]).expect("Failed to build compound tree");
     assert_eq!(tree.len(), 16);
     assert_eq!(tree.leafs(), 12);
     assert_eq!(tree.height(), 3);
@@ -470,7 +478,7 @@ fn test_compound_octree_from_slices() {
     let mt5 = get_vec_tree_from_slice::<U8>(leafs);
 
     let tree: CompoundMerkleTree<[u8; 16], XOR128, VecStore<_>, U8, U5> =
-        CompoundMerkleTree::new(vec![mt1, mt2, mt3, mt4, mt5])
+        CompoundMerkleTree::from_trees(vec![mt1, mt2, mt3, mt4, mt5])
             .expect("Failed to build compound tree");
 
     assert_eq!(tree.len(), 366);

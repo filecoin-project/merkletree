@@ -13,9 +13,9 @@ use anyhow::Result;
 use merkletree::hash::{Algorithm, Hashable};
 use merkletree::merkle::MerkleTree;
 use merkletree::store::VecStore;
-use rand::Rng;
-use ringx::Context;
-use ringx::SHA512;
+use rand::prelude::*;
+use rand::thread_rng;
+use ringx::{Context, SHA512};
 use test::Bencher;
 
 use crate::hash512::Hash512;
@@ -70,11 +70,11 @@ fn tree_5() -> impl Iterator<Item = Result<Hash512>> {
 }
 
 fn tree_160() -> impl Iterator<Item = Result<Hash512>> {
-    let mut values = vec![vec![0u8; 256]; 160];
-    let mut rng = rand::IsaacRng::new_unseeded();
+    let mut values = vec![[0u8; 256]; 160];
 
-    for mut v in &mut values {
-        rng.fill_bytes(&mut v);
+    let mut rng = thread_rng();
+    for i in 0..values.len() {
+        rng.fill(&mut values[i]);
     }
 
     values.into_iter().map(|x| {

@@ -14,7 +14,8 @@ use crypto::sha2::Sha512;
 use merkletree::hash::{Algorithm, Hashable};
 use merkletree::merkle::{FromIndexedParallelIterator, MerkleTree};
 use merkletree::store::{DiskStore, VecStore};
-use rand::Rng;
+use rand::prelude::*;
+use rand::thread_rng;
 use rayon::prelude::*;
 use test::Bencher;
 
@@ -62,7 +63,7 @@ impl Algorithm<Hash512> for A {
 }
 
 fn tree_5() -> impl Iterator<Item = Result<Hash512>> {
-    ["one", "two", "three", "four"].into_iter().map(|x| {
+    ["one", "two", "three", "four"].iter().map(|x| {
         let mut a = A::new();
         Hashable::hash(x, &mut a);
         Ok(a.hash())
@@ -70,11 +71,11 @@ fn tree_5() -> impl Iterator<Item = Result<Hash512>> {
 }
 
 fn tree_160_par() -> impl IndexedParallelIterator<Item = Hash512> {
-    let mut values = vec![vec![0u8; 256]; 160];
-    let mut rng = rand::IsaacRng::new_unseeded();
+    let mut values = vec![[0u8; 256]; 160];
 
-    for mut v in &mut values {
-        rng.fill_bytes(&mut v);
+    let mut rng = thread_rng();
+    for i in 0..values.len() {
+        rng.fill(&mut values[i]);
     }
 
     values.into_par_iter().map(|x| {
@@ -85,11 +86,11 @@ fn tree_160_par() -> impl IndexedParallelIterator<Item = Hash512> {
 }
 
 fn tree_160() -> impl Iterator<Item = Result<Hash512>> {
-    let mut values = vec![vec![0u8; 256]; 160];
-    let mut rng = rand::IsaacRng::new_unseeded();
+    let mut values = vec![[0u8; 256]; 160];
 
-    for mut v in &mut values {
-        rng.fill_bytes(&mut v);
+    let mut rng = thread_rng();
+    for i in 0..values.len() {
+        rng.fill(&mut values[i]);
     }
 
     values.into_iter().map(|x| {
@@ -100,11 +101,11 @@ fn tree_160() -> impl Iterator<Item = Result<Hash512>> {
 }
 
 fn tree_30000() -> impl Iterator<Item = Result<Hash512>> {
-    let mut values = vec![vec![0u8; 256]; 30000];
-    let mut rng = rand::IsaacRng::new_unseeded();
+    let mut values = vec![[0u8; 256]; 30000];
 
-    for mut v in &mut values {
-        rng.fill_bytes(&mut v);
+    let mut rng = thread_rng();
+    for i in 0..values.len() {
+        rng.fill(&mut values[i]);
     }
 
     values.into_iter().map(|x| {
@@ -115,11 +116,11 @@ fn tree_30000() -> impl Iterator<Item = Result<Hash512>> {
 }
 
 fn tree_30000_par() -> impl IndexedParallelIterator<Item = Hash512> {
-    let mut values = vec![vec![0u8; 256]; 30000];
-    let mut rng = rand::IsaacRng::new_unseeded();
+    let mut values = vec![[0u8; 256]; 30000];
 
-    for mut v in &mut values {
-        rng.fill_bytes(&mut v);
+    let mut rng = thread_rng();
+    for i in 0..values.len() {
+        rng.fill(&mut values[i]);
     }
 
     values.into_par_iter().map(|x| {

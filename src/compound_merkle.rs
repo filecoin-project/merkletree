@@ -12,16 +12,12 @@ use typenum::marker_traits::Unsigned;
 /// Compound Merkle Tree.
 ///
 /// A compound merkle tree is a type of merkle tree in which every
-/// non-leaf node is the hash of its children nodes.
+/// non-leaf node is the hash of its child nodes.
 ///
 /// This structure ties together multiple Merkle Trees and allows some
 /// supported properties of the Merkle Trees across it.  The
 /// significance of this class is that it allows an arbitrary number
 /// of sub-trees to be constructed and proven against.
-///
-/// While it can be, this structure is not recommend for the case when
-/// the arity at the top-layer matches the arity of the sub-trees, as
-/// it defeats the intended purpose.
 ///
 /// To show an example, this structure can be used to create a single
 /// tree composed of 3 sub-trees, each that have branching factors /
@@ -70,7 +66,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
     pub fn from_trees(
         trees: Vec<MerkleTree<T, A, K, B>>,
     ) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
-        let top_layer_nodes = <N as Unsigned>::to_usize();
+        let top_layer_nodes = N::to_usize();
         ensure!(
             trees.len() == top_layer_nodes,
             "Length of trees MUST equal the number of top layer nodes"
@@ -166,7 +162,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
         leafs: usize,
         configs: Vec<StoreConfig>,
     ) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
-        let branches = <B as Unsigned>::to_usize();
+        let branches = B::to_usize();
         let mut trees = Vec::with_capacity(configs.len());
         for config in configs {
             let data = K::new_with_config(get_merkle_tree_len(leafs, branches), branches, config)

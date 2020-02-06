@@ -1,7 +1,11 @@
 use crate::hash::{Algorithm, Hashable};
+
 use std::marker::PhantomData;
 use typenum::marker_traits::Unsigned;
 use typenum::U2;
+
+#[cfg(test)]
+use crate::test_common::{get_vec_tree_from_slice, Item, XOR128};
 
 /// Merkle tree inclusion proof for data element, for which item = Leaf(Hash(Data Item)).
 ///
@@ -51,7 +55,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
         let mut a = A::default();
         let mut h = self.item()[0].to_owned();
 
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         for i in 1..size - 1 {
             a.reset();
             h = {
@@ -65,7 +69,11 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
                         cur_index += 1;
                     }
                 }
-                assert_eq!(cur_index, branches - 1);
+
+                if cur_index != branches - 1 {
+                    return false;
+                }
+
                 a.multi_node(&nodes, i - 1)
             };
         }
@@ -92,5 +100,37 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
     /// Returns the lemma of this proof.
     pub fn lemma(&self) -> &Vec<Vec<T>> {
         &self.lemma
+    }
+}
+
+#[cfg(test)]
+// Break one element inside the proof.
+fn modify_proof<U: Unsigned>(proof: &mut Proof<Item, U>) {
+    use rand::prelude::*;
+
+    let i = random::<usize>() % proof.lemma.len();
+    let j = random::<usize>() % proof.lemma[i].len();
+    let k = random::<usize>();
+
+    let mut a = XOR128::new();
+    k.hash(&mut a);
+
+    // Break random element
+    proof.lemma[i][j].hash(&mut a);
+    proof.lemma[i][j] = a.hash();
+}
+
+#[test]
+fn test_proofs() {
+    let leafs = 1024;
+    let tree = get_vec_tree_from_slice::<U2>(leafs);
+
+    for i in 0..tree.leafs() {
+        let mut p = tree.gen_proof(i).unwrap();
+        assert!(p.validate::<XOR128>());
+
+        // Break the proof here and assert negative validation.
+        modify_proof(&mut p);
+        assert!(!p.validate::<XOR128>());
     }
 }

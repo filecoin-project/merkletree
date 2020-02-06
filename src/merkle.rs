@@ -23,7 +23,7 @@ pub const BUILD_DATA_BLOCK_SIZE: usize = 64 * BUILD_CHUNK_NODES;
 /// All leafs and nodes are stored in a linear array (vec).
 ///
 /// A merkle tree is a tree in which every non-leaf node is the hash of its
-/// children nodes. A diagram depicting how it works:
+/// child nodes. A diagram depicting how it works:
 ///
 /// ```text
 ///         root = h1234 = h(h12 + h34)
@@ -127,7 +127,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
     /// (used with 'Store::new_from_disk').  The specified 'size' is
     /// the number of base data leafs in the MT.
     pub fn from_data_store(data: K, size: usize) -> Result<MerkleTree<T, A, K, U>> {
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         ensure!(next_pow2(size) == size, "size MUST be a power of 2");
         ensure!(
             next_pow2(branches) == branches,
@@ -150,7 +150,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
 
     /// Represent a fully constructed merkle tree from a provided slice.
     pub fn from_tree_slice(data: &[u8], leafs: usize) -> Result<MerkleTree<T, A, K, U>> {
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         let height = get_merkle_tree_height(leafs, branches);
         let tree_len = get_merkle_tree_len(leafs, branches);
         ensure!(
@@ -178,7 +178,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         leafs: usize,
         config: StoreConfig,
     ) -> Result<MerkleTree<T, A, K, U>> {
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         let height = get_merkle_tree_height(leafs, branches);
         let tree_len = get_merkle_tree_len(leafs, branches);
         ensure!(
@@ -238,7 +238,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
 
         // level 1 width
         let mut width = self.leafs;
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         ensure!(width == next_pow2(width), "Must be a power of 2 tree");
         ensure!(
             branches == next_pow2(branches),
@@ -300,7 +300,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
             "The size of the data layer must be a power of 2"
         );
 
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         let total_size = get_merkle_tree_len(self.leafs, branches);
         let cache_size = get_merkle_tree_cache_size(self.leafs, branches, levels);
         ensure!(
@@ -389,7 +389,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         // For partial tree building, the data layer width must be a
         // power of 2.
         let mut width = self.leafs;
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         ensure!(width == next_pow2(width), "Must be a power of 2 tree");
         ensure!(
             branches == next_pow2(branches),
@@ -501,7 +501,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
     /// interface.
     #[inline]
     pub fn compact(&mut self, config: StoreConfig, store_version: u32) -> Result<bool> {
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         self.data.compact(branches, config, store_version)
     }
 
@@ -540,7 +540,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         &self.data
     }
 
-    /// Returns merkle root
+    /// Returns merkle leaf at index i
     #[inline]
     pub fn read_at(&self, i: usize) -> Result<T> {
         self.data.read_at(i)
@@ -571,7 +571,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         );
 
         let leafs_count = leafs.len() / T::byte_len();
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         ensure!(leafs_count > 1, "not enough leaves");
         ensure!(
             next_pow2(leafs_count) == leafs_count,
@@ -610,7 +610,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         );
 
         let leafs_count = leafs.len() / T::byte_len();
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         ensure!(leafs_count > 1, "not enough leaves");
         ensure!(
             next_pow2(leafs_count) == leafs_count,
@@ -669,7 +669,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> FromIndexedParallelI
         let iter = into.into_par_iter();
 
         let leafs = iter.opt_len().expect("must be sized");
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         ensure!(leafs > 1, "not enough leaves");
         ensure!(next_pow2(leafs) == leafs, "size MUST be a power of 2");
         ensure!(
@@ -706,7 +706,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> FromIndexedParallelI
         let iter = into.into_par_iter();
 
         let leafs = iter.opt_len().expect("must be sized");
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         ensure!(leafs > 1, "not enough leaves");
         ensure!(next_pow2(leafs) == leafs, "size MUST be a power of 2");
         ensure!(
@@ -760,7 +760,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
 
         let (_, n) = iter.size_hint();
         let leafs = n.ok_or_else(|| anyhow!("could not get size hint from iterator"))?;
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         ensure!(leafs > 1, "not enough leaves");
         ensure!(next_pow2(leafs) == leafs, "size MUST be a power of 2");
         ensure!(
@@ -797,7 +797,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
 
         let (_, n) = iter.size_hint();
         let leafs = n.ok_or_else(|| anyhow!("could not get size hint from iterator"))?;
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         ensure!(leafs > 1, "not enough leaves");
         ensure!(next_pow2(leafs) == leafs, "size MUST be a power of 2");
         ensure!(

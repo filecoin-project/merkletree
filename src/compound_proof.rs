@@ -4,11 +4,23 @@ use crate::proof::Proof;
 use std::marker::PhantomData;
 use typenum::marker_traits::Unsigned;
 
+#[cfg(test)]
+use crate::compound_merkle::CompoundMerkleTree;
+#[cfg(test)]
+use crate::hash::Hashable;
+#[cfg(test)]
+use crate::store::VecStore;
+#[cfg(test)]
+use crate::test_common::{get_vec_tree_from_slice, Item, XOR128};
+#[cfg(test)]
+use typenum::{U3, U4, U8};
+
 /// Compound Merkle Proof.
 ///
 /// A compound merkle proof is a type of merkle tree proof.
 ///
-/// Compound merkle tree inclusion proof for data element, for which item = Leaf(Hash(Data Item)).
+/// Compound merkle tree inclusion proof for data element, for which
+/// item = Leaf(Hash(Data Item)).
 ///
 /// Lemma layout:
 ///
@@ -19,9 +31,7 @@ use typenum::marker_traits::Unsigned;
 /// Proof validation is positioned hash against lemma path to match root hash.
 ///
 /// Unlike the existing Proof type, this type of proof requires 2
-/// proofs, each of different arity.  If a compound merkle tree has as
-/// many top layer nodes as all of the sub-trees, the compound merkle
-/// tree structure (can, but) shouldn't be used.
+/// proofs, potentially each of different arity.
 ///
 /// Essentially this type of proof consists of an inner proof within a
 /// specific sub-tree as well as a proof for the top-layer to the
@@ -39,12 +49,12 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
     /// Creates new compound MT inclusion proof
     pub fn new(
         sub_tree_proof: Proof<T, U>,
-        hash: Vec<Vec<T>>,
+        lemma: Vec<Vec<T>>,
         path: Vec<usize>,
     ) -> CompoundProof<T, U, N> {
         CompoundProof {
             sub_tree_proof,
-            lemma: hash,
+            lemma,
             path,
             _n: PhantomData,
         }
@@ -68,13 +78,15 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
             return false;
         }
 
-        let size = self.lemma.len();
-        let top_layer_nodes = <N as Unsigned>::to_usize();
+        // ensure size is root + top_layer_hashes
+        if self.lemma.len() != 2 {
+            return false;
+        }
 
-        assert_eq!(size, 2); // root + top_layer_hashes
+        let top_layer_nodes = N::to_usize();
         let mut a = A::default();
 
-        // Assert that the remaining proof matches the tree root (note
+        // Check that the remaining proof matches the tree root (note
         // that Proof::validate cannot handle a proof this small, so
         // this is a version specific for what we know we have in this
         // case).
@@ -90,10 +102,80 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
                     cur_index += 1;
                 }
             }
-            assert_eq!(cur_index, top_layer_nodes - 1);
+
+            if cur_index != top_layer_nodes - 1 {
+                return false;
+            }
+
             a.multi_node(&nodes, 0)
         };
 
         h == self.root()
+    }
+
+    /// Returns the path of this proof.
+    pub fn path(&self) -> &Vec<usize> {
+        &self.path
+    }
+
+    /// Returns the lemma of this proof.
+    pub fn lemma(&self) -> &Vec<Vec<T>> {
+        &self.lemma
+    }
+}
+
+#[cfg(test)]
+// Break one element inside the proof's top layer.
+fn modify_proof<U: Unsigned, N: Unsigned>(proof: &mut CompoundProof<Item, U, N>) {
+    use rand::prelude::*;
+
+    let i = random::<usize>() % proof.lemma[0].len();
+    let j = random::<usize>();
+
+    let mut a = XOR128::new();
+    j.hash(&mut a);
+
+    // Break random element
+    proof.lemma[0][i].hash(&mut a);
+    proof.lemma[0][i] = a.hash();
+}
+
+#[test]
+fn test_compound_quad_broken_proofs() {
+    let leafs = 1024;
+    let mt1 = get_vec_tree_from_slice::<U4>(leafs);
+    let mt2 = get_vec_tree_from_slice::<U4>(leafs);
+    let mt3 = get_vec_tree_from_slice::<U4>(leafs);
+
+    let tree: CompoundMerkleTree<Item, XOR128, VecStore<_>, U4, U3> =
+        CompoundMerkleTree::from_trees(vec![mt1, mt2, mt3]).expect("Failed to build compound tree");
+
+    for i in 0..tree.leafs() {
+        let mut p = tree.gen_proof(i).unwrap();
+        assert!(p.validate::<XOR128>());
+
+        modify_proof(&mut p);
+        assert!(!p.validate::<XOR128>());
+    }
+}
+
+#[test]
+fn test_compound_octree_broken_proofs() {
+    let leafs = 4096;
+    let mt1 = get_vec_tree_from_slice::<U8>(leafs);
+    let mt2 = get_vec_tree_from_slice::<U8>(leafs);
+    let mt3 = get_vec_tree_from_slice::<U8>(leafs);
+    let mt4 = get_vec_tree_from_slice::<U8>(leafs);
+
+    let tree: CompoundMerkleTree<Item, XOR128, VecStore<_>, U8, U4> =
+        CompoundMerkleTree::from_trees(vec![mt1, mt2, mt3, mt4])
+            .expect("Failed to build compound tree");
+
+    for i in 0..tree.leafs() {
+        let mut p = tree.gen_proof(i).unwrap();
+        assert!(p.validate::<XOR128>());
+
+        modify_proof(&mut p);
+        assert!(!p.validate::<XOR128>());
     }
 }

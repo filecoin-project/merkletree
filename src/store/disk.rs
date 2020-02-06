@@ -351,7 +351,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
         }?;
 
         let data_lock = Arc::new(RwLock::new(self));
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         let shift = log2_pow2(branches);
         let write_chunk_width = (BUILD_CHUNK_NODES >> shift) * E::byte_len();
 
@@ -400,7 +400,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
         height: usize,
         _config: Option<StoreConfig>,
     ) -> Result<E> {
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         ensure!(
             next_pow2(branches) == branches,
             "branches MUST be a power of 2"

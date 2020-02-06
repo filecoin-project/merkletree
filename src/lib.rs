@@ -183,13 +183,16 @@ pub mod merkle;
 /// Compound Merkle tree abstractions, implementation and algorithms.
 pub mod compound_merkle;
 
-/// Tests data.
-#[cfg(test)]
-mod test_item;
+/// Re-usable Testing primitives
+pub mod test_common;
 
 /// Tests XOR128.
 #[cfg(test)]
 mod test_xor128;
+
+/// Tests data.
+#[cfg(test)]
+mod test_item;
 
 /// Tests SIP.
 #[cfg(test)]

@@ -209,7 +209,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
         let mut level: usize = 0;
         let mut width = leafs;
         let mut level_node_index = 0;
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         let shift = log2_pow2(branches);
 
         while width > 1 {
@@ -254,7 +254,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
         read_start: usize,
         write_start: usize,
     ) -> Result<()> {
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         let data_lock = Arc::new(RwLock::new(self));
 
         // Allocate `width` indexes during operation (which is a negligible memory bloat
@@ -313,7 +313,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
         height: usize,
         _config: Option<StoreConfig>,
     ) -> Result<E> {
-        let branches = <U as Unsigned>::to_usize();
+        let branches = U::to_usize();
         ensure!(
             next_pow2(branches) == branches,
             "branches MUST be a power of 2"

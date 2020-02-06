@@ -1,111 +1,24 @@
-#![cfg(test)]
+#[cfg(test)]
+use crate::hash::*;
+use crate::merkle::MerkleTree;
+use crate::store::{DiskStore, StoreConfig, VecStore};
 
 use crate::compound_merkle::CompoundMerkleTree;
 use crate::compound_proof::CompoundProof;
-use crate::hash::*;
-use crate::merkle::FromIndexedParallelIterator;
 use crate::merkle::{
-    get_merkle_tree_height, get_merkle_tree_len, log2_pow2, next_pow2, Element, MerkleTree,
+    get_merkle_tree_height, get_merkle_tree_len, log2_pow2, next_pow2, FromIndexedParallelIterator,
 };
 use crate::store::{
-    DiskStore, DiskStoreProducer, ExternalReader, LevelCacheStore, MmapStore, Store, StoreConfig,
-    StoreConfigDataVersion, VecStore, SMALL_TREE_BUILD,
+    DiskStoreProducer, ExternalReader, LevelCacheStore, MmapStore, Store, StoreConfigDataVersion,
+    SMALL_TREE_BUILD,
 };
 use rayon::iter::{plumbing::*, IntoParallelIterator, ParallelIterator};
-use std::fmt;
 use std::fs::OpenOptions;
-use std::hash::Hasher;
 use std::os::unix::prelude::FileExt;
 use typenum::marker_traits::Unsigned;
 use typenum::{U2, U3, U4, U5, U7, U8};
 
-const SIZE: usize = 0x10;
-const DEFAULT_NUM_BRANCHES: usize = 2;
-
-type Item = [u8; SIZE];
-
-#[derive(Debug, Copy, Clone, Default)]
-struct XOR128 {
-    data: Item,
-    i: usize,
-}
-
-impl XOR128 {
-    fn new() -> XOR128 {
-        XOR128 {
-            data: [0; SIZE],
-            i: 0,
-        }
-    }
-}
-
-impl Hasher for XOR128 {
-    fn write(&mut self, bytes: &[u8]) {
-        for x in bytes {
-            self.data[self.i & (SIZE - 1)] ^= *x;
-            self.i += 1;
-        }
-    }
-
-    fn finish(&self) -> u64 {
-        unimplemented!()
-    }
-}
-
-impl Algorithm<Item> for XOR128 {
-    #[inline]
-    fn hash(&mut self) -> [u8; 16] {
-        self.data
-    }
-
-    #[inline]
-    fn reset(&mut self) {
-        *self = XOR128::new();
-    }
-}
-
-impl fmt::UpperHex for XOR128 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if f.alternate() {
-            if let Err(e) = f.write_str("0x") {
-                return Err(e);
-            }
-        }
-        for b in self.data.as_ref() {
-            if let Err(e) = write!(f, "{:02X}", b) {
-                return Err(e);
-            }
-        }
-        Ok(())
-    }
-}
-
-impl Element for [u8; 16] {
-    fn byte_len() -> usize {
-        16
-    }
-
-    fn from_slice(bytes: &[u8]) -> Self {
-        assert_eq!(bytes.len(), Self::byte_len());
-        let mut el = [0u8; 16];
-        el[..].copy_from_slice(bytes);
-        el
-    }
-
-    fn copy_to_slice(&self, bytes: &mut [u8]) {
-        bytes.copy_from_slice(self);
-    }
-}
-
-fn get_vec_tree_from_slice<U: Unsigned>(
-    leafs: usize,
-) -> MerkleTree<[u8; 16], XOR128, VecStore<[u8; 16]>, U> {
-    let mut x = Vec::with_capacity(leafs);
-    for i in 0..leafs {
-        x.push(i * 93);
-    }
-    MerkleTree::from_data(&x).expect("failed to create tree from slice")
-}
+use crate::test_common::{get_vec_tree_from_slice, DEFAULT_NUM_BRANCHES, XOR128};
 
 fn test_vec_tree_from_slice<U: Unsigned>(
     leafs: usize,
@@ -136,7 +49,7 @@ fn test_vec_tree_from_iter<U: Unsigned>(
     height: usize,
     num_challenges: usize,
 ) {
-    let branches = <U as Unsigned>::to_usize();
+    let branches = U::to_usize();
     assert_eq!(len, get_merkle_tree_len(leafs, branches));
     assert_eq!(height, get_merkle_tree_height(leafs, branches));
 
@@ -161,7 +74,7 @@ fn test_vec_tree_from_iter<U: Unsigned>(
     }
 }
 
-fn get_disk_tree_from_slice<U: Unsigned>(
+pub fn get_disk_tree_from_slice<U: Unsigned>(
     leafs: usize,
     config: StoreConfig,
 ) -> MerkleTree<[u8; 16], XOR128, DiskStore<[u8; 16]>, U> {
@@ -178,7 +91,7 @@ fn build_disk_tree_from_iter<U: Unsigned>(
     height: usize,
     config: &StoreConfig,
 ) {
-    let branches = <U as Unsigned>::to_usize();
+    let branches = U::to_usize();
     assert_eq!(len, get_merkle_tree_len(leafs, branches));
     assert_eq!(height, get_merkle_tree_height(leafs, branches));
 
@@ -207,7 +120,7 @@ fn test_disk_tree_from_iter<U: Unsigned>(
     height: usize,
     num_challenges: usize,
 ) {
-    let branches = <U as Unsigned>::to_usize();
+    let branches = U::to_usize();
 
     let name = format!("test_disk_tree_from_iter-{}-{}-{}", leafs, len, height);
     let temp_dir = tempdir::TempDir::new(&name).unwrap();
@@ -240,7 +153,7 @@ fn test_levelcache_v1_tree_from_iter<U: Unsigned>(
     num_challenges: usize,
     cached_above_base: usize,
 ) {
-    let branches = <U as Unsigned>::to_usize();
+    let branches = U::to_usize();
 
     let name = format!(
         "test_levelcache_v1_tree_from_iter-{}-{}-{}",
@@ -332,8 +245,8 @@ fn test_vec_from_slice() {
 // B: Branching factor of sub-trees
 // N: Branching factor of top-layer
 fn test_compound_tree_from_slices<B: Unsigned, N: Unsigned>(sub_tree_leafs: usize) {
-    let branches = <B as Unsigned>::to_usize();
-    let sub_tree_count = <N as Unsigned>::to_usize();
+    let branches = B::to_usize();
+    let sub_tree_count = N::to_usize();
     let mut sub_trees = Vec::with_capacity(sub_tree_count);
     for _ in 0..sub_tree_count {
         sub_trees.push(get_vec_tree_from_slice::<B>(sub_tree_leafs));
@@ -361,8 +274,8 @@ fn test_compound_tree_from_slices<B: Unsigned, N: Unsigned>(sub_tree_leafs: usiz
 // B: Branching factor of sub-trees
 // N: Branching factor of top-layer
 fn test_compound_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leafs: usize) {
-    let branches = <B as Unsigned>::to_usize();
-    let sub_tree_count = <N as Unsigned>::to_usize();
+    let branches = B::to_usize();
+    let sub_tree_count = N::to_usize();
     let mut sub_tree_configs = Vec::with_capacity(sub_tree_count);
 
     let temp_dir = tempdir::TempDir::new("test_read_into").unwrap();

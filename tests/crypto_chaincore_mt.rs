@@ -108,6 +108,7 @@ fn test_merkle_tree_validate_data() {
     let proof: Proof<CryptoSHA256Hash> = Proof::new(
         generated_proof.lemma().to_owned(),
         generated_proof.path().to_owned(),
-    );
+    )
+    .unwrap();
     assert!(proof.validate_with_data::<CryptoChainCoreAlgorithm>(&proof_item));
 }

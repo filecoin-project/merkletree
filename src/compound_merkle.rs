@@ -106,7 +106,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
     /// significant, as trees are leaf indexed / addressable in the
     /// same sequence that they are provided here.
     pub fn from_slices(
-        tree_data: Vec<&[u8]>,
+        tree_data: &[&[u8]],
         leafs: usize,
     ) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
         let mut trees = Vec::with_capacity(tree_data.len());
@@ -123,9 +123,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
     /// trees are leaf indexed / addressable in the same sequence that
     /// they are provided here.
     pub fn from_slices_with_configs(
-        tree_data: Vec<&[u8]>,
+        tree_data: &[&[u8]],
         leafs: usize,
-        configs: Vec<StoreConfig>,
+        configs: &[StoreConfig],
     ) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
         let mut trees = Vec::with_capacity(tree_data.len());
         for i in 0..tree_data.len() {
@@ -160,13 +160,17 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
     /// they are provided here.
     pub fn from_store_configs(
         leafs: usize,
-        configs: Vec<StoreConfig>,
+        configs: &[StoreConfig],
     ) -> Result<CompoundMerkleTree<T, A, K, B, N>> {
         let branches = B::to_usize();
         let mut trees = Vec::with_capacity(configs.len());
         for config in configs {
-            let data = K::new_with_config(get_merkle_tree_len(leafs, branches), branches, config)
-                .context("failed to create data store")?;
+            let data = K::new_with_config(
+                get_merkle_tree_len(leafs, branches),
+                branches,
+                config.clone(),
+            )
+            .context("failed to create data store")?;
             trees.push(MerkleTree::<T, A, K, B>::from_data_store(data, leafs)?);
         }
 

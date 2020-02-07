@@ -291,7 +291,7 @@ fn test_compound_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leaf
     }
 
     let tree: CompoundMerkleTree<[u8; 16], XOR128, DiskStore<_>, B, N> =
-        CompoundMerkleTree::from_store_configs(sub_tree_leafs, sub_tree_configs)
+        CompoundMerkleTree::from_store_configs(sub_tree_leafs, &sub_tree_configs)
             .expect("Failed to build compound tree");
 
     assert_eq!(

@@ -57,11 +57,11 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
             return false;
         }
 
+        let branches = U::to_usize();
         let mut a = A::default();
         let mut h = self.item();
-
-        let branches = U::to_usize();
         let mut path_index = 1;
+
         for i in (1..size - 1).step_by(branches - 1) {
             a.reset();
             h = {

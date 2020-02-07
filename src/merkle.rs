@@ -250,15 +250,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         // item is first
         lemma.push(self.read_at(j)?);
         while base + 1 < self.len() {
-            let path_index = j % branches;
-            let lemma_start = (j / branches) * branches;
-            for k in lemma_start..lemma_start + branches {
+            let hash_index = (j / branches) * branches;
+            for k in hash_index..hash_index + branches {
                 if k != j {
                     lemma.push(self.read_at(base + k)?)
                 }
             }
 
-            path.push(path_index);
+            path.push(j % branches); // path_index
 
             base += width;
             width >>= shift; // width /= branches;
@@ -448,8 +447,8 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
 
         lemma.push(self.read_at(j)?);
         while base + 1 < self.len() {
-            let lemma_start = (j / branches) * branches;
-            for k in lemma_start..lemma_start + branches {
+            let hash_index = (j / branches) * branches;
+            for k in hash_index..hash_index + branches {
                 if k != j {
                     let read_index = base + k;
                     lemma.push(

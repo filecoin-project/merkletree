@@ -240,7 +240,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
             width >>= shift; // width /= branches;
         }
 
-        assert_eq!(height, level + 1);
+        ensure!(height == level + 1, "Invalid tree height");
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 
@@ -263,7 +263,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
         // Process `BUILD_CHUNK_NODES` nodes in each thread at a time to reduce contention,
         // optimized for big sector sizes (small ones will just have one thread doing all
         // the work).
-        debug_assert_eq!(BUILD_CHUNK_NODES % branches, 0);
+        ensure!(BUILD_CHUNK_NODES % branches == 0, "Invalid chunk size");
         Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
             .par_iter()
             .try_for_each(|&chunk_index| -> Result<()> {
@@ -293,9 +293,9 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
                 );
 
                 // Check that we correctly pre-allocated the space.
-                debug_assert_eq!(
-                    hashed_nodes_as_bytes.len(),
-                    chunk_size / branches * E::byte_len()
+                ensure!(
+                    hashed_nodes_as_bytes.len() == chunk_size / branches * E::byte_len(),
+                    "Invalid hashed node length"
                 );
 
                 // Write the data into the store.
@@ -354,7 +354,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
             width >>= shift; // width /= branches;
         }
 
-        assert_eq!(height, level + 1);
+        ensure!(height == level + 1, "Invalid tree height");
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 

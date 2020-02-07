@@ -372,7 +372,10 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
     }
 
     pub fn store_read_into(&self, start: usize, end: usize, buf: &mut [u8]) -> Result<()> {
-        assert!(start <= self.data_width * self.elem_len || start >= self.cache_index_start);
+        ensure!(
+            start <= self.data_width * self.elem_len || start >= self.cache_index_start,
+            "Invalid read start"
+        );
 
         // If an external reader was specified for the base layer, use it.
         if start < self.data_width * self.elem_len && self.reader.is_some() {

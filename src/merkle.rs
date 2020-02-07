@@ -270,10 +270,13 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
 
         // Sanity check: if the `MerkleTree` lost its integrity and `data` doesn't match the
         // expected values for `leafs` and `height` this can get ugly.
-        debug_assert!(lemma.len() == get_merkle_proof_lemma_len(self.height, branches));
-        debug_assert!(path.len() == self.height - 1);
+        ensure!(
+            lemma.len() == get_merkle_proof_lemma_len(self.height, branches),
+            "Invalid proof lemma length"
+        );
+        ensure!(path.len() == self.height - 1, "Invalid proof path length");
 
-        Ok(Proof::new(lemma, path))
+        Proof::new(lemma, path)
     }
 
     /// Generate merkle tree inclusion proof for leaf `i` by first
@@ -478,10 +481,13 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
 
         // Sanity check: if the `MerkleTree` lost its integrity and `data` doesn't match the
         // expected values for `leafs` and `height` this can get ugly.
-        debug_assert!(lemma.len() == get_merkle_proof_lemma_len(self.height, branches));
-        debug_assert!(path.len() == self.height - 1);
+        ensure!(
+            lemma.len() == get_merkle_proof_lemma_len(self.height, branches),
+            "Invalid proof lemma length"
+        );
+        ensure!(path.len() == self.height - 1, "Invalid proof path length");
 
-        Ok(Proof::new(lemma, path))
+        Proof::new(lemma, path)
     }
 
     /// Returns merkle root

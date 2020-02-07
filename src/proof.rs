@@ -1,6 +1,7 @@
 use crate::hash::{Algorithm, Hashable};
 use crate::merkle::get_merkle_proof_lemma_len;
 
+use anyhow::Result;
 use std::marker::PhantomData;
 use typenum::marker_traits::Unsigned;
 use typenum::U2;
@@ -26,17 +27,17 @@ pub struct Proof<T: Eq + Clone + AsRef<[u8]>, U: Unsigned = U2> {
 
 impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
     /// Creates new MT inclusion proof
-    pub fn new(lemma: Vec<T>, path: Vec<usize>) -> Proof<T, U> {
-        assert!(lemma.len() > 2);
-        let height = path.len() + 1;
-        let branches = U::to_usize();
-        let lemma_len = get_merkle_proof_lemma_len(height, branches);
-        assert_eq!(lemma.len(), lemma_len);
-        Proof {
+    pub fn new(lemma: Vec<T>, path: Vec<usize>) -> Result<Proof<T, U>> {
+        ensure!(lemma.len() > 2, "Invalid lemma length (short)");
+        ensure!(
+            lemma.len() == get_merkle_proof_lemma_len(path.len() + 1, U::to_usize()),
+            "Invalid lemma length"
+        );
+        Ok(Proof {
             lemma,
             path,
             _u: PhantomData,
-        }
+        })
     }
 
     /// Return proof target leaf
@@ -114,7 +115,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
 fn modify_proof<U: Unsigned>(proof: &mut Proof<Item, U>) {
     use rand::prelude::*;
 
-    let i = 1 + (random::<usize>() % (proof.lemma.len() - 2));
+    let i = random::<usize>() % proof.lemma.len();
     let k = random::<usize>();
 
     let mut a = XOR128::new();
@@ -127,7 +128,7 @@ fn modify_proof<U: Unsigned>(proof: &mut Proof<Item, U>) {
 
 #[test]
 fn test_proofs() {
-    let leafs = 1024;
+    let leafs = 32768;
     let tree = get_vec_tree_from_slice::<U2>(leafs);
 
     for i in 0..tree.leafs() {

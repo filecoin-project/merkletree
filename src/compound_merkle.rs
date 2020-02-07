@@ -210,7 +210,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
         // Generate the final compound tree proof which is composed of
         // a sub-tree proof of branching factor B and a top-level
         // proof with a branching factor of N.
-        Ok(CompoundProof::new(sub_tree_proof, lemma, path))
+        CompoundProof::new(sub_tree_proof, lemma, path)
     }
 
     pub fn top_layer_nodes(&self) -> usize {

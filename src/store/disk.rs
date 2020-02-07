@@ -355,7 +355,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
         let shift = log2_pow2(branches);
         let write_chunk_width = (BUILD_CHUNK_NODES >> shift) * E::byte_len();
 
-        debug_assert_eq!(BUILD_CHUNK_NODES % branches, 0);
+        ensure!(BUILD_CHUNK_NODES % branches == 0, "Invalid chunk size");
         Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
             .into_par_iter()
             .zip(mmap.par_chunks_mut(write_chunk_width))
@@ -382,9 +382,9 @@ impl<E: Element> Store<E> for DiskStore<E> {
 
                 // Check that we correctly pre-allocated the space.
                 let hashed_nodes_as_bytes_len = hashed_nodes_as_bytes.len();
-                debug_assert_eq!(
-                    hashed_nodes_as_bytes_len,
-                    chunk_size / branches * E::byte_len()
+                ensure!(
+                    hashed_nodes_as_bytes.len() == chunk_size / branches * E::byte_len(),
+                    "Invalid hashed node length"
                 );
 
                 write_mmap[0..hashed_nodes_as_bytes_len].copy_from_slice(&hashed_nodes_as_bytes);
@@ -443,9 +443,12 @@ impl<E: Element> Store<E> for DiskStore<E> {
         }
 
         // Ensure every element is accounted for.
-        assert_eq!(Store::len(self), get_merkle_tree_len(leafs, branches));
+        ensure!(
+            Store::len(self) == get_merkle_tree_len(leafs, branches),
+            "Invalid merkle tree length"
+        );
 
-        assert_eq!(height, level + 1);
+        ensure!(height == level + 1, "Invalid tree height");
         // The root isn't part of the previous loop so `height` is
         // missing one level.
 

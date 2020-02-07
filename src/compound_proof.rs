@@ -1,6 +1,7 @@
 use crate::hash::Algorithm;
 use crate::proof::Proof;
 
+use anyhow::Result;
 use std::marker::PhantomData;
 use typenum::marker_traits::Unsigned;
 
@@ -51,13 +52,14 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
         sub_tree_proof: Proof<T, U>,
         lemma: Vec<T>,
         path: Vec<usize>,
-    ) -> CompoundProof<T, U, N> {
-        CompoundProof {
+    ) -> Result<CompoundProof<T, U, N>> {
+        ensure!(lemma.len() == N::to_usize(), "Invalid lemma length");
+        Ok(CompoundProof {
             sub_tree_proof,
             lemma,
             path,
             _n: PhantomData,
-        }
+        })
     }
 
     /// Return tree root
@@ -141,7 +143,7 @@ fn modify_proof<U: Unsigned, N: Unsigned>(proof: &mut CompoundProof<Item, U, N>)
 
 #[test]
 fn test_compound_quad_broken_proofs() {
-    let leafs = 1024;
+    let leafs = 16384;
     let mt1 = get_vec_tree_from_slice::<U4>(leafs);
     let mt2 = get_vec_tree_from_slice::<U4>(leafs);
     let mt3 = get_vec_tree_from_slice::<U4>(leafs);
@@ -160,7 +162,7 @@ fn test_compound_quad_broken_proofs() {
 
 #[test]
 fn test_compound_octree_broken_proofs() {
-    let leafs = 4096;
+    let leafs = 32768;
     let mt1 = get_vec_tree_from_slice::<U8>(leafs);
     let mt2 = get_vec_tree_from_slice::<U8>(leafs);
     let mt3 = get_vec_tree_from_slice::<U8>(leafs);

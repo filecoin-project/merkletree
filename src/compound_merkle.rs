@@ -194,21 +194,17 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
         // sub-tree root (note the branching factor of B).
         let sub_tree_proof: Proof<T, B> = tree.gen_proof(leaf_index)?;
 
-        let mut lemmas: Vec<T> = Vec::with_capacity(self.top_layer_nodes - 1);
+        // Construct the top layer proof.  'lemma' length is
+        // top_layer_nodes - 1 + root == top_layer_nodes
+        let mut path: Vec<usize> = Vec::with_capacity(1); // path - 1
+        let mut lemma: Vec<T> = Vec::with_capacity(self.top_layer_nodes);
         for i in 0..self.top_layer_nodes {
             if i != tree_index {
-                lemmas.push(self.trees[i].root())
+                lemma.push(self.trees[i].root())
             }
         }
 
-        // Construct the top layer proof (1 layer of sub-tree hashes)
-        // with the final proof layer being the root.
-        let mut lemma: Vec<Vec<T>> = Vec::with_capacity(2); // path + root
-        let mut path: Vec<usize> = Vec::with_capacity(1); // path - 1
-
-        lemma.push(lemmas);
-        lemma.push(vec![self.root()]);
-
+        lemma.push(self.root());
         path.push(tree_index);
 
         // Generate the final compound tree proof which is composed of

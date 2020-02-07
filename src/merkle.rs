@@ -230,9 +230,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
             self.leafs
         ); // i in [0 .. self.leafs)
 
-        let mut lemma: Vec<Vec<T>> = Vec::with_capacity(self.height + 1); // path + root
-        let mut path: Vec<usize> = Vec::with_capacity(self.height - 1); // path - 1
-
         let mut base = 0;
         let mut j = i;
 
@@ -246,18 +243,21 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         );
         let shift = log2_pow2(branches);
 
-        lemma.push(vec![self.read_at(j)?]);
+        let mut lemma: Vec<T> =
+            Vec::with_capacity(get_merkle_proof_lemma_len(self.height, branches));
+        let mut path: Vec<usize> = Vec::with_capacity(self.height - 1); // path - 1
+
+        // item is first
+        lemma.push(self.read_at(j)?);
         while base + 1 < self.len() {
             let path_index = j % branches;
             let lemma_start = (j / branches) * branches;
-            let mut lemmas: Vec<T> = Vec::with_capacity(branches - 1);
             for k in lemma_start..lemma_start + branches {
                 if k != j {
-                    lemmas.push(self.read_at(base + k)?)
+                    lemma.push(self.read_at(base + k)?)
                 }
             }
 
-            lemma.push(lemmas);
             path.push(path_index);
 
             base += width;
@@ -266,11 +266,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         }
 
         // root is final
-        lemma.push(vec![self.root()]);
+        lemma.push(self.root());
 
         // Sanity check: if the `MerkleTree` lost its integrity and `data` doesn't match the
         // expected values for `leafs` and `height` this can get ugly.
-        debug_assert!(lemma.len() == self.height + 1);
+        debug_assert!(lemma.len() == get_merkle_proof_lemma_len(self.height, branches));
         debug_assert!(path.len() == self.height - 1);
 
         Ok(Proof::new(lemma, path))
@@ -439,17 +439,17 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         // that we're currently processing in the partial tree.
         let mut partial_base = 0;
 
-        let mut lemma: Vec<Vec<T>> = Vec::with_capacity(self.height + 1); // path + root
+        let mut lemma: Vec<T> =
+            Vec::with_capacity(get_merkle_proof_lemma_len(self.height, branches));
         let mut path: Vec<usize> = Vec::with_capacity(self.height - 1); // path - 1
 
-        lemma.push(vec![self.read_at(j)?]);
+        lemma.push(self.read_at(j)?);
         while base + 1 < self.len() {
             let lemma_start = (j / branches) * branches;
-            let mut lemmas: Vec<T> = Vec::with_capacity(branches - 1);
             for k in lemma_start..lemma_start + branches {
                 if k != j {
                     let read_index = base + k;
-                    lemmas.push(
+                    lemma.push(
                         if read_index < data_width || read_index >= cache_index_start {
                             self.read_at(base + k)?
                         } else {
@@ -460,7 +460,6 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
                 }
             }
 
-            lemma.push(lemmas);
             path.push(j % branches); // path_index
 
             base += width;
@@ -475,11 +474,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         }
 
         // root is final
-        lemma.push(vec![self.root()]);
+        lemma.push(self.root());
 
         // Sanity check: if the `MerkleTree` lost its integrity and `data` doesn't match the
         // expected values for `leafs` and `height` this can get ugly.
-        debug_assert!(lemma.len() == self.height + 1);
+        debug_assert!(lemma.len() == get_merkle_proof_lemma_len(self.height, branches));
         debug_assert!(path.len() == self.height - 1);
 
         Ok(Proof::new(lemma, path))
@@ -902,6 +901,12 @@ pub fn get_merkle_tree_cache_size(leafs: usize, branches: usize, levels: usize) 
 // Height calculation given the number of leafs in the tree and the branches.
 pub fn get_merkle_tree_height(leafs: usize, branches: usize) -> usize {
     (branches as f64 * leafs as f64).log(branches as f64) as usize
+}
+
+// Given a tree of 'height' with the specified number of 'branches',
+// calculate the length of hashes required for the proof.
+pub fn get_merkle_proof_lemma_len(height: usize, branches: usize) -> usize {
+    2 + ((branches - 1) * (height - 1))
 }
 
 // This method returns the number of 'leafs' given a merkle tree

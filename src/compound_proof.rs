@@ -40,7 +40,7 @@ use typenum::{U3, U4, U8};
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CompoundProof<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> {
     sub_tree_proof: Proof<T, U>,
-    lemma: Vec<Vec<T>>,
+    lemma: Vec<T>,
     path: Vec<usize>, // top layer tree index
     _n: PhantomData<N>,
 }
@@ -49,7 +49,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
     /// Creates new compound MT inclusion proof
     pub fn new(
         sub_tree_proof: Proof<T, U>,
-        lemma: Vec<Vec<T>>,
+        lemma: Vec<T>,
         path: Vec<usize>,
     ) -> CompoundProof<T, U, N> {
         CompoundProof {
@@ -67,7 +67,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
 
     /// Return tree root
     pub fn root(&self) -> T {
-        self.lemma.last().unwrap()[0].clone()
+        self.lemma.last().unwrap().clone()
     }
 
     /// Verifies MT inclusion proof
@@ -78,18 +78,17 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
             return false;
         }
 
-        // ensure size is root + top_layer_hashes
-        if self.lemma.len() != 2 {
+        // Check that size is root + top_layer_nodes - 1.
+        let top_layer_nodes = N::to_usize();
+        if self.lemma.len() != top_layer_nodes {
             return false;
         }
-
-        let top_layer_nodes = N::to_usize();
-        let mut a = A::default();
 
         // Check that the remaining proof matches the tree root (note
         // that Proof::validate cannot handle a proof this small, so
         // this is a version specific for what we know we have in this
         // case).
+        let mut a = A::default();
         a.reset();
         let h = {
             let mut nodes: Vec<T> = Vec::with_capacity(top_layer_nodes);
@@ -98,7 +97,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
                 if j == self.path[0] {
                     nodes.push(self.sub_tree_root().clone());
                 } else {
-                    nodes.push(self.lemma[0][cur_index].clone());
+                    nodes.push(self.lemma[cur_index].clone());
                     cur_index += 1;
                 }
             }
@@ -119,7 +118,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
     }
 
     /// Returns the lemma of this proof.
-    pub fn lemma(&self) -> &Vec<Vec<T>> {
+    pub fn lemma(&self) -> &Vec<T> {
         &self.lemma
     }
 }
@@ -129,15 +128,15 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
 fn modify_proof<U: Unsigned, N: Unsigned>(proof: &mut CompoundProof<Item, U, N>) {
     use rand::prelude::*;
 
-    let i = random::<usize>() % proof.lemma[0].len();
+    let i = random::<usize>() % proof.lemma.len();
     let j = random::<usize>();
 
     let mut a = XOR128::new();
     j.hash(&mut a);
 
     // Break random element
-    proof.lemma[0][i].hash(&mut a);
-    proof.lemma[0][i] = a.hash();
+    proof.lemma[i].hash(&mut a);
+    proof.lemma[i] = a.hash();
 }
 
 #[test]

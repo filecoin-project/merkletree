@@ -1,4 +1,5 @@
 use crate::hash::{Algorithm, Hashable};
+use crate::merkle::get_merkle_proof_lemma_len;
 
 use std::marker::PhantomData;
 use typenum::marker_traits::Unsigned;
@@ -18,31 +19,34 @@ use crate::test_common::{get_vec_tree_from_slice, Item, XOR128};
 /// Proof validation is positioned hash against lemma path to match root hash.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Proof<T: Eq + Clone + AsRef<[u8]>, U: Unsigned = U2> {
-    lemma: Vec<Vec<T>>,
+    lemma: Vec<T>,
     path: Vec<usize>,   // branch index
     _u: PhantomData<U>, // number of branches per node
 }
 
 impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
     /// Creates new MT inclusion proof
-    pub fn new(hash: Vec<Vec<T>>, path: Vec<usize>) -> Proof<T, U> {
-        assert!(hash.len() > 2);
-        assert_eq!(hash.len() - 2, path.len());
+    pub fn new(lemma: Vec<T>, path: Vec<usize>) -> Proof<T, U> {
+        assert!(lemma.len() > 2);
+        let height = path.len() + 1;
+        let branches = U::to_usize();
+        let lemma_len = get_merkle_proof_lemma_len(height, branches);
+        assert_eq!(lemma.len(), lemma_len);
         Proof {
-            lemma: hash,
+            lemma,
             path,
             _u: PhantomData,
         }
     }
 
     /// Return proof target leaf
-    pub fn item(&self) -> Vec<T> {
+    pub fn item(&self) -> T {
         self.lemma.first().unwrap().clone()
     }
 
     /// Return tree root
     pub fn root(&self) -> T {
-        self.lemma.last().unwrap()[0].clone()
+        self.lemma.last().unwrap().clone()
     }
 
     /// Verifies MT inclusion proof
@@ -53,19 +57,20 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
         }
 
         let mut a = A::default();
-        let mut h = self.item()[0].to_owned();
+        let mut h = self.item();
 
         let branches = U::to_usize();
-        for i in 1..size - 1 {
+        let mut path_index = 1;
+        for i in (1..size - 1).step_by(branches - 1) {
             a.reset();
             h = {
                 let mut nodes: Vec<T> = Vec::with_capacity(branches);
                 let mut cur_index = 0;
                 for j in 0..branches {
-                    if j == self.path[i - 1] {
+                    if j == self.path[path_index - 1] {
                         nodes.push(h.clone());
                     } else {
-                        nodes.push(self.lemma[i][cur_index].clone());
+                        nodes.push(self.lemma[i + cur_index].clone());
                         cur_index += 1;
                     }
                 }
@@ -74,6 +79,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
                     return false;
                 }
 
+                path_index += 1;
                 a.multi_node(&nodes, i - 1)
             };
         }
@@ -89,7 +95,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
         a.reset();
         let leaf_hash = a.leaf(item);
 
-        (leaf_hash == self.item()[0]) && self.validate::<A>()
+        (leaf_hash == self.item()) && self.validate::<A>()
     }
 
     /// Returns the path of this proof.
@@ -98,7 +104,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
     }
 
     /// Returns the lemma of this proof.
-    pub fn lemma(&self) -> &Vec<Vec<T>> {
+    pub fn lemma(&self) -> &Vec<T> {
         &self.lemma
     }
 }
@@ -108,16 +114,15 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
 fn modify_proof<U: Unsigned>(proof: &mut Proof<Item, U>) {
     use rand::prelude::*;
 
-    let i = random::<usize>() % proof.lemma.len();
-    let j = random::<usize>() % proof.lemma[i].len();
+    let i = 1 + (random::<usize>() % (proof.lemma.len() - 2));
     let k = random::<usize>();
 
     let mut a = XOR128::new();
     k.hash(&mut a);
 
     // Break random element
-    proof.lemma[i][j].hash(&mut a);
-    proof.lemma[i][j] = a.hash();
+    proof.lemma[i].hash(&mut a);
+    proof.lemma[i] = a.hash();
 }
 
 #[test]

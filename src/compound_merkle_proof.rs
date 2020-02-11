@@ -39,22 +39,22 @@ use typenum::{U3, U4, U8};
 /// root (a type of small proof not supported by Proof).
 ///
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct CompoundProof<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> {
+pub struct CompoundMerkleProof<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> {
     sub_tree_proof: Proof<T, U>,
     lemma: Vec<T>,    // top layer proof hashes
     path: Vec<usize>, // top layer tree index
     _n: PhantomData<N>,
 }
 
-impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, N> {
+impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundMerkleProof<T, U, N> {
     /// Creates new compound MT inclusion proof
     pub fn new(
         sub_tree_proof: Proof<T, U>,
         lemma: Vec<T>,
         path: Vec<usize>,
-    ) -> Result<CompoundProof<T, U, N>> {
+    ) -> Result<CompoundMerkleProof<T, U, N>> {
         ensure!(lemma.len() == N::to_usize(), "Invalid lemma length");
-        Ok(CompoundProof {
+        Ok(CompoundMerkleProof {
             sub_tree_proof,
             lemma,
             path,
@@ -127,7 +127,7 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundProof<T, U, 
 
 #[cfg(test)]
 // Break one element inside the proof's top layer.
-fn modify_proof<U: Unsigned, N: Unsigned>(proof: &mut CompoundProof<Item, U, N>) {
+fn modify_proof<U: Unsigned, N: Unsigned>(proof: &mut CompoundMerkleProof<Item, U, N>) {
     use rand::prelude::*;
 
     let i = random::<usize>() % proof.lemma.len();

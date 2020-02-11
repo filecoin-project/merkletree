@@ -3,7 +3,7 @@ extern crate test;
 
 use test::{black_box, Bencher};
 
-use merkletree::merkle::{get_merkle_tree_len, get_merkle_tree_leafs, get_merkle_proof_lemma_len};
+use merkletree::merkle::{get_merkle_proof_lemma_len, get_merkle_tree_leafs, get_merkle_tree_len};
 
 const DEFAULT_NUM_BRANCHES: usize = 2;
 
@@ -26,9 +26,11 @@ fn bench_get_merkle_tree_info_1gib(b: &mut Bencher) {
     let branches = 8;
     let sector_size = 1073741824; // 2^30
 
-    b.iter(|| black_box({
-        let tree_size = get_merkle_tree_len(sector_size, branches);
-        assert_eq!(get_merkle_tree_leafs(tree_size, branches), sector_size);
-        get_merkle_proof_lemma_len(tree_size, branches)
-    }))
+    b.iter(|| {
+        black_box({
+            let tree_size = get_merkle_tree_len(sector_size, branches);
+            assert_eq!(get_merkle_tree_leafs(tree_size, branches), sector_size);
+            get_merkle_proof_lemma_len(tree_size, branches)
+        })
+    })
 }

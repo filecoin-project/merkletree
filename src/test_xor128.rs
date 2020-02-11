@@ -4,7 +4,7 @@ use crate::merkle::MerkleTree;
 use crate::store::{DiskStore, StoreConfig, VecStore};
 
 use crate::compound_merkle::CompoundMerkleTree;
-use crate::compound_proof::CompoundProof;
+use crate::compound_merkle_proof::CompoundMerkleProof;
 use crate::merkle::{
     get_merkle_tree_height, get_merkle_tree_len, log2_pow2, next_pow2, FromIndexedParallelIterator,
 };
@@ -266,7 +266,7 @@ fn test_compound_tree_from_slices<B: Unsigned, N: Unsigned>(sub_tree_leafs: usiz
         let _ = tree.read_at(i).expect("Failed to read tree element");
 
         // Make sure all proofs validate.
-        let p: CompoundProof<[u8; 16], B, N> = tree.gen_proof(i).unwrap();
+        let p: CompoundMerkleProof<[u8; 16], B, N> = tree.gen_proof(i).unwrap();
         assert!(p.validate::<XOR128>());
     }
 }

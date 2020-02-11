@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use anyhow::{Context, Result};
 
-use crate::compound_proof::CompoundProof;
+use crate::compound_merkle_proof::CompoundMerkleProof;
 use crate::hash::Algorithm;
 use crate::merkle::{get_merkle_tree_len, Element, MerkleTree};
 use crate::proof::Proof;
@@ -178,7 +178,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
     }
 
     /// Generate merkle tree inclusion proof for leaf `i`
-    pub fn gen_proof(&self, i: usize) -> Result<CompoundProof<T, B, N>> {
+    pub fn gen_proof(&self, i: usize) -> Result<CompoundMerkleProof<T, B, N>> {
         ensure!(
             i < self.leafs,
             "{} is out of bounds (max: {})",
@@ -214,7 +214,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
         // Generate the final compound tree proof which is composed of
         // a sub-tree proof of branching factor B and a top-level
         // proof with a branching factor of N.
-        CompoundProof::new(sub_tree_proof, lemma, path)
+        CompoundMerkleProof::new(sub_tree_proof, lemma, path)
     }
 
     pub fn top_layer_nodes(&self) -> usize {

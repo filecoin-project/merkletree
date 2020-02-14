@@ -5,9 +5,7 @@ use crate::store::{DiskStore, StoreConfig, VecStore};
 
 use crate::compound_merkle::CompoundMerkleTree;
 use crate::compound_merkle_proof::CompoundMerkleProof;
-use crate::merkle::{
-    get_merkle_tree_height, get_merkle_tree_len, log2_pow2, next_pow2, FromIndexedParallelIterator,
-};
+use crate::merkle::{get_merkle_tree_height, get_merkle_tree_len, FromIndexedParallelIterator};
 use crate::store::{
     DiskStoreProducer, ExternalReader, LevelCacheStore, MmapStore, Store, StoreConfigDataVersion,
     SMALL_TREE_BUILD,
@@ -15,10 +13,11 @@ use crate::store::{
 use rayon::iter::{plumbing::*, IntoParallelIterator, ParallelIterator};
 use std::fs::OpenOptions;
 use std::os::unix::prelude::FileExt;
+use std::path::PathBuf;
 use typenum::marker_traits::Unsigned;
 use typenum::{U2, U3, U4, U5, U7, U8};
 
-use crate::test_common::{get_vec_tree_from_slice, DEFAULT_NUM_BRANCHES, XOR128};
+use crate::test_common::{get_vec_tree_from_slice, BINARY_ARITY, XOR128};
 
 fn test_vec_tree_from_slice<U: Unsigned>(
     leafs: usize,
@@ -114,6 +113,60 @@ fn build_disk_tree_from_iter<U: Unsigned>(
     assert_eq!(mt.height(), height);
 }
 
+/*
+pub fn get_levelcache_tree_from_slice<U: Unsigned>(
+    leafs: usize,
+    config: StoreConfig,
+) -> MerkleTree<[u8; 16], XOR128, LevelCacheStore<[u8; 16], std::fs::File>, U> {
+    let mut x = Vec::with_capacity(leafs);
+    for i in 0..leafs {
+        x.push(i * 93);
+    }
+    MerkleTree::from_data_with_config(&x, config).expect("failed to create tree from slice")
+}
+*/
+
+fn get_levelcache_tree_from_iter<U: Unsigned>(
+    leafs: usize,
+    len: usize,
+    height: usize,
+    config: &StoreConfig,
+    replica_path: &PathBuf,
+) -> MerkleTree<[u8; 16], XOR128, LevelCacheStore<[u8; 16], std::fs::File>, U> {
+    let branches = U::to_usize();
+    assert_eq!(len, get_merkle_tree_len(leafs, branches));
+    assert_eq!(height, get_merkle_tree_height(leafs, branches));
+
+    let mut a = XOR128::new();
+
+    // Construct and store an MT using a named DiskStore.
+    let mut mt: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, std::fs::File>, U> =
+        MerkleTree::try_from_iter_with_config(
+            (0..leafs).map(|x| {
+                a.reset();
+                (x * 3).hash(&mut a);
+                leafs.hash(&mut a);
+                Ok(a.hash())
+            }),
+            config.clone(),
+        )
+        .expect("failed to create quad tree");
+
+    assert_eq!(mt.len(), len);
+    assert_eq!(mt.leafs(), leafs);
+    assert_eq!(mt.height(), height);
+
+    let store: &mut LevelCacheStore<[u8; 16], std::fs::File> = mt.data_mut();
+    store
+        .set_external_reader(
+            ExternalReader::new_from_path(&replica_path)
+                .expect("Failed to create external reader from path"),
+        )
+        .expect("Failed to set external reader");
+
+    mt
+}
+
 fn test_disk_tree_from_iter<U: Unsigned>(
     leafs: usize,
     len: usize,
@@ -206,6 +259,52 @@ fn test_levelcache_v1_tree_from_iter<U: Unsigned>(
             .expect("Failed to generate proof and partial tree");
         assert!(proof.validate::<XOR128>());
     }
+}
+
+fn test_levelcache_v2_direct_build_from_iter<U: Unsigned>(
+    leafs: usize,
+    len: usize,
+    height: usize,
+    num_challenges: usize,
+    cached_above_base: usize,
+) {
+    let test_name = "test_levelcache_v2_direct_build_from_iter";
+    let replica = format!("{}-{}-{}-{}-replica", test_name, leafs, len, height);
+    let lc_name = format!("{}-{}-{}-{}", test_name, leafs, len, height);
+    let temp_dir = tempdir::TempDir::new(&test_name).unwrap();
+
+    // Construct and store an MT using a named DiskStore.
+    let config = StoreConfig::new(temp_dir.path(), String::from(&replica), cached_above_base);
+    build_disk_tree_from_iter::<U>(leafs, len, height, &config);
+
+    // Use that data store as the replica.
+    let replica_path = StoreConfig::data_path(&config.path, &config.id);
+
+    // Construct level cache tree/store directly, using the above replica.
+    let lc_config = StoreConfig::from_config(&config, String::from(lc_name), Some(len));
+    let lc_tree = get_levelcache_tree_from_iter::<U>(leafs, len, height, &lc_config, &replica_path);
+
+    // Verify all proofs are working.
+    for i in 0..num_challenges {
+        let index = i * (leafs / num_challenges);
+        let (proof, _) = lc_tree
+            .gen_proof_and_partial_tree(index, cached_above_base)
+            .expect("Failed to generate proof and partial tree");
+        assert!(proof.validate::<XOR128>());
+    }
+}
+
+#[test]
+fn test_levelcache_v2_direct_build() {
+    let (leafs, len, height, num_challenges, cached_above_base) =
+        { (1048576, 1398101, 11, 2048, 7) };
+    test_levelcache_v2_direct_build_from_iter::<U4>(
+        leafs,
+        len,
+        height,
+        num_challenges,
+        cached_above_base,
+    );
 }
 
 #[test]
@@ -541,7 +640,7 @@ fn test_read_into() {
     let config = StoreConfig::new(
         temp_dir.path(),
         "test-read-into",
-        StoreConfig::default_cached_above_base_layer(x.len(), DEFAULT_NUM_BRANCHES),
+        StoreConfig::default_cached_above_base_layer(x.len(), BINARY_ARITY),
     );
 
     let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
@@ -658,7 +757,10 @@ fn test_simple_tree() {
         .unwrap();
 
         assert_eq!(mt_base.leafs(), *items);
-        assert_eq!(mt_base.height(), log2_pow2(next_pow2(mt_base.len())));
+        assert_eq!(
+            mt_base.height(),
+            get_merkle_tree_height(mt_base.leafs(), BINARY_ARITY)
+        );
         assert_eq!(
             mt_base.read_range(0, mt_base.len()).unwrap(),
             answer[*items - 2].as_slice()
@@ -689,7 +791,10 @@ fn test_simple_tree() {
             let mt1: MerkleTree<[u8; 16], XOR128, VecStore<_>> =
                 MerkleTree::from_byte_slice(&leafs).unwrap();
             assert_eq!(mt1.leafs(), *items);
-            assert_eq!(mt1.height(), log2_pow2(next_pow2(mt1.len())));
+            assert_eq!(
+                mt1.height(),
+                get_merkle_tree_height(mt1.leafs(), BINARY_ARITY)
+            );
             assert_eq!(
                 mt_base.read_range(0, mt_base.len()).unwrap(),
                 answer[*items - 2].as_slice()
@@ -705,7 +810,10 @@ fn test_simple_tree() {
             let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
                 MerkleTree::from_byte_slice(&leafs).unwrap();
             assert_eq!(mt2.leafs(), *items);
-            assert_eq!(mt2.height(), log2_pow2(next_pow2(mt2.len())));
+            assert_eq!(
+                mt2.height(),
+                get_merkle_tree_height(mt2.leafs(), BINARY_ARITY)
+            );
             for i in 0..mt2.leafs() {
                 let p = mt2.gen_proof(i).unwrap();
                 assert!(p.validate::<XOR128>());
@@ -717,8 +825,18 @@ fn test_simple_tree() {
 #[test]
 fn test_large_tree() {
     let count = SMALL_TREE_BUILD * 2;
-    test_vec_tree_from_iter::<U2>(count, 2 * count - 1, log2_pow2(2 * count), 0);
-    test_disk_tree_from_iter::<U2>(count, 2 * count - 1, log2_pow2(2 * count), 0);
+    test_vec_tree_from_iter::<U2>(
+        count,
+        get_merkle_tree_len(count, BINARY_ARITY),
+        get_merkle_tree_height(count, BINARY_ARITY),
+        0,
+    );
+    test_disk_tree_from_iter::<U2>(
+        count,
+        get_merkle_tree_len(count, BINARY_ARITY),
+        get_merkle_tree_height(count, BINARY_ARITY),
+        0,
+    );
 }
 
 #[test]
@@ -735,7 +853,7 @@ fn test_large_tree_disk() {
             xor_128.hash()
         }))
         .unwrap();
-    assert_eq!(mt_disk.len(), 2 * count - 1);
+    assert_eq!(mt_disk.len(), get_merkle_tree_len(count, BINARY_ARITY));
 }
 
 #[test]
@@ -753,7 +871,7 @@ fn test_mmap_tree() {
             Ok(a.hash())
         }))
         .unwrap();
-    assert_eq!(mt_map.len(), 2 * count - 1);
+    assert_eq!(mt_map.len(), get_merkle_tree_len(count, BINARY_ARITY));
 
     let config = {
         let temp_dir = tempdir::TempDir::new("test_mmap_tree").unwrap();
@@ -761,7 +879,7 @@ fn test_mmap_tree() {
         StoreConfig::new(
             &temp_path,
             String::from("test-mmap-tree"),
-            StoreConfig::default_cached_above_base_layer(count, DEFAULT_NUM_BRANCHES),
+            StoreConfig::default_cached_above_base_layer(count, BINARY_ARITY),
         )
     };
 
@@ -791,8 +909,8 @@ fn test_level_cache_tree_v1() {
     let count = SMALL_TREE_BUILD * 2;
     test_levelcache_v1_tree_from_iter::<U2>(
         count,
-        2 * count - 1,
-        log2_pow2(2 * count),
+        get_merkle_tree_len(count, BINARY_ARITY),
+        get_merkle_tree_height(count, BINARY_ARITY),
         count,
         cached_above_base,
     );
@@ -810,7 +928,7 @@ fn test_level_cache_tree_v2() {
     let config = StoreConfig::new(
         &temp_path,
         String::from("test-cache-v2"),
-        StoreConfig::default_cached_above_base_layer(count, DEFAULT_NUM_BRANCHES),
+        StoreConfig::default_cached_above_base_layer(count, BINARY_ARITY),
     );
 
     let mut mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
@@ -825,7 +943,7 @@ fn test_level_cache_tree_v2() {
             config.clone(),
         )
         .expect("Failed to create MT");
-    assert_eq!(mt_disk.len(), 2 * count - 1);
+    assert_eq!(mt_disk.len(), get_merkle_tree_len(count, BINARY_ARITY));
 
     // Generate proofs on tree.
     for j in 0..mt_disk.leafs() {
@@ -861,15 +979,15 @@ fn test_level_cache_tree_v2() {
 
     // Then re-create an MT using LevelCacheStore and generate all proofs.
     assert!(LevelCacheStore::<[u8; 16], std::fs::File>::is_consistent(
-        2 * count - 1,
-        DEFAULT_NUM_BRANCHES,
+        get_merkle_tree_len(count, BINARY_ARITY),
+        BINARY_ARITY,
         &config
     )
     .unwrap());
     let level_cache_store: LevelCacheStore<[u8; 16], _> =
         LevelCacheStore::new_from_disk_with_reader(
-            2 * count - 1,
-            DEFAULT_NUM_BRANCHES,
+            get_merkle_tree_len(count, BINARY_ARITY),
+            BINARY_ARITY,
             &config,
             ExternalReader::new_from_path(&output_file).unwrap(),
         )
@@ -878,7 +996,10 @@ fn test_level_cache_tree_v2() {
     let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, _>> =
         MerkleTree::from_data_store(level_cache_store, count)
             .expect("Failed to create MT from data store");
-    assert_eq!(mt_level_cache.len(), 2 * count - 1);
+    assert_eq!(
+        mt_level_cache.len(),
+        get_merkle_tree_len(count, BINARY_ARITY)
+    );
 
     // Generate proofs on tree.
     for j in 0..mt_level_cache.leafs() {
@@ -901,8 +1022,7 @@ fn test_various_trees_with_partial_cache_v2_only() {
 
     // Test a range of tree sizes, given a range of leaf elements.
     while count <= max_count {
-        let pow = next_pow2(count);
-        let height = log2_pow2(2 * pow);
+        let height = get_merkle_tree_height(count, BINARY_ARITY);
 
         // Test a range of heights to cache above the base (for
         // different partial tree sizes).
@@ -934,20 +1054,24 @@ fn test_various_trees_with_partial_cache_v2_only() {
             // Sanity check loading the store from disk and then
             // re-creating the MT from it.
             assert!(DiskStore::<[u8; 16]>::is_consistent(
-                2 * count - 1,
-                DEFAULT_NUM_BRANCHES,
+                get_merkle_tree_len(count, BINARY_ARITY),
+                BINARY_ARITY,
                 &config
             )
             .unwrap());
-            let store =
-                DiskStore::new_from_disk(2 * count - 1, DEFAULT_NUM_BRANCHES, &config).unwrap();
+            let store = DiskStore::new_from_disk(
+                get_merkle_tree_len(count, BINARY_ARITY),
+                BINARY_ARITY,
+                &config,
+            )
+            .unwrap();
             let mt_cache2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
                 MerkleTree::from_data_store(store, count).unwrap();
 
             assert_eq!(mt_cache.len(), mt_cache2.len());
             assert_eq!(mt_cache.leafs(), mt_cache2.leafs());
 
-            assert_eq!(mt_cache.len(), 2 * count - 1);
+            assert_eq!(mt_cache.len(), get_merkle_tree_len(count, BINARY_ARITY));
             assert_eq!(mt_cache.leafs(), count);
 
             // Generate and validate proof on the first element.
@@ -1050,15 +1174,15 @@ fn test_various_trees_with_partial_cache_v2_only() {
 
             // Then re-create an MT using LevelCacheStore and generate all proofs.
             assert!(LevelCacheStore::<[u8; 16], std::fs::File>::is_consistent(
-                2 * count - 1,
-                DEFAULT_NUM_BRANCHES,
+                get_merkle_tree_len(count, BINARY_ARITY),
+                BINARY_ARITY,
                 &config
             )
             .unwrap());
             let level_cache_store: LevelCacheStore<[u8; 16], _> =
                 LevelCacheStore::new_from_disk_with_reader(
-                    2 * count - 1,
-                    DEFAULT_NUM_BRANCHES,
+                    get_merkle_tree_len(count, BINARY_ARITY),
+                    BINARY_ARITY,
                     &config,
                     ExternalReader::new_from_path(&output_file).unwrap(),
                 )

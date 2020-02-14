@@ -571,6 +571,12 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, U: Unsigned> MerkleTree<T, A, K, 
         &self.data
     }
 
+    /// Returns mutable data reference
+    #[inline]
+    pub fn data_mut(&mut self) -> &mut K {
+        &mut self.data
+    }
+
     /// Returns merkle leaf at index i
     #[inline]
     pub fn read_at(&self, i: usize) -> Result<T> {
@@ -892,7 +898,7 @@ impl Element for [u8; 32] {
 
 // Tree length calculation given the number of leafs in the tree and the branches.
 pub fn get_merkle_tree_len(leafs: usize, branches: usize) -> usize {
-    // Optimization:
+    // Optimization
     if branches == 2 {
         assert!(leafs == next_pow2(leafs));
         return 2 * leafs - 1;
@@ -946,7 +952,12 @@ pub fn is_merkle_tree_size_valid(leafs: usize, branches: usize) -> bool {
 
 // Height calculation given the number of leafs in the tree and the branches.
 pub fn get_merkle_tree_height(leafs: usize, branches: usize) -> usize {
-    (branches as f64 * leafs as f64).log(branches as f64) as usize
+    // Optimization
+    if branches == 2 {
+        (leafs * branches).trailing_zeros() as usize
+    } else {
+        (branches as f64 * leafs as f64).log(branches as f64) as usize
+    }
 }
 
 // Given a tree of 'height' with the specified number of 'branches',

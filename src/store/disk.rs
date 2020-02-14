@@ -1,4 +1,3 @@
-use memmap::MmapOptions;
 use std::fs::{remove_file, File, OpenOptions};
 use std::io::{copy, Seek, SeekFrom};
 use std::iter::FromIterator;
@@ -8,6 +7,7 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result};
+use memmap::MmapOptions;
 use positioned_io::{ReadAt, WriteAt};
 use rayon::iter::*;
 use rayon::prelude::*;

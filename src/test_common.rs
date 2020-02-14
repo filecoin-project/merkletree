@@ -7,7 +7,9 @@ use typenum::marker_traits::Unsigned;
 
 pub const SIZE: usize = 0x10;
 
-pub const DEFAULT_NUM_BRANCHES: usize = 2;
+pub const BINARY_ARITY: usize = 2;
+pub const QUAD_ARITY: usize = 4;
+pub const OCT_ARITY: usize = 8;
 
 pub type Item = [u8; SIZE];
 

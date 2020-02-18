@@ -321,6 +321,72 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         self.store_size
     }
 
+    // 'store_range' must be the total number of elements in the store (e.g. tree.len()).
+    pub fn is_consistent_v1(
+        store_range: usize,
+        branches: usize,
+        config: &StoreConfig,
+    ) -> Result<bool> {
+        let data_path = StoreConfig::data_path(&config.path, &config.id);
+
+        let file = File::open(data_path)?;
+        let metadata = file.metadata()?;
+        let store_size = metadata.len() as usize;
+
+        // The LevelCacheStore base data layer must already be a
+        // massaged next pow2 (guaranteed if created with
+        // DiskStore::compact, which is the only supported method at
+        // the moment).
+        let size = get_merkle_tree_leafs(store_range, branches);
+        ensure!(
+            size == next_pow2(size),
+            "Inconsistent merkle tree height detected"
+        );
+
+        // Calculate cache start and the updated size with repect to
+        // the data size.
+        let cache_size = get_merkle_tree_cache_size(size, branches, config.levels) * E::byte_len();
+
+        // Sanity checks that the StoreConfig levels matches this
+        // particular on-disk file.
+        Ok(store_size == size * E::byte_len() + cache_size)
+    }
+
+    // Note that v2 is now the default compaction mode, so this isn't a versioned call.
+    // 'store_range' must be the total number of elements in the store (e.g. tree.len()).
+    pub fn is_consistent(
+        store_range: usize,
+        branches: usize,
+        config: &StoreConfig,
+    ) -> Result<bool> {
+        let data_path = StoreConfig::data_path(&config.path, &config.id);
+
+        let file = File::open(data_path)?;
+        let metadata = file.metadata()?;
+        let store_size = metadata.len() as usize;
+
+        // The LevelCacheStore base data layer must already be a
+        // massaged next pow2 (guaranteed if created with
+        // DiskStore::compact, which is the only supported method at
+        // the moment).
+        let size = get_merkle_tree_leafs(store_range, branches);
+        ensure!(
+            size == next_pow2(size),
+            "Inconsistent merkle tree height detected"
+        );
+
+        // LevelCacheStore on disk file is only the cached data, so
+        // the file size dictates the cache_size.  Calculate cache
+        // start and the updated size with repect to the file size.
+        let cache_size = get_merkle_tree_cache_size(size, branches, config.levels) * E::byte_len();
+
+        // Sanity checks that the StoreConfig levels matches this
+        // particular on-disk file.  Since an external reader *is*
+        // set, we check to make sure that the data on disk is *only*
+        // the cached element data.
+        Ok(store_size == cache_size)
+    }
+
     pub fn store_read_range(&self, start: usize, end: usize) -> Result<Vec<u8>> {
         let read_len = end - start;
         let mut read_data = vec![0; read_len];

@@ -462,6 +462,24 @@ impl<E: Element> DiskStore<E> {
         self.len = len;
     }
 
+    // 'store_range' must be the total number of elements in the store
+    // (e.g. tree.len()).  Arity/branches is ignored since a
+    // DiskStore's size is related only to the number of elements in
+    // the tree.
+    pub fn is_consistent(
+        store_range: usize,
+        _branches: usize,
+        config: &StoreConfig,
+    ) -> Result<bool> {
+        let data_path = StoreConfig::data_path(&config.path, &config.id);
+
+        let file = File::open(&data_path)?;
+        let metadata = file.metadata()?;
+        let store_size = metadata.len() as usize;
+
+        Ok(store_size == store_range * E::byte_len())
+    }
+
     pub fn store_size(&self) -> usize {
         self.store_size
     }

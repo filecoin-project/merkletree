@@ -1,4 +1,5 @@
 use std::fmt;
+use std::fs::OpenOptions;
 use std::io::Read;
 use std::iter::FromIterator;
 use std::ops;
@@ -6,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
+use positioned_io::ReadAt;
 use rayon::iter::plumbing::*;
 use rayon::iter::*;
 use rayon::prelude::*;
@@ -47,6 +49,21 @@ pub struct ExternalReader<R: Read + Send + Sync> {
 impl<R: Read + Send + Sync> ExternalReader<R> {
     pub fn read(&self, start: usize, end: usize, buf: &mut [u8]) -> Result<usize> {
         (self.read_fn)(start, end, buf, &self.source)
+    }
+}
+
+impl ExternalReader<std::fs::File> {
+    pub fn new_from_path(path: &PathBuf) -> Result<Self> {
+        let reader = OpenOptions::new().read(true).open(path)?;
+
+        Ok(ExternalReader {
+            source: reader,
+            read_fn: |start, end, buf: &mut [u8], reader: &std::fs::File| {
+                reader.read_exact_at(start as u64, &mut buf[0..end - start])?;
+
+                Ok(end - start)
+            },
+        })
     }
 }
 

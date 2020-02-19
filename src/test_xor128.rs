@@ -845,12 +845,6 @@ fn test_level_cache_tree_v2() {
     let output_file = temp_path.join("base-data-only");
     std::fs::write(&output_file, &base_layer).expect("Failed to write output file");
 
-    // Re-open the reader for the newly created output file.
-    let reader = OpenOptions::new()
-        .read(true)
-        .open(&output_file)
-        .expect("Failed to open base layer data");
-
     // Compact the disk store for use as a LevelCacheStore (v2
     // stores only the cached data and requires the ExternalReader
     // for base data retrieval).
@@ -860,17 +854,6 @@ fn test_level_cache_tree_v2() {
     }
 
     // Then re-create an MT using LevelCacheStore and generate all proofs.
-    let external_reader = ExternalReader {
-        source: reader,
-        read_fn: |start, end, buf: &mut [u8], reader: &std::fs::File| {
-            reader
-                .read_exact_at(&mut buf[0..end - start], start as u64)
-                .expect("Failed to read");
-
-            Ok(end - start)
-        },
-    };
-
     assert!(LevelCacheStore::<[u8; 16], std::fs::File>::is_consistent(
         2 * count - 1,
         DEFAULT_NUM_BRANCHES,
@@ -882,7 +865,7 @@ fn test_level_cache_tree_v2() {
             2 * count - 1,
             DEFAULT_NUM_BRANCHES,
             &config,
-            external_reader,
+            ExternalReader::new_from_path(&output_file).unwrap(),
         )
         .unwrap();
 
@@ -1044,12 +1027,6 @@ fn test_various_trees_with_partial_cache_v2_only() {
             let output_file = temp_path.join("base-data-only");
             std::fs::write(&output_file, &base_layer).expect("Failed to write output file");
 
-            // Re-open the reader for the newly created output file.
-            let reader = OpenOptions::new()
-                .read(true)
-                .open(&output_file)
-                .expect("Failed to open base layer data");
-
             // Compact the newly created DiskStore into the
             // LevelCacheStore format.  This uses information from the
             // Config to properly shape the compacted data for later
@@ -1066,17 +1043,6 @@ fn test_various_trees_with_partial_cache_v2_only() {
             }
 
             // Then re-create an MT using LevelCacheStore and generate all proofs.
-            let external_reader = ExternalReader {
-                source: reader,
-                read_fn: |start, end, buf: &mut [u8], reader: &std::fs::File| {
-                    reader
-                        .read_exact_at(&mut buf[0..end - start], start as u64)
-                        .expect("Failed to read");
-
-                    Ok(end - start)
-                },
-            };
-
             assert!(LevelCacheStore::<[u8; 16], std::fs::File>::is_consistent(
                 2 * count - 1,
                 DEFAULT_NUM_BRANCHES,
@@ -1088,7 +1054,7 @@ fn test_various_trees_with_partial_cache_v2_only() {
                     2 * count - 1,
                     DEFAULT_NUM_BRANCHES,
                     &config,
-                    external_reader,
+                    ExternalReader::new_from_path(&output_file).unwrap(),
                 )
                 .unwrap();
 

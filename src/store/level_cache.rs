@@ -513,15 +513,13 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
             let (read_start, write_start) = if level == 0 {
                 // Note that we previously asserted that data.len() == leafs.
                 (0, Store::len(self))
+            } else if level_node_index < cache_index_start {
+                (0, width)
             } else {
-                if level_node_index < cache_index_start {
-                    (0, width)
-                } else {
-                    (
-                        level_node_index - cache_index_start,
-                        (level_node_index + width) - cache_index_start,
-                    )
-                }
+                (
+                    level_node_index - cache_index_start,
+                    (level_node_index + width) - cache_index_start,
+                )
             };
 
             self.process_layer::<A, U>(width, level, read_start, write_start)?;

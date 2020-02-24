@@ -5,7 +5,10 @@ use crate::store::{DiskStore, StoreConfig, VecStore};
 
 use crate::compound_merkle::CompoundMerkleTree;
 use crate::compound_merkle_proof::CompoundMerkleProof;
-use crate::merkle::{get_merkle_tree_height, get_merkle_tree_len, FromIndexedParallelIterator};
+use crate::merkle::{
+    get_merkle_tree_height, get_merkle_tree_len, is_merkle_tree_size_valid,
+    FromIndexedParallelIterator,
+};
 use crate::store::{
     DiskStoreProducer, ExternalReader, LevelCacheStore, MmapStore, Store, StoreConfigDataVersion,
     SMALL_TREE_BUILD,
@@ -17,7 +20,7 @@ use std::path::PathBuf;
 use typenum::marker_traits::Unsigned;
 use typenum::{U2, U3, U4, U5, U7, U8};
 
-use crate::test_common::{get_vec_tree_from_slice, BINARY_ARITY, XOR128};
+use crate::test_common::{get_vec_tree_from_slice, BINARY_ARITY, OCT_ARITY, QUAD_ARITY, XOR128};
 
 fn test_vec_tree_from_slice<U: Unsigned>(
     leafs: usize,
@@ -106,25 +109,46 @@ fn build_disk_tree_from_iter<U: Unsigned>(
         }),
         config.clone(),
     )
-    .expect("failed to create quad tree");
+    .expect("failed to create tree");
 
     assert_eq!(mt.len(), len);
     assert_eq!(mt.leafs(), leafs);
     assert_eq!(mt.height(), height);
 }
 
-/*
 pub fn get_levelcache_tree_from_slice<U: Unsigned>(
     leafs: usize,
-    config: StoreConfig,
+    len: usize,
+    height: usize,
+    config: &StoreConfig,
+    replica_path: &PathBuf,
 ) -> MerkleTree<[u8; 16], XOR128, LevelCacheStore<[u8; 16], std::fs::File>, U> {
+    let branches = U::to_usize();
+    assert_eq!(len, get_merkle_tree_len(leafs, branches));
+    assert_eq!(height, get_merkle_tree_height(leafs, branches));
+
     let mut x = Vec::with_capacity(leafs);
     for i in 0..leafs {
-        x.push(i * 93);
+        x.push(i * 3);
     }
-    MerkleTree::from_data_with_config(&x, config).expect("failed to create tree from slice")
+
+    let mut mt = MerkleTree::from_data_with_config(&x, config.clone())
+        .expect("failed to create tree from slice");
+
+    assert_eq!(mt.len(), len);
+    assert_eq!(mt.leafs(), leafs);
+    assert_eq!(mt.height(), height);
+
+    let store: &mut LevelCacheStore<[u8; 16], std::fs::File> = mt.data_mut();
+    store
+        .set_external_reader(
+            ExternalReader::new_from_path(&replica_path)
+                .expect("Failed to create external reader from path"),
+        )
+        .expect("Failed to set external reader");
+
+    mt
 }
-*/
 
 fn get_levelcache_tree_from_iter<U: Unsigned>(
     leafs: usize,
@@ -139,7 +163,7 @@ fn get_levelcache_tree_from_iter<U: Unsigned>(
 
     let mut a = XOR128::new();
 
-    // Construct and store an MT using a named DiskStore.
+    // Construct and store an MT using a named LevelCacheStore.
     let mut mt: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, std::fs::File>, U> =
         MerkleTree::try_from_iter_with_config(
             (0..leafs).map(|x| {
@@ -150,7 +174,7 @@ fn get_levelcache_tree_from_iter<U: Unsigned>(
             }),
             config.clone(),
         )
-        .expect("failed to create quad tree");
+        .expect("failed to create tree");
 
     assert_eq!(mt.len(), len);
     assert_eq!(mt.leafs(), leafs);
@@ -172,6 +196,7 @@ fn test_disk_tree_from_iter<U: Unsigned>(
     len: usize,
     height: usize,
     num_challenges: usize,
+    cached_above_base: usize,
 ) {
     let branches = U::to_usize();
 
@@ -179,7 +204,7 @@ fn test_disk_tree_from_iter<U: Unsigned>(
     let temp_dir = tempdir::TempDir::new(&name).unwrap();
 
     // Construct and store an MT using a named DiskStore.
-    let config = StoreConfig::new(temp_dir.path(), String::from(name), 2);
+    let config = StoreConfig::new(temp_dir.path(), String::from(name), cached_above_base);
     build_disk_tree_from_iter::<U>(leafs, len, height, &config);
 
     // Sanity check loading the store from disk and then re-creating
@@ -261,14 +286,52 @@ fn test_levelcache_v1_tree_from_iter<U: Unsigned>(
     }
 }
 
-fn test_levelcache_v2_direct_build_from_iter<U: Unsigned>(
+fn test_levelcache_direct_build_from_slice<U: Unsigned>(
     leafs: usize,
     len: usize,
     height: usize,
     num_challenges: usize,
     cached_above_base: usize,
 ) {
-    let test_name = "test_levelcache_v2_direct_build_from_iter";
+    assert!(is_merkle_tree_size_valid(leafs, U::to_usize()));
+
+    let test_name = "test_levelcache_direct_build_from_slice";
+    let replica = format!("{}-{}-{}-{}-replica", test_name, leafs, len, height);
+    let lc_name = format!("{}-{}-{}-{}", test_name, leafs, len, height);
+    let temp_dir = tempdir::TempDir::new(&test_name).unwrap();
+
+    // Construct and store an MT using a named DiskStore.
+    let config = StoreConfig::new(temp_dir.path(), String::from(&replica), cached_above_base);
+    build_disk_tree_from_iter::<U>(leafs, len, height, &config);
+
+    // Use that data store as the replica.
+    let replica_path = StoreConfig::data_path(&config.path, &config.id);
+
+    // Construct level cache tree/store directly, using the above replica.
+    let lc_config = StoreConfig::from_config(&config, String::from(lc_name), Some(len));
+    let lc_tree =
+        get_levelcache_tree_from_slice::<U>(leafs, len, height, &lc_config, &replica_path);
+
+    // Verify all proofs are working.
+    for i in 0..num_challenges {
+        let index = i * (leafs / num_challenges);
+        let (proof, _) = lc_tree
+            .gen_proof_and_partial_tree(index, cached_above_base)
+            .expect("Failed to generate proof and partial tree");
+        assert!(proof.validate::<XOR128>());
+    }
+}
+
+fn test_levelcache_direct_build_from_iter<U: Unsigned>(
+    leafs: usize,
+    len: usize,
+    height: usize,
+    num_challenges: usize,
+    cached_above_base: usize,
+) {
+    assert!(is_merkle_tree_size_valid(leafs, U::to_usize()));
+
+    let test_name = "test_levelcache_direct_build_from_iter";
     let replica = format!("{}-{}-{}-{}-replica", test_name, leafs, len, height);
     let lc_name = format!("{}-{}-{}-{}", test_name, leafs, len, height);
     let temp_dir = tempdir::TempDir::new(&test_name).unwrap();
@@ -295,10 +358,41 @@ fn test_levelcache_v2_direct_build_from_iter<U: Unsigned>(
 }
 
 #[test]
-fn test_levelcache_v2_direct_build() {
+fn test_levelcache_direct_build_quad() {
     let (leafs, len, height, num_challenges, cached_above_base) =
         { (1048576, 1398101, 11, 2048, 7) };
-    test_levelcache_v2_direct_build_from_iter::<U4>(
+
+    test_levelcache_direct_build_from_iter::<U4>(
+        leafs,
+        len,
+        height,
+        num_challenges,
+        cached_above_base,
+    );
+
+    test_levelcache_direct_build_from_slice::<U4>(
+        leafs,
+        len,
+        height,
+        num_challenges,
+        cached_above_base,
+    );
+}
+
+#[test]
+fn test_levelcache_direct_build_octo() {
+    let (leafs, len, height, num_challenges, cached_above_base) =
+        { (262144, 299593, 7, 262144, 2) };
+
+    test_levelcache_direct_build_from_iter::<U8>(
+        leafs,
+        len,
+        height,
+        num_challenges,
+        cached_above_base,
+    );
+
+    test_levelcache_direct_build_from_slice::<U8>(
         leafs,
         len,
         height,
@@ -525,7 +619,13 @@ fn test_quad_from_iter() {
 #[ignore]
 fn test_xlarge_quad_with_disk_store() {
     let (leafs, len, height, num_challenges) = { (1073741824, 1431655765, 16, 2048) };
-    test_disk_tree_from_iter::<U4>(leafs, len, height, num_challenges);
+    test_disk_tree_from_iter::<U4>(
+        leafs,
+        len,
+        height,
+        num_challenges,
+        StoreConfig::default_cached_above_base_layer(leafs, QUAD_ARITY),
+    );
 }
 
 #[test]
@@ -579,7 +679,13 @@ fn test_large_octo_from_iter() {
 #[test]
 fn test_large_octo_with_disk_store() {
     let (leafs, len, height, num_challenges) = { (2097152, 2396745, 8, 2048) };
-    test_disk_tree_from_iter::<U8>(leafs, len, height, num_challenges);
+    test_disk_tree_from_iter::<U8>(
+        leafs,
+        len,
+        height,
+        num_challenges,
+        StoreConfig::default_cached_above_base_layer(leafs, OCT_ARITY),
+    );
 }
 
 #[test]
@@ -608,7 +714,13 @@ fn test_large_octo_with_partial_cache_full() {
 #[ignore]
 fn test_xlarge_octo_with_disk_store() {
     let (leafs, len, height, num_challenges) = { (1073741824, 1227133513, 11, 2048) };
-    test_disk_tree_from_iter::<U8>(leafs, len, height, num_challenges);
+    test_disk_tree_from_iter::<U8>(
+        leafs,
+        len,
+        height,
+        num_challenges,
+        StoreConfig::default_cached_above_base_layer(leafs, OCT_ARITY),
+    );
 }
 
 #[test]
@@ -829,13 +941,14 @@ fn test_large_tree() {
         count,
         get_merkle_tree_len(count, BINARY_ARITY),
         get_merkle_tree_height(count, BINARY_ARITY),
-        0,
+        count,
     );
     test_disk_tree_from_iter::<U2>(
         count,
         get_merkle_tree_len(count, BINARY_ARITY),
         get_merkle_tree_height(count, BINARY_ARITY),
-        0,
+        count,
+        StoreConfig::default_cached_above_base_layer(count, BINARY_ARITY),
     );
 }
 

@@ -564,8 +564,6 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
     }
 
     // Remove 'len' elements from the front of the file.
-    // 'store_range' is the entire number of elements that the store
-    // should contain (and is the initial size on disk).
     pub fn front_truncate(&mut self, config: &StoreConfig, len: usize) -> Result<()> {
         let metadata = self.file.metadata()?;
         let store_size = metadata.len();
@@ -579,7 +577,6 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
             .open(StoreConfig::data_path(&config.path, &config.id))?;
         reader.seek(SeekFrom::Start(len))?;
 
-        // Seek the writer.
         // Make sure the store file is opened for read/write.
         self.file = OpenOptions::new()
             .read(true)

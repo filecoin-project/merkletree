@@ -118,7 +118,7 @@ fn test_simple_tree() {
 
         for i in 0..mt.leafs() {
             let p = mt.gen_proof(i).unwrap();
-            assert!(p.validate::<DefaultHasher>());
+            assert!(p.validate::<DefaultHasher>().expect("failed to validate"));
         }
     }
 }

@@ -240,7 +240,8 @@ impl<E: Element> Store<E> for DiskStore<E> {
 
         // Calculate how large the cache should be (based on the
         // config.levels param).
-        let cache_size = get_merkle_tree_cache_size(leafs, branches, config.levels) * self.elem_len;
+        let cache_size =
+            get_merkle_tree_cache_size(leafs, branches, config.levels)? * self.elem_len;
 
         // The file cannot be compacted if the specified configuration
         // requires either 1) nothing to be cached, or 2) everything
@@ -444,7 +445,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
 
         // Ensure every element is accounted for.
         ensure!(
-            Store::len(self) == get_merkle_tree_len(leafs, branches),
+            Store::len(self) == get_merkle_tree_len(leafs, branches)?,
             "Invalid merkle tree length"
         );
 

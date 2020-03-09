@@ -167,7 +167,7 @@ fn bench_crypto_sha512_from_data_5_proof_check(b: &mut Bencher) {
 
     b.iter(|| {
         for proof in &proofs {
-            test::black_box(proof.validate::<A>());
+            test::black_box(proof.validate::<A>().unwrap());
         }
     });
 }
@@ -223,7 +223,7 @@ fn bench_crypto_sha512_from_data_160_proof_check(b: &mut Bencher) {
 
     b.iter(|| {
         for proof in &proofs {
-            test::black_box(proof.validate::<A>());
+            test::black_box(proof.validate::<A>().unwrap());
         }
     });
 }

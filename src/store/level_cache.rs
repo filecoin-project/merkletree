@@ -101,7 +101,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         // LevelCacheStore on disk file is only the cached data, so
         // the file size dictates the cache_size.  Calculate cache
         // start and the updated size with repect to the file size.
-        let cache_size = get_merkle_tree_cache_size(size, branches, config.levels) * E::byte_len();
+        let cache_size = get_merkle_tree_cache_size(size, branches, config.levels)? * E::byte_len();
         let cache_index_start = store_range - cache_size;
 
         // Sanity checks that the StoreConfig levels matches this
@@ -161,7 +161,8 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
 
         // Calculate cache start and the updated size with repect to
         // the data size.
-        let cache_size = get_merkle_tree_cache_size(leafs, branches, config.levels) * E::byte_len();
+        let cache_size =
+            get_merkle_tree_cache_size(leafs, branches, config.levels)? * E::byte_len();
         let cache_index_start = store_size - cache_size;
 
         file.set_len(store_size as u64)?;
@@ -261,7 +262,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
 
         // Calculate cache start and the updated size with repect to
         // the data size.
-        let cache_size = get_merkle_tree_cache_size(size, branches, config.levels) * E::byte_len();
+        let cache_size = get_merkle_tree_cache_size(size, branches, config.levels)? * E::byte_len();
         let cache_index_start = store_range - cache_size;
 
         // Sanity checks that the StoreConfig levels matches this
@@ -502,8 +503,8 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         let shift = log2_pow2(branches);
 
         // Both in terms of elements, not bytes.
-        let cache_size = get_merkle_tree_cache_size(leafs, branches, config.levels);
-        let cache_index_start = (get_merkle_tree_len(leafs, branches)) - cache_size;
+        let cache_size = get_merkle_tree_cache_size(leafs, branches, config.levels)?;
+        let cache_index_start = (get_merkle_tree_len(leafs, branches)?) - cache_size;
 
         while width > 1 {
             // Start reading at the beginning of the current level, and writing the next
@@ -542,7 +543,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         self.set_len(Store::len(self) + 1);
         // Ensure every element is accounted for.
         ensure!(
-            Store::len(self) == get_merkle_tree_len(leafs, branches),
+            Store::len(self) == get_merkle_tree_len(leafs, branches)?,
             "Invalid merkle tree length"
         );
 
@@ -622,7 +623,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
 
         // Calculate cache start and the updated size with repect to
         // the data size.
-        let cache_size = get_merkle_tree_cache_size(size, branches, config.levels) * E::byte_len();
+        let cache_size = get_merkle_tree_cache_size(size, branches, config.levels)? * E::byte_len();
 
         // Sanity checks that the StoreConfig levels matches this
         // particular on-disk file.
@@ -655,7 +656,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         // LevelCacheStore on disk file is only the cached data, so
         // the file size dictates the cache_size.  Calculate cache
         // start and the updated size with repect to the file size.
-        let cache_size = get_merkle_tree_cache_size(size, branches, config.levels) * E::byte_len();
+        let cache_size = get_merkle_tree_cache_size(size, branches, config.levels)? * E::byte_len();
 
         // Sanity checks that the StoreConfig levels matches this
         // particular on-disk file.  Since an external reader *is*

@@ -3,8 +3,7 @@ use crate::hash::*;
 use crate::merkle::MerkleTree;
 use crate::store::{DiskStore, StoreConfig, VecStore};
 
-use crate::compound_merkle::CompoundMerkleTree;
-use crate::compound_merkle_proof::CompoundMerkleProof;
+//use crate::proof::Proof;
 use crate::merkle::{
     get_merkle_tree_height, get_merkle_tree_len, is_merkle_tree_size_valid,
     FromIndexedParallelIterator,
@@ -41,7 +40,7 @@ fn test_vec_tree_from_slice<U: Unsigned>(
     for i in 0..num_challenges {
         let index = i * (leafs / num_challenges);
         let p = mt.gen_proof(index).unwrap();
-        assert!(p.validate::<XOR128>());
+        assert!(p.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -52,7 +51,10 @@ fn test_vec_tree_from_iter<U: Unsigned>(
     num_challenges: usize,
 ) {
     let branches = U::to_usize();
-    assert_eq!(len, get_merkle_tree_len(leafs, branches));
+    assert_eq!(
+        len,
+        get_merkle_tree_len(leafs, branches).expect("failed to get merkle len")
+    );
     assert_eq!(height, get_merkle_tree_height(leafs, branches));
 
     let mut a = XOR128::new();
@@ -72,7 +74,7 @@ fn test_vec_tree_from_iter<U: Unsigned>(
     for i in 0..num_challenges {
         let index = i * (leafs / num_challenges);
         let p = mt.gen_proof(index).unwrap();
-        assert!(p.validate::<XOR128>());
+        assert!(p.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -94,7 +96,10 @@ fn build_disk_tree_from_iter<U: Unsigned>(
     config: &StoreConfig,
 ) {
     let branches = U::to_usize();
-    assert_eq!(len, get_merkle_tree_len(leafs, branches));
+    assert_eq!(
+        len,
+        get_merkle_tree_len(leafs, branches).expect("failed to get merkle len")
+    );
     assert_eq!(height, get_merkle_tree_height(leafs, branches));
 
     let mut a = XOR128::new();
@@ -124,7 +129,10 @@ pub fn get_levelcache_tree_from_slice<U: Unsigned>(
     replica_path: &PathBuf,
 ) -> MerkleTree<[u8; 16], XOR128, LevelCacheStore<[u8; 16], std::fs::File>, U> {
     let branches = U::to_usize();
-    assert_eq!(len, get_merkle_tree_len(leafs, branches));
+    assert_eq!(
+        len,
+        get_merkle_tree_len(leafs, branches).expect("failed to get merkle len")
+    );
     assert_eq!(height, get_merkle_tree_height(leafs, branches));
 
     let mut x = Vec::with_capacity(leafs);
@@ -139,12 +147,7 @@ pub fn get_levelcache_tree_from_slice<U: Unsigned>(
     assert_eq!(mt.leafs(), leafs);
     assert_eq!(mt.height(), height);
 
-    let store: &mut LevelCacheStore<[u8; 16], std::fs::File> = mt.data_mut();
-    store
-        .set_external_reader(
-            ExternalReader::new_from_path(&replica_path)
-                .expect("Failed to create external reader from path"),
-        )
+    mt.set_external_reader_path(&replica_path)
         .expect("Failed to set external reader");
 
     mt
@@ -158,7 +161,10 @@ fn get_levelcache_tree_from_iter<U: Unsigned>(
     replica_path: &PathBuf,
 ) -> MerkleTree<[u8; 16], XOR128, LevelCacheStore<[u8; 16], std::fs::File>, U> {
     let branches = U::to_usize();
-    assert_eq!(len, get_merkle_tree_len(leafs, branches));
+    assert_eq!(
+        len,
+        get_merkle_tree_len(leafs, branches).expect("failed to get merkle len")
+    );
     assert_eq!(height, get_merkle_tree_height(leafs, branches));
 
     let mut a = XOR128::new();
@@ -180,12 +186,7 @@ fn get_levelcache_tree_from_iter<U: Unsigned>(
     assert_eq!(mt.leafs(), leafs);
     assert_eq!(mt.height(), height);
 
-    let store: &mut LevelCacheStore<[u8; 16], std::fs::File> = mt.data_mut();
-    store
-        .set_external_reader(
-            ExternalReader::new_from_path(&replica_path)
-                .expect("Failed to create external reader from path"),
-        )
+    mt.set_external_reader_path(&replica_path)
         .expect("Failed to set external reader");
 
     mt
@@ -221,7 +222,7 @@ fn test_disk_tree_from_iter<U: Unsigned>(
     for i in 0..num_challenges {
         let index = i * (leafs / num_challenges);
         let p = mt_cache.gen_proof(index).unwrap();
-        assert!(p.validate::<XOR128>());
+        assert!(p.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -279,10 +280,10 @@ fn test_levelcache_v1_tree_from_iter<U: Unsigned>(
     // Verify all proofs are still working.
     for i in 0..num_challenges {
         let index = i * (leafs / num_challenges);
-        let (proof, _) = mt_level_cache
-            .gen_proof_and_partial_tree(index, config.levels)
+        let proof = mt_level_cache
+            .gen_cached_proof(index, config.levels)
             .expect("Failed to generate proof and partial tree");
-        assert!(proof.validate::<XOR128>());
+        assert!(proof.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -315,10 +316,10 @@ fn test_levelcache_direct_build_from_slice<U: Unsigned>(
     // Verify all proofs are working.
     for i in 0..num_challenges {
         let index = i * (leafs / num_challenges);
-        let (proof, _) = lc_tree
-            .gen_proof_and_partial_tree(index, cached_above_base)
+        let proof = lc_tree
+            .gen_cached_proof(index, cached_above_base)
             .expect("Failed to generate proof and partial tree");
-        assert!(proof.validate::<XOR128>());
+        assert!(proof.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -350,10 +351,10 @@ fn test_levelcache_direct_build_from_iter<U: Unsigned>(
     // Verify all proofs are working.
     for i in 0..num_challenges {
         let index = i * (leafs / num_challenges);
-        let (proof, _) = lc_tree
-            .gen_proof_and_partial_tree(index, cached_above_base)
+        let proof = lc_tree
+            .gen_cached_proof(index, cached_above_base)
             .expect("Failed to generate proof and partial tree");
-        assert!(proof.validate::<XOR128>());
+        assert!(proof.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -437,7 +438,7 @@ fn test_vec_from_slice() {
 
     for i in 0..mt.leafs() {
         let p = mt.gen_proof(i).unwrap();
-        assert!(p.validate::<XOR128>());
+        assert!(p.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -445,18 +446,22 @@ fn test_vec_from_slice() {
 // N: Branching factor of top-layer
 fn test_compound_tree_from_slices<B: Unsigned, N: Unsigned>(sub_tree_leafs: usize) {
     let branches = B::to_usize();
+    assert!(is_merkle_tree_size_valid(sub_tree_leafs, branches));
+
     let sub_tree_count = N::to_usize();
     let mut sub_trees = Vec::with_capacity(sub_tree_count);
     for _ in 0..sub_tree_count {
         sub_trees.push(get_vec_tree_from_slice::<B>(sub_tree_leafs));
     }
 
-    let tree: CompoundMerkleTree<[u8; 16], XOR128, VecStore<_>, B, N> =
-        CompoundMerkleTree::from_trees(sub_trees).expect("Failed to build compound tree");
+    let tree: MerkleTree<[u8; 16], XOR128, VecStore<_>, B, N> =
+        MerkleTree::from_trees(sub_trees).expect("Failed to build compound tree from sub trees");
 
     assert_eq!(
         tree.len(),
-        (get_merkle_tree_len(sub_tree_leafs, branches) * sub_tree_count) + 1
+        (get_merkle_tree_len(sub_tree_leafs, branches).expect("failed to get merkle len")
+            * sub_tree_count)
+            + 1
     );
     assert_eq!(tree.leafs(), sub_tree_count * sub_tree_leafs);
 
@@ -465,8 +470,8 @@ fn test_compound_tree_from_slices<B: Unsigned, N: Unsigned>(sub_tree_leafs: usiz
         let _ = tree.read_at(i).expect("Failed to read tree element");
 
         // Make sure all proofs validate.
-        let p: CompoundMerkleProof<[u8; 16], B, N> = tree.gen_proof(i).unwrap();
-        assert!(p.validate::<XOR128>());
+        let p = tree.gen_proof(i).unwrap();
+        assert!(p.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -474,6 +479,8 @@ fn test_compound_tree_from_slices<B: Unsigned, N: Unsigned>(sub_tree_leafs: usiz
 // N: Branching factor of top-layer
 fn test_compound_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leafs: usize) {
     let branches = B::to_usize();
+    assert!(is_merkle_tree_size_valid(sub_tree_leafs, branches));
+
     let sub_tree_count = N::to_usize();
     let mut sub_tree_configs = Vec::with_capacity(sub_tree_count);
 
@@ -489,13 +496,15 @@ fn test_compound_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leaf
         sub_tree_configs.push(config);
     }
 
-    let tree: CompoundMerkleTree<[u8; 16], XOR128, DiskStore<_>, B, N> =
-        CompoundMerkleTree::from_store_configs(sub_tree_leafs, &sub_tree_configs)
+    let tree: MerkleTree<[u8; 16], XOR128, DiskStore<_>, B, N> =
+        MerkleTree::from_store_configs(sub_tree_leafs, &sub_tree_configs)
             .expect("Failed to build compound tree");
 
     assert_eq!(
         tree.len(),
-        (get_merkle_tree_len(sub_tree_leafs, branches) * sub_tree_count) + 1
+        (get_merkle_tree_len(sub_tree_leafs, branches).expect("failed to get merkle len")
+            * sub_tree_count)
+            + 1
     );
     assert_eq!(tree.leafs(), sub_tree_count * sub_tree_leafs);
 
@@ -505,7 +514,69 @@ fn test_compound_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leaf
 
         // Make sure all proofs validate.
         let p = tree.gen_proof(i).unwrap();
-        assert!(p.validate::<XOR128>());
+        assert!(p.validate::<XOR128>().expect("failed to validate"));
+    }
+}
+
+// B: Branching factor of sub-trees
+// N: Branching factor of top-layer
+fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
+    sub_tree_leafs: usize,
+) {
+    let branches = B::to_usize();
+    assert!(is_merkle_tree_size_valid(sub_tree_leafs, branches));
+
+    let sub_tree_count = N::to_usize();
+    let mut replica_paths = Vec::with_capacity(sub_tree_count);
+    let mut sub_tree_configs = Vec::with_capacity(sub_tree_count);
+
+    let test_name = "test_compound_levelcache_tree_from_store_configs";
+    let temp_dir = tempdir::TempDir::new("test_compound_levelcache_tree").unwrap();
+    let levels = StoreConfig::default_cached_above_base_layer(sub_tree_leafs, branches);
+    let len = get_merkle_tree_len(sub_tree_leafs, branches).expect("failed to get merkle len");
+    let height = get_merkle_tree_height(sub_tree_leafs, branches);
+
+    for i in 0..sub_tree_count {
+        let lc_name = format!(
+            "{}-{}-{}-{}-lc-{}",
+            test_name, sub_tree_leafs, len, height, i
+        );
+        let replica = format!(
+            "{}-{}-{}-{}-replica-{}",
+            test_name, sub_tree_leafs, len, height, i
+        );
+        let config = StoreConfig::new(temp_dir.path(), String::from(&replica), levels);
+        build_disk_tree_from_iter::<B>(sub_tree_leafs, len, height, &config);
+
+        // Use that data store as the replica.
+        let replica_path = StoreConfig::data_path(&config.path, &config.id);
+        replica_paths.push(replica_path.clone());
+
+        let lc_config = StoreConfig::from_config(&config, String::from(lc_name), Some(len));
+        get_levelcache_tree_from_slice::<B>(sub_tree_leafs, len, height, &lc_config, &replica_path);
+
+        sub_tree_configs.push(lc_config);
+    }
+
+    let tree =
+        MerkleTree::<[u8; 16], XOR128, LevelCacheStore<[u8; 16], std::fs::File>, B, N>::from_store_configs_and_replicas(sub_tree_leafs, &sub_tree_configs, &replica_paths)
+            .expect("Failed to build compound levelcache tree");
+
+    assert_eq!(
+        tree.len(),
+        (get_merkle_tree_len(sub_tree_leafs, branches).expect("failed to get merkle len")
+            * sub_tree_count)
+            + 1
+    );
+    assert_eq!(tree.leafs(), sub_tree_count * sub_tree_leafs);
+
+    for i in 0..tree.leafs() {
+        // Make sure all elements are accessible.
+        let _ = tree.read_at(i).expect("Failed to read tree element");
+
+        // Make sure all proofs validate.
+        let p = tree.gen_cached_proof(i, levels).unwrap();
+        assert!(p.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -534,6 +605,18 @@ fn test_compound_quad_trees_from_store_configs() {
 }
 
 #[test]
+fn test_compound_levelcache_quad_trees_from_store_configs() {
+    // 3 quad trees each with 16 leafs joined by top layer
+    test_compound_levelcache_tree_from_store_configs::<U4, U3>(16);
+
+    // 5 quad trees each with 64 leafs joined by top layer
+    test_compound_levelcache_tree_from_store_configs::<U4, U5>(64);
+
+    // 7 quad trees each with 256 leafs joined by top layer
+    test_compound_levelcache_tree_from_store_configs::<U4, U7>(256);
+}
+
+#[test]
 fn test_compound_octrees_from_slices() {
     // 3 octrees each with 8 leafs joined by top layer
     test_compound_tree_from_slices::<U8, U3>(8);
@@ -558,6 +641,18 @@ fn test_compound_octrees_from_store_configs() {
 }
 
 #[test]
+fn test_compound_levelcache_octrees_trees_from_store_configs() {
+    // 3 octrees trees each with 64 leafs joined by top layer
+    test_compound_levelcache_tree_from_store_configs::<U8, U3>(64);
+
+    // 5 octrees trees each with 256 leafs joined by top layer
+    test_compound_levelcache_tree_from_store_configs::<U8, U5>(512);
+
+    // 7 octrees trees each with 2048 leafs joined by top layer
+    test_compound_levelcache_tree_from_store_configs::<U8, U7>(4096);
+}
+
+#[test]
 fn test_compound_quad_tree_from_slices() {
     // This tests a compound merkle tree that consists of 3 quad trees
     // with 4 leafs each.  The compound tree will have 12 leaves.
@@ -566,15 +661,15 @@ fn test_compound_quad_tree_from_slices() {
     let mt2 = get_vec_tree_from_slice::<U4>(leafs);
     let mt3 = get_vec_tree_from_slice::<U4>(leafs);
 
-    let tree: CompoundMerkleTree<[u8; 16], XOR128, VecStore<_>, U4, U3> =
-        CompoundMerkleTree::from_trees(vec![mt1, mt2, mt3]).expect("Failed to build compound tree");
+    let tree: MerkleTree<[u8; 16], XOR128, VecStore<_>, U4, U3> =
+        MerkleTree::from_trees(vec![mt1, mt2, mt3]).expect("Failed to build compound tree");
     assert_eq!(tree.len(), 16);
     assert_eq!(tree.leafs(), 12);
     assert_eq!(tree.height(), 3);
 
     for i in 0..tree.leafs() {
         let p = tree.gen_proof(i).unwrap();
-        assert!(p.validate::<XOR128>());
+        assert!(p.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -589,8 +684,8 @@ fn test_compound_octree_from_slices() {
     let mt4 = get_vec_tree_from_slice::<U8>(leafs);
     let mt5 = get_vec_tree_from_slice::<U8>(leafs);
 
-    let tree: CompoundMerkleTree<[u8; 16], XOR128, VecStore<_>, U8, U5> =
-        CompoundMerkleTree::from_trees(vec![mt1, mt2, mt3, mt4, mt5])
+    let tree: MerkleTree<[u8; 16], XOR128, VecStore<_>, U8, U5> =
+        MerkleTree::from_trees(vec![mt1, mt2, mt3, mt4, mt5])
             .expect("Failed to build compound tree");
 
     assert_eq!(tree.len(), 366);
@@ -599,7 +694,7 @@ fn test_compound_octree_from_slices() {
 
     for i in 0..tree.leafs() {
         let p = tree.gen_proof(i).unwrap();
-        assert!(p.validate::<XOR128>());
+        assert!(p.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -881,7 +976,7 @@ fn test_simple_tree() {
 
         for i in 0..mt_base.leafs() {
             let p = mt_base.gen_proof(i).unwrap();
-            assert!(p.validate::<XOR128>());
+            assert!(p.validate::<XOR128>().expect("failed to validate"));
         }
 
         let mut a2 = XOR128::new();
@@ -914,7 +1009,7 @@ fn test_simple_tree() {
 
             for i in 0..mt1.leafs() {
                 let p = mt1.gen_proof(i).unwrap();
-                assert!(p.validate::<XOR128>());
+                assert!(p.validate::<XOR128>().expect("failed to validate"));
             }
         }
 
@@ -928,7 +1023,7 @@ fn test_simple_tree() {
             );
             for i in 0..mt2.leafs() {
                 let p = mt2.gen_proof(i).unwrap();
-                assert!(p.validate::<XOR128>());
+                assert!(p.validate::<XOR128>().expect("failed to validate"));
             }
         }
     }
@@ -939,13 +1034,13 @@ fn test_large_tree() {
     let count = SMALL_TREE_BUILD * 2;
     test_vec_tree_from_iter::<U2>(
         count,
-        get_merkle_tree_len(count, BINARY_ARITY),
+        get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
         get_merkle_tree_height(count, BINARY_ARITY),
         count,
     );
     test_disk_tree_from_iter::<U2>(
         count,
-        get_merkle_tree_len(count, BINARY_ARITY),
+        get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
         get_merkle_tree_height(count, BINARY_ARITY),
         count,
         StoreConfig::default_cached_above_base_layer(count, BINARY_ARITY),
@@ -966,7 +1061,10 @@ fn test_large_tree_disk() {
             xor_128.hash()
         }))
         .unwrap();
-    assert_eq!(mt_disk.len(), get_merkle_tree_len(count, BINARY_ARITY));
+    assert_eq!(
+        mt_disk.len(),
+        get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len")
+    );
 }
 
 #[test]
@@ -984,7 +1082,10 @@ fn test_mmap_tree() {
             Ok(a.hash())
         }))
         .unwrap();
-    assert_eq!(mt_map.len(), get_merkle_tree_len(count, BINARY_ARITY));
+    assert_eq!(
+        mt_map.len(),
+        get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len")
+    );
 
     let config = {
         let temp_dir = tempdir::TempDir::new("test_mmap_tree").unwrap();
@@ -1012,7 +1113,7 @@ fn test_mmap_tree() {
 
     for i in 0..100 {
         let p = mt_map.gen_proof(i * (count / 100)).unwrap();
-        assert!(p.validate::<XOR128>());
+        assert!(p.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -1022,7 +1123,7 @@ fn test_level_cache_tree_v1() {
     let count = SMALL_TREE_BUILD * 2;
     test_levelcache_v1_tree_from_iter::<U2>(
         count,
-        get_merkle_tree_len(count, BINARY_ARITY),
+        get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
         get_merkle_tree_height(count, BINARY_ARITY),
         count,
         cached_above_base,
@@ -1056,7 +1157,10 @@ fn test_level_cache_tree_v2() {
             config.clone(),
         )
         .expect("Failed to create MT");
-    assert_eq!(mt_disk.len(), get_merkle_tree_len(count, BINARY_ARITY));
+    assert_eq!(
+        mt_disk.len(),
+        get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len")
+    );
 
     // Generate proofs on tree.
     for j in 0..mt_disk.leafs() {
@@ -1064,7 +1168,7 @@ fn test_level_cache_tree_v2() {
         // range of data we have stored on disk (no partial tree
         // is built or used in this case).
         let p = mt_disk.gen_proof(j).unwrap();
-        assert!(p.validate::<XOR128>());
+        assert!(p.validate::<XOR128>().expect("failed to validate"));
     }
 
     // Copy the base data from the store to a separate file that
@@ -1092,14 +1196,14 @@ fn test_level_cache_tree_v2() {
 
     // Then re-create an MT using LevelCacheStore and generate all proofs.
     assert!(LevelCacheStore::<[u8; 16], std::fs::File>::is_consistent(
-        get_merkle_tree_len(count, BINARY_ARITY),
+        get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
         BINARY_ARITY,
         &config
     )
     .unwrap());
     let level_cache_store: LevelCacheStore<[u8; 16], _> =
         LevelCacheStore::new_from_disk_with_reader(
-            get_merkle_tree_len(count, BINARY_ARITY),
+            get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
             BINARY_ARITY,
             &config,
             ExternalReader::new_from_path(&output_file).unwrap(),
@@ -1111,15 +1215,15 @@ fn test_level_cache_tree_v2() {
             .expect("Failed to create MT from data store");
     assert_eq!(
         mt_level_cache.len(),
-        get_merkle_tree_len(count, BINARY_ARITY)
+        get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len")
     );
 
     // Generate proofs on tree.
     for j in 0..mt_level_cache.leafs() {
-        let (proof, _) = mt_level_cache
-            .gen_proof_and_partial_tree(j, config.levels)
+        let proof = mt_level_cache
+            .gen_cached_proof(j, config.levels)
             .expect("Failed to generate proof and partial tree");
-        assert!(proof.validate::<XOR128>());
+        assert!(proof.validate::<XOR128>().expect("failed to validate"));
     }
 }
 
@@ -1167,13 +1271,13 @@ fn test_various_trees_with_partial_cache_v2_only() {
             // Sanity check loading the store from disk and then
             // re-creating the MT from it.
             assert!(DiskStore::<[u8; 16]>::is_consistent(
-                get_merkle_tree_len(count, BINARY_ARITY),
+                get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
                 BINARY_ARITY,
                 &config
             )
             .unwrap());
             let store = DiskStore::new_from_disk(
-                get_merkle_tree_len(count, BINARY_ARITY),
+                get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
                 BINARY_ARITY,
                 &config,
             )
@@ -1184,66 +1288,18 @@ fn test_various_trees_with_partial_cache_v2_only() {
             assert_eq!(mt_cache.len(), mt_cache2.len());
             assert_eq!(mt_cache.leafs(), mt_cache2.leafs());
 
-            assert_eq!(mt_cache.len(), get_merkle_tree_len(count, BINARY_ARITY));
+            assert_eq!(
+                mt_cache.len(),
+                get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len")
+            );
             assert_eq!(mt_cache.leafs(), count);
-
-            // Generate and validate proof on the first element.
-            //let p = mt_cache.gen_proof(0).unwrap();
-            //assert!(p.validate::<XOR128>());
-
-            /*
-            // This is commented out because it's no longer necessary.
-            // The idea below is that we generate 2 partial merkle
-            // trees and then all of the proofs re-using those trees.
-            // With the optimal partial tree generation imlemented
-            // now, this use case is not as appealing as it once was
-            // envisioned to be.
-
-            // Generate and validate proof on the first element and also
-            // retrieve the partial tree needed for future proof
-            // generation.  This is an optimization that lets us re-use
-            // the partially generated tree, given the known access
-            // pattern.
-            //
-            // NOTE: Using partial tree proof generation with a DiskStore
-            // does not generally make sense (just use gen_proof), but it
-            // does provide a proof of concept implementation to show that
-            // we can generate proofs only using certain segments of the
-            // on-disk data.
-            let pat1 = mt_cache.gen_proof_and_partial_tree(0, i).unwrap();
-            assert!(pat1.proof.validate::<XOR128>());
-
-            // Same as above, but generate and validate the proof on the
-            // first element of the second data half and retrieve the
-            // partial tree needed for future proofs in that range.
-            let pat2 = mt_cache
-                .gen_proof_and_partial_tree(mt_cache.leafs() / 2, i)
-                .unwrap();
-            assert!(pat2.proof.validate::<XOR128>());
-            */
 
             for j in 0..mt_cache.leafs() {
                 // First generate and validate the proof using the full
                 // range of data we have stored on disk (no partial tree
                 // is built or used in this case).
                 let p = mt_cache.gen_proof(j).unwrap();
-                assert!(p.validate::<XOR128>());
-
-                /*
-                // See comment above on why this is no longer necessary.
-
-                // Then generate proofs using a combination of data in the
-                // partial tree generated outside of this loop, and data
-                // on disk (simulating a partial cache since we do not use
-                // the full range of data stored on disk in these cases).
-                if j < mt_cache.leafs() / 2 {
-                    let p1 = mt_cache.gen_proof_with_partial_tree(j, i, &pat1.merkle_tree);
-                    assert!(p1.validate::<XOR128>());
-                } else {
-                    let p2 = mt_cache.gen_proof_with_partial_tree(j, i, &pat2.merkle_tree);
-                    assert!(p2.validate::<XOR128>());
-                }
-                */
+                assert!(p.validate::<XOR128>().expect("failed to validate"));
             }
 
             // Once we have the full on-disk MT data, we can optimize
@@ -1287,14 +1343,14 @@ fn test_various_trees_with_partial_cache_v2_only() {
 
             // Then re-create an MT using LevelCacheStore and generate all proofs.
             assert!(LevelCacheStore::<[u8; 16], std::fs::File>::is_consistent(
-                get_merkle_tree_len(count, BINARY_ARITY),
+                get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
                 BINARY_ARITY,
                 &config
             )
             .unwrap());
             let level_cache_store: LevelCacheStore<[u8; 16], _> =
                 LevelCacheStore::new_from_disk_with_reader(
-                    get_merkle_tree_len(count, BINARY_ARITY),
+                    get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
                     BINARY_ARITY,
                     &config,
                     ExternalReader::new_from_path(&output_file).unwrap(),
@@ -1314,46 +1370,11 @@ fn test_various_trees_with_partial_cache_v2_only() {
             // built, given the cached parameters and the properly
             // recorded LevelCacheStore.
             for j in 0..mt_level_cache.leafs() {
-                let (proof, _) = mt_level_cache
-                    .gen_proof_and_partial_tree(j, i)
+                let proof = mt_level_cache
+                    .gen_cached_proof(j, i)
                     .expect("Failed to generate proof and partial tree");
-                assert!(proof.validate::<XOR128>());
+                assert!(proof.validate::<XOR128>().expect("failed to validate"));
             }
-
-            /*
-            // This is commented out because it's no longer necessary.
-            // The idea below is that we generate 2 partial merkle
-            // trees and then all of the proofs re-using those trees.
-            // With the optimal partial tree generation imlemented
-            // now, this use case is not as appealing as it once was
-            // envisioned to be.
-
-            // Optimized proof generation based on simple generation pattern:
-            let pat1 = mt_level_cache.gen_proof_and_partial_tree(0, i).unwrap();
-            assert!(pat1.proof.validate::<XOR128>());
-
-            // Same as above, but generate and validate the proof on the
-            // first element of the second data half and retrieve the
-            // partial tree needed for future proofs in that range.
-            let pat2 = mt_level_cache
-                .gen_proof_and_partial_tree(mt_level_cache.leafs() / 2, i)
-                .unwrap();
-            assert!(pat2.proof.validate::<XOR128>());
-
-            for j in 1..mt_level_cache.leafs() {
-                // Generate proofs using a combination of data in the
-                // partial tree generated outside of this loop, and data
-                // on disk (which now only contains the base layer and
-                // cached range).
-                if j < mt_level_cache.leafs() / 2 {
-                    let p1 = mt_level_cache.gen_proof_with_partial_tree(j, i, &pat1.merkle_tree);
-                    assert!(p1.validate::<XOR128>());
-                } else {
-                    let p2 = mt_level_cache.gen_proof_with_partial_tree(j, i, &pat2.merkle_tree);
-                    assert!(p2.validate::<XOR128>());
-                }
-            }
-            */
 
             // Delete the single store backing this MT (for this test,
             // the DiskStore is compacted and then shared with the

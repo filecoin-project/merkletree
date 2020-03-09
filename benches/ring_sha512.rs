@@ -119,7 +119,7 @@ fn bench_ringx_sha512_from_data_5_proof_check(b: &mut Bencher) {
 
     b.iter(|| {
         for proof in &proofs {
-            test::black_box(proof.validate::<B>());
+            test::black_box(proof.validate::<B>().unwrap());
         }
     });
 }
@@ -151,7 +151,7 @@ fn bench_ringx_sha512_from_data_160_proof_check(b: &mut Bencher) {
 
     b.iter(|| {
         for proof in &proofs {
-            test::black_box(proof.validate::<B>());
+            test::black_box(proof.validate::<B>().unwrap());
         }
     });
 }

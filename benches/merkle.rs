@@ -28,7 +28,7 @@ fn bench_get_merkle_tree_info_1gib(b: &mut Bencher) {
 
     b.iter(|| {
         black_box({
-            let tree_size = get_merkle_tree_len(sector_size, branches);
+            let tree_size = get_merkle_tree_len(sector_size, branches).expect("failed to get len");
             assert_eq!(get_merkle_tree_leafs(tree_size, branches), sector_size);
             get_merkle_proof_lemma_len(tree_size, branches)
         })

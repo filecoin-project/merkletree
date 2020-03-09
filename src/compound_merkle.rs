@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
@@ -6,7 +7,7 @@ use crate::compound_merkle_proof::CompoundMerkleProof;
 use crate::hash::Algorithm;
 use crate::merkle::{get_merkle_tree_len, Element, MerkleTree};
 use crate::proof::Proof;
-use crate::store::{Store, StoreConfig};
+use crate::store::{ExternalReader, LevelCacheStore, Store, StoreConfig};
 use typenum::marker_traits::Unsigned;
 
 /// Compound Merkle Tree.
@@ -177,6 +178,37 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
         CompoundMerkleTree::from_trees(trees)
     }
 
+    /// Given a set of StoreConfig's (i.e on-disk references to
+    /// levelcache stores) and replica_paths, instantiate each tree
+    /// and return a compound merkle tree with them.  The ordering of
+    /// the trees is significant, as trees are leaf indexed /
+    /// addressable in the same sequence that they are provided here.
+    pub fn from_store_configs_and_replicas(
+        leafs: usize,
+        configs: &[StoreConfig],
+        replica_paths: &[PathBuf],
+    ) -> Result<CompoundMerkleTree<T, A, LevelCacheStore<T, std::fs::File>, B, N>> {
+        let branches = B::to_usize();
+        let mut trees = Vec::with_capacity(configs.len());
+        ensure!(configs.len() == replica_paths.len(),
+                "Config and Replica list lengths are invalid");
+        for i in 0..configs.len() {
+            let config = &configs[i];
+            let replica_path = &replica_paths[i];
+
+            let data = LevelCacheStore::new_from_disk_with_reader(
+                get_merkle_tree_len(leafs, branches),
+                branches,
+                config,
+                ExternalReader::new_from_path(replica_path)?,
+            )
+            .context("failed to instantiate levelcache store")?;
+            trees.push(MerkleTree::<T, A, LevelCacheStore<_, _>, B>::from_data_store(data, leafs)?);
+        }
+
+        CompoundMerkleTree::from_trees(trees)
+    }
+
     /// Generate merkle tree inclusion proof for leaf `i`
     pub fn gen_proof(&self, i: usize) -> Result<CompoundMerkleProof<T, B, N>> {
         ensure!(
@@ -197,6 +229,46 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
         // Generate the proof that will validate to the provided
         // sub-tree root (note the branching factor of B).
         let sub_tree_proof: Proof<T, B> = tree.gen_proof(leaf_index)?;
+
+        // Construct the top layer proof.  'lemma' length is
+        // top_layer_nodes - 1 + root == top_layer_nodes
+        let mut path: Vec<usize> = Vec::with_capacity(1); // path - 1
+        let mut lemma: Vec<T> = Vec::with_capacity(self.top_layer_nodes);
+        for i in 0..self.top_layer_nodes {
+            if i != tree_index {
+                lemma.push(self.trees[i].root())
+            }
+        }
+
+        lemma.push(self.root());
+        path.push(tree_index);
+
+        // Generate the final compound tree proof which is composed of
+        // a sub-tree proof of branching factor B and a top-level
+        // proof with a branching factor of N.
+        CompoundMerkleProof::new(sub_tree_proof, lemma, path)
+    }
+
+    /// Generate merkle tree inclusion proof for leaf `i` using partial trees built from cached data.
+    pub fn gen_proof_from_cached_tree(&self, i: usize, levels: usize) -> Result<CompoundMerkleProof<T, B, N>> {
+        ensure!(
+            i < self.leafs,
+            "{} is out of bounds (max: {})",
+            i,
+            self.leafs
+        ); // i in [0 .. self.leafs)
+
+        // Locate the sub-tree the leaf is contained in.
+        let tree_index = i / (self.leafs / self.top_layer_nodes);
+        let tree = &self.trees[tree_index];
+        let tree_leafs = tree.leafs();
+
+        // Get the leaf index within the sub-tree.
+        let leaf_index = i % tree_leafs;
+
+        // Generate the proof that will validate to the provided
+        // sub-tree root (note the branching factor of B).
+        let (sub_tree_proof, _) = tree.gen_proof_and_partial_tree(leaf_index, levels)?;
 
         // Construct the top layer proof.  'lemma' length is
         // top_layer_nodes - 1 + root == top_layer_nodes

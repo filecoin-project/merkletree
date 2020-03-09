@@ -445,6 +445,8 @@ fn test_vec_from_slice() {
 // N: Branching factor of top-layer
 fn test_compound_tree_from_slices<B: Unsigned, N: Unsigned>(sub_tree_leafs: usize) {
     let branches = B::to_usize();
+    assert!(is_merkle_tree_size_valid(sub_tree_leafs, branches));
+
     let sub_tree_count = N::to_usize();
     let mut sub_trees = Vec::with_capacity(sub_tree_count);
     for _ in 0..sub_tree_count {
@@ -474,6 +476,8 @@ fn test_compound_tree_from_slices<B: Unsigned, N: Unsigned>(sub_tree_leafs: usiz
 // N: Branching factor of top-layer
 fn test_compound_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leafs: usize) {
     let branches = B::to_usize();
+    assert!(is_merkle_tree_size_valid(sub_tree_leafs, branches));
+
     let sub_tree_count = N::to_usize();
     let mut sub_tree_configs = Vec::with_capacity(sub_tree_count);
 
@@ -509,6 +513,58 @@ fn test_compound_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leaf
     }
 }
 
+// B: Branching factor of sub-trees
+// N: Branching factor of top-layer
+fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leafs: usize) {
+    let branches = B::to_usize();
+    assert!(is_merkle_tree_size_valid(sub_tree_leafs, branches));
+
+    let sub_tree_count = N::to_usize();
+    let mut replica_paths = Vec::with_capacity(sub_tree_count);
+    let mut sub_tree_configs = Vec::with_capacity(sub_tree_count);
+
+    let test_name = "test_compound_levelcache_tree_from_store_configs";
+    let temp_dir = tempdir::TempDir::new("test_compound_levelcache_tree").unwrap();
+    let levels = StoreConfig::default_cached_above_base_layer(sub_tree_leafs, branches);
+    let len = get_merkle_tree_len(sub_tree_leafs, branches);
+    let height = get_merkle_tree_height(sub_tree_leafs, branches);
+
+    for i in 0..sub_tree_count {
+        let lc_name = format!("{}-{}-{}-{}-lc-{}", test_name, sub_tree_leafs, len, height, i);
+        let replica = format!("{}-{}-{}-{}-replica-{}", test_name, sub_tree_leafs, len, height, i);
+        let config = StoreConfig::new(temp_dir.path(), String::from(&replica), levels);
+        build_disk_tree_from_iter::<B>(sub_tree_leafs, len, height, &config);
+
+        // Use that data store as the replica.
+        let replica_path = StoreConfig::data_path(&config.path, &config.id);
+        replica_paths.push(replica_path.clone());
+
+        let lc_config = StoreConfig::from_config(&config, String::from(lc_name), Some(len));
+        get_levelcache_tree_from_slice::<B>(sub_tree_leafs, len, height, &lc_config, &replica_path);
+
+        sub_tree_configs.push(lc_config);
+    }
+
+    let tree =
+        CompoundMerkleTree::<[u8; 16], XOR128, LevelCacheStore<[u8; 16], std::fs::File>, B, N>::from_store_configs_and_replicas(sub_tree_leafs, &sub_tree_configs, &replica_paths)
+            .expect("Failed to build compound levelcache tree");
+
+    assert_eq!(
+        tree.len(),
+        (get_merkle_tree_len(sub_tree_leafs, branches) * sub_tree_count) + 1
+    );
+    assert_eq!(tree.leafs(), sub_tree_count * sub_tree_leafs);
+
+    for i in 0..tree.leafs() {
+        // Make sure all elements are accessible.
+        let _ = tree.read_at(i).expect("Failed to read tree element");
+
+        // Make sure all proofs validate.
+        let p = tree.gen_proof_from_cached_tree(i, levels).unwrap();
+        assert!(p.validate::<XOR128>());
+    }
+}
+
 #[test]
 fn test_compound_quad_trees_from_slices() {
     // 3 quad trees each with 4 leafs joined by top layer
@@ -534,6 +590,18 @@ fn test_compound_quad_trees_from_store_configs() {
 }
 
 #[test]
+fn test_compound_levelcache_quad_trees_from_store_configs() {
+    // 3 quad trees each with 16 leafs joined by top layer
+    test_compound_levelcache_tree_from_store_configs::<U4, U3>(16);
+
+    // 5 quad trees each with 64 leafs joined by top layer
+    test_compound_levelcache_tree_from_store_configs::<U4, U5>(64);
+
+    // 7 quad trees each with 256 leafs joined by top layer
+    test_compound_levelcache_tree_from_store_configs::<U4, U7>(256);
+}
+
+#[test]
 fn test_compound_octrees_from_slices() {
     // 3 octrees each with 8 leafs joined by top layer
     test_compound_tree_from_slices::<U8, U3>(8);
@@ -555,6 +623,18 @@ fn test_compound_octrees_from_store_configs() {
 
     // 7 octrees each with 320 leafs joined by top layer
     test_compound_tree_from_store_configs::<U8, U7>(512);
+}
+
+#[test]
+fn test_compound_levelcache_octrees_trees_from_store_configs() {
+    // 3 octrees trees each with 64 leafs joined by top layer
+    test_compound_levelcache_tree_from_store_configs::<U8, U3>(64);
+
+    // 5 octrees trees each with 256 leafs joined by top layer
+    test_compound_levelcache_tree_from_store_configs::<U8, U5>(512);
+
+    // 7 octrees trees each with 2048 leafs joined by top layer
+    test_compound_levelcache_tree_from_store_configs::<U8, U7>(4096);
 }
 
 #[test]

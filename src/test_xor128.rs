@@ -515,7 +515,9 @@ fn test_compound_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leaf
 
 // B: Branching factor of sub-trees
 // N: Branching factor of top-layer
-fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(sub_tree_leafs: usize) {
+fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
+    sub_tree_leafs: usize,
+) {
     let branches = B::to_usize();
     assert!(is_merkle_tree_size_valid(sub_tree_leafs, branches));
 
@@ -530,8 +532,14 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(su
     let height = get_merkle_tree_height(sub_tree_leafs, branches);
 
     for i in 0..sub_tree_count {
-        let lc_name = format!("{}-{}-{}-{}-lc-{}", test_name, sub_tree_leafs, len, height, i);
-        let replica = format!("{}-{}-{}-{}-replica-{}", test_name, sub_tree_leafs, len, height, i);
+        let lc_name = format!(
+            "{}-{}-{}-{}-lc-{}",
+            test_name, sub_tree_leafs, len, height, i
+        );
+        let replica = format!(
+            "{}-{}-{}-{}-replica-{}",
+            test_name, sub_tree_leafs, len, height, i
+        );
         let config = StoreConfig::new(temp_dir.path(), String::from(&replica), levels);
         build_disk_tree_from_iter::<B>(sub_tree_leafs, len, height, &config);
 

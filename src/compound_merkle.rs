@@ -85,9 +85,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
         // all properties revert to the single tree properties.  This
         // is done as an interface simplification where a
         // CompoundMerkleTree can simply represent a MerkleTree.
-        let (leafs, len, height, root) = if top_layer_nodes == 1 {
+        let (leafs, len, height, root) = /*if top_layer_nodes == 1 {
             (trees[0].leafs(), trees[0].len(), trees[0].height(), trees[0].root())
-        } else {
+        } else */ {
             // Total number of leafs in the compound tree is the combined leafs total of all subtrees.
             let leafs = trees.iter().fold(0, |leafs, mt| leafs + mt.leafs());
             // Total length of the compound tree is the combined length of all subtrees plus the root.
@@ -193,6 +193,7 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
     /// and return a compound merkle tree with them.  The ordering of
     /// the trees is significant, as trees are leaf indexed /
     /// addressable in the same sequence that they are provided here.
+    #[allow(clippy::type_complexity)]
     pub fn from_store_configs_and_replicas(
         leafs: usize,
         configs: &[StoreConfig],
@@ -200,8 +201,10 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
     ) -> Result<CompoundMerkleTree<T, A, LevelCacheStore<T, std::fs::File>, B, N>> {
         let branches = B::to_usize();
         let mut trees = Vec::with_capacity(configs.len());
-        ensure!(configs.len() == replica_paths.len(),
-                "Config and Replica list lengths are invalid");
+        ensure!(
+            configs.len() == replica_paths.len(),
+            "Config and Replica list lengths are invalid"
+        );
         for i in 0..configs.len() {
             let config = &configs[i];
             let replica_path = &replica_paths[i];
@@ -227,6 +230,10 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
             i,
             self.leafs
         ); // i in [0 .. self.leafs)
+        ensure!(
+            N::to_usize() == self.top_layer_nodes,
+            "Invalid top layer node value"
+        );
 
         // Locate the sub-tree the leaf is contained in.
         let tree_index = i / (self.leafs / self.top_layer_nodes);
@@ -260,7 +267,11 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
     }
 
     /// Generate merkle tree inclusion proof for leaf `i` using partial trees built from cached data.
-    pub fn gen_proof_from_cached_tree(&self, i: usize, levels: usize) -> Result<CompoundMerkleProof<T, B, N>> {
+    pub fn gen_proof_from_cached_tree(
+        &self,
+        i: usize,
+        levels: usize,
+    ) -> Result<CompoundMerkleProof<T, B, N>> {
         ensure!(
             i < self.leafs,
             "{} is out of bounds (max: {})",

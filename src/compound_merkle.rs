@@ -81,15 +81,25 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
             "All passed in trees must have the same length"
         );
 
-        // Total number of leafs in the compound tree is the combined leafs total of all subtrees.
-        let leafs = trees.iter().fold(0, |leafs, mt| leafs + mt.leafs());
-        // Total length of the compound tree is the combined length of all subtrees plus the root.
-        let len = trees.iter().fold(0, |len, mt| len + mt.len()) + 1;
-        // Total height of the compound tree is the height of any of the sub-trees to top-layer plus root.
-        let height = trees[0].height() + 1;
-        // Calculate the compound root by hashing the top layer roots together.
-        let roots: Vec<T> = trees.iter().map(|x| x.root()).collect();
-        let root = A::default().multi_node(&roots, 1);
+        // If we are building a compound tree with only a single tree,
+        // all properties revert to the single tree properties.  This
+        // is done as an interface simplification where a
+        // CompoundMerkleTree can simply represent a MerkleTree.
+        let (leafs, len, height, root) = if top_layer_nodes == 1 {
+            (trees[0].leafs(), trees[0].len(), trees[0].height(), trees[0].root())
+        } else {
+            // Total number of leafs in the compound tree is the combined leafs total of all subtrees.
+            let leafs = trees.iter().fold(0, |leafs, mt| leafs + mt.leafs());
+            // Total length of the compound tree is the combined length of all subtrees plus the root.
+            let len = trees.iter().fold(0, |len, mt| len + mt.len()) + 1;
+            // Total height of the compound tree is the height of any of the sub-trees to top-layer plus root.
+            let height = trees[0].height() + 1;
+            // Calculate the compound root by hashing the top layer roots together.
+            let roots: Vec<T> = trees.iter().map(|x| x.root()).collect();
+            let root = A::default().multi_node(&roots, 1);
+
+            (leafs, len, height, root)
+        };
 
         Ok(CompoundMerkleTree {
             trees,

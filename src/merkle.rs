@@ -941,7 +941,7 @@ pub fn is_merkle_tree_size_valid(leafs: usize, branches: usize) -> bool {
     let shift = log2_pow2(branches);
     while cur != 1 {
         cur >>= shift; // cur /= branches
-        if cur > leafs || cur == 0 {
+        if cur >= leafs || cur == 0 {
             return false;
         }
     }

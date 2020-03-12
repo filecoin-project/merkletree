@@ -108,6 +108,14 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned> Proof<T, U> {
     pub fn lemma(&self) -> &Vec<T> {
         &self.lemma
     }
+
+    /// DO NOT USE: this is provided for compound_merkle_proof testing
+    /// only.
+    ///
+    /// Returns the lemma of this proof as mutable.
+    pub fn lemma_mut(&mut self) -> &mut Vec<T> {
+        &mut self.lemma
+    }
 }
 
 #[cfg(test)]

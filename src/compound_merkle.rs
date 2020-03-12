@@ -85,9 +85,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
         // all properties revert to the single tree properties.  This
         // is done as an interface simplification where a
         // CompoundMerkleTree can simply represent a MerkleTree.
-        let (leafs, len, height, root) = /*if top_layer_nodes == 1 {
-            (trees[0].leafs(), trees[0].len(), trees[0].height(), trees[0].root())
-        } else */ {
+        let (leafs, len, height, root) = if top_layer_nodes == 1 {
+            (
+                trees[0].leafs(),
+                trees[0].len(),
+                trees[0].height(),
+                trees[0].root(),
+            )
+        } else {
             // Total number of leafs in the compound tree is the combined leafs total of all subtrees.
             let leafs = trees.iter().fold(0, |leafs, mt| leafs + mt.leafs());
             // Total length of the compound tree is the combined length of all subtrees plus the root.
@@ -246,6 +251,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
         // Generate the proof that will validate to the provided
         // sub-tree root (note the branching factor of B).
         let sub_tree_proof: Proof<T, B> = tree.gen_proof(leaf_index)?;
+        if self.top_layer_nodes == 1 {
+            return CompoundMerkleProof::new(sub_tree_proof, Vec::new(), Vec::new());
+        }
 
         // Construct the top layer proof.  'lemma' length is
         // top_layer_nodes - 1 + root == top_layer_nodes
@@ -290,6 +298,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned>
         // Generate the proof that will validate to the provided
         // sub-tree root (note the branching factor of B).
         let (sub_tree_proof, _) = tree.gen_proof_and_partial_tree(leaf_index, levels)?;
+        if self.top_layer_nodes == 1 {
+            return CompoundMerkleProof::new(sub_tree_proof, Vec::new(), Vec::new());
+        }
 
         // Construct the top layer proof.  'lemma' length is
         // top_layer_nodes - 1 + root == top_layer_nodes

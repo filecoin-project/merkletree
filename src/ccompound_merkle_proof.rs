@@ -16,7 +16,7 @@ use crate::store::VecStore;
 #[cfg(test)]
 use crate::test_common::{get_vec_tree_from_slice, Item, XOR128};
 #[cfg(test)]
-use typenum::{U3, U4, U5, U8};
+use typenum::{U1, U3, U4, U5, U8};
 
 /// CCompound Merkle Proof.
 ///
@@ -39,7 +39,13 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned, R: Unsigned>
         lemma: Vec<T>,
         path: Vec<usize>,
     ) -> Result<CCompoundMerkleProof<T, U, N, R>> {
-        ensure!(lemma.len() == R::to_usize(), "Invalid lemma length");
+        if R::to_usize() == 1 {
+            // In this case, there is no top level proof, so no lemmas.
+            ensure!(lemma.is_empty(), "Invalid lemma length");
+        } else {
+            ensure!(lemma.len() == R::to_usize(), "Invalid lemma length");
+        }
+
         Ok(CCompoundMerkleProof {
             sub_tree_proof,
             lemma,
@@ -68,6 +74,13 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned, R: Unsigned>
 
         // Check that size is root + top_layer_nodes - 1.
         let top_layer_nodes = R::to_usize();
+
+        // If we have a single top layer node, the proof validation is
+        // complete.
+        if top_layer_nodes == 1 {
+            return true;
+        }
+
         if self.lemma.len() != top_layer_nodes {
             return false;
         }
@@ -112,21 +125,35 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned, R: Unsigned>
 }
 
 #[cfg(test)]
-// Break one element inside the proof's top layer.
+// Break one element inside the proof's top layer (if available).
+// Otherwise, break the sub-proof.
 fn modify_proof<U: Unsigned, N: Unsigned, R: Unsigned>(
     proof: &mut CCompoundMerkleProof<Item, U, N, R>,
 ) {
     use rand::prelude::*;
 
-    let i = random::<usize>() % proof.lemma.len();
-    let j = random::<usize>();
+    let top_layer_node = R::to_usize();
+    if top_layer_node == 1 {
+        let i = random::<usize>() % proof.sub_tree_proof.lemma().len();
+        let j = random::<usize>();
 
-    let mut a = XOR128::new();
-    j.hash(&mut a);
+        let mut a = XOR128::new();
+        j.hash(&mut a);
 
-    // Break random element
-    proof.lemma[i].hash(&mut a);
-    proof.lemma[i] = a.hash();
+        // Break random sub-tree proof element
+        proof.sub_tree_proof.lemma()[i].hash(&mut a);
+        proof.sub_tree_proof.lemma_mut()[i] = a.hash();
+    } else {
+        let i = random::<usize>() % proof.lemma.len();
+        let j = random::<usize>();
+
+        let mut a = XOR128::new();
+        j.hash(&mut a);
+
+        // Break random element
+        proof.lemma[i].hash(&mut a);
+        proof.lemma[i] = a.hash();
+    }
 }
 
 #[test]
@@ -160,6 +187,29 @@ fn test_ccompound_quad_broken_proofs() {
 
     for i in 0..tree.leafs() {
         let mut p: CCompoundMerkleProof<Item, U4, U3, U3> = tree.gen_proof(i).unwrap();
+        assert!(p.validate::<XOR128>());
+
+        modify_proof(&mut p);
+        assert!(!p.validate::<XOR128>());
+    }
+}
+
+#[test]
+fn test_ccompound_single_quad_broken_proofs() {
+    let leafs = 16384;
+
+    let mt1 = get_vec_tree_from_slice::<U4>(leafs);
+    let mt2 = get_vec_tree_from_slice::<U4>(leafs);
+    let mt3 = get_vec_tree_from_slice::<U4>(leafs);
+    let cmt1: CompoundMerkleTree<Item, XOR128, VecStore<_>, U4, U3> =
+        CompoundMerkleTree::from_trees(vec![mt1, mt2, mt3])
+            .expect("failed to build compound merkle tree");
+
+    let tree: CCompoundMerkleTree<Item, XOR128, VecStore<_>, U4, U3, U1> =
+        CCompoundMerkleTree::from_trees(vec![cmt1]).expect("Failed to build ccompound tree");
+
+    for i in 0..tree.leafs() {
+        let mut p = tree.gen_proof(i).unwrap();
         assert!(p.validate::<XOR128>());
 
         modify_proof(&mut p);
@@ -213,10 +263,34 @@ fn test_ccompound_octree_broken_proofs() {
 
     let tree: CCompoundMerkleTree<Item, XOR128, VecStore<_>, U8, U4, U5> =
         CCompoundMerkleTree::from_trees(vec![cmt1, cmt2, cmt3, cmt4, cmt5])
-            .expect("Failed to build compound tree");
+            .expect("Failed to build ccompound tree");
 
     for i in 0..tree.leafs() {
         let mut p: CCompoundMerkleProof<Item, U8, U4, U5> = tree.gen_proof(i).unwrap();
+        assert!(p.validate::<XOR128>());
+
+        modify_proof(&mut p);
+        assert!(!p.validate::<XOR128>());
+    }
+}
+
+#[test]
+fn test_ccompound_single_octree_broken_proofs() {
+    let leafs = 32768;
+
+    let mt1 = get_vec_tree_from_slice::<U8>(leafs);
+    let mt2 = get_vec_tree_from_slice::<U8>(leafs);
+    let mt3 = get_vec_tree_from_slice::<U8>(leafs);
+    let mt4 = get_vec_tree_from_slice::<U8>(leafs);
+    let cmt1: CompoundMerkleTree<Item, XOR128, VecStore<_>, U8, U4> =
+        CompoundMerkleTree::from_trees(vec![mt1, mt2, mt3, mt4])
+            .expect("Failed to build compound tree");
+
+    let tree: CCompoundMerkleTree<Item, XOR128, VecStore<_>, U8, U4, U1> =
+        CCompoundMerkleTree::from_trees(vec![cmt1]).expect("Failed to build ccompound tree");
+
+    for i in 0..tree.leafs() {
+        let mut p = tree.gen_proof(i).unwrap();
         assert!(p.validate::<XOR128>());
 
         modify_proof(&mut p);

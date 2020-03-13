@@ -53,7 +53,10 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundMerkleProof<
         lemma: Vec<T>,
         path: Vec<usize>,
     ) -> Result<CompoundMerkleProof<T, U, N>> {
-        if N::to_usize() != 1 {
+        if N::to_usize() == 1 {
+            // In this case, there is no top level proof, so no lemmas.
+            ensure!(lemma.is_empty(), "Invalid lemma length");
+        } else {
             ensure!(lemma.len() == N::to_usize(), "Invalid lemma length");
         }
 
@@ -133,10 +136,16 @@ impl<T: Eq + Clone + AsRef<[u8]>, U: Unsigned, N: Unsigned> CompoundMerkleProof<
     pub fn lemma(&self) -> &Vec<T> {
         &self.lemma
     }
+
+    /// Returns the lemma of this proof.
+    pub fn lemma_mut(&mut self) -> &mut Vec<T> {
+        &mut self.lemma
+    }
 }
 
 #[cfg(test)]
 // Break one element inside the proof's top layer (if available).
+// Otherwise, break the sub-proof.
 fn modify_proof<U: Unsigned, N: Unsigned>(proof: &mut CompoundMerkleProof<Item, U, N>) {
     use rand::prelude::*;
 

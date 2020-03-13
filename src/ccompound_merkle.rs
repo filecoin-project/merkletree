@@ -62,9 +62,14 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned, R: Unsi
         // all properties revert to the single tree properties.  This
         // is done as an interface simplification where a
         // CCompoundMerkleTree can simply represent a CompoundMerkleTree.
-        let (leafs, len, height, root) = /*if top_layer_nodes == 1 {
-            (trees[0].leafs(), trees[0].len(), trees[0].height(), trees[0].root())
-        } else*/ {
+        let (leafs, len, height, root) = if top_layer_nodes == 1 {
+            (
+                trees[0].leafs(),
+                trees[0].len(),
+                trees[0].height(),
+                trees[0].root(),
+            )
+        } else {
             // Total number of leafs in the compound tree is the combined leafs total of all subtrees.
             let leafs = trees.iter().fold(0, |leafs, mt| leafs + mt.leafs());
             // Total length of the compound tree is the combined length of all subtrees plus the root.
@@ -114,6 +119,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned, R: Unsi
         // Generate the proof that will validate to the provided
         // sub-tree root (note the branching factor of N).
         let sub_tree_proof: CompoundMerkleProof<T, B, N> = tree.gen_proof(leaf_index)?;
+        if self.top_layer_nodes == 1 {
+            return CCompoundMerkleProof::<T, B, N, R>::new(sub_tree_proof, Vec::new(), Vec::new());
+        }
 
         // Construct the top layer proof.  'lemma' length is
         // top_layer_nodes - 1 + root == top_layer_nodes
@@ -158,6 +166,9 @@ impl<T: Element, A: Algorithm<T>, K: Store<T>, B: Unsigned, N: Unsigned, R: Unsi
         // Generate the proof that will validate to the provided
         // sub-tree root (note the branching factor of N).
         let sub_tree_proof = tree.gen_proof_from_cached_tree(leaf_index, levels)?;
+        if self.top_layer_nodes == 1 {
+            return CCompoundMerkleProof::<T, B, N, R>::new(sub_tree_proof, Vec::new(), Vec::new());
+        }
 
         // Construct the top layer proof.  'lemma' length is
         // top_layer_nodes - 1 + root == top_layer_nodes

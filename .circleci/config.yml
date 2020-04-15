@@ -66,7 +66,14 @@ jobs:
     steps:
       - test_target:
           target: "x86_64-unknown-linux-gnu"
-          command: "cargo test --release"
+          command: "cargo test --release --all"
+
+  test_x86_64-unknown-linux-gnu-all-features:
+    executor: default
+    steps:
+      - test_target:
+          target: "x86_64-unknown-linux-gnu"
+          command: "cargo test --all-features"
 
   test_x86_64-unknown-linux-gnu-ignored:
     executor: default
@@ -112,6 +119,15 @@ jobs:
           command: cargo build --benches --all-features --all --release
 
   doc:
+    executor: default
+    steps:
+      - *restore-workspace
+      - *restore-cache
+      - run:
+          name: Run cargo doc
+          command: cargo doc --all-features
+
+  doc-no-deps:
     executor: default
     steps:
       - *restore-workspace

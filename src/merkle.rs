@@ -1859,25 +1859,31 @@ pub fn get_merkle_tree_leafs(len: usize, branches: usize) -> Result<usize> {
         "branches must be a power of 2"
     );
 
-    // Optimization:
-    if branches == 2 {
-        let leafs = (len >> 1) + 1;
-        ensure!(
-            leafs == next_pow2(leafs),
-            "Invalid tree length for binary arity"
-        );
+    let leafs = {
+        // Optimization:
+        if branches == 2 {
+            (len >> 1) + 1
+        } else {
+            let mut leafs = 1;
+            let mut cur = len;
+            let shift = log2_pow2(branches);
+            while cur != 1 {
+                leafs <<= shift; // leafs *= branches
+                cur -= leafs;
+                ensure!(
+                    cur < len,
+                    "Invalid tree length provided for the specified arity"
+                );
+            }
 
-        return Ok(leafs);
-    }
+            leafs
+        }
+    };
 
-    let mut leafs = 1;
-    let mut cur = len;
-    let shift = log2_pow2(branches);
-    while cur != 1 {
-        leafs <<= shift; // leafs *= branches
-        cur -= leafs;
-        ensure!(cur < len, "Invalid tree length provided for the arity");
-    }
+    ensure!(
+        leafs == next_pow2(leafs),
+        "Invalid tree length provided for the specified arity"
+    );
 
     Ok(leafs)
 }

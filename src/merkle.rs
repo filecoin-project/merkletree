@@ -1869,6 +1869,10 @@ pub fn get_merkle_tree_leafs(len: usize, branches: usize) -> Result<usize> {
             let shift = log2_pow2(branches);
             while cur != 1 {
                 leafs <<= shift; // leafs *= branches
+                ensure!(
+                    cur > leafs,
+                    "Invalid tree length provided for the specified arity"
+                );
                 cur -= leafs;
                 ensure!(
                     cur < len,

@@ -235,7 +235,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
         store_version: u32,
     ) -> Result<bool> {
         // Determine how many base layer leafs there are (and in bytes).
-        let leafs = get_merkle_tree_leafs(self.len, branches);
+        let leafs = get_merkle_tree_leafs(self.len, branches)?;
         let data_width = leafs * self.elem_len;
 
         // Calculate how large the cache should be (based on the

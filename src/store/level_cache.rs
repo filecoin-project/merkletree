@@ -88,7 +88,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         // massaged next pow2 (guaranteed if created with
         // DiskStore::compact, which is the only supported method at
         // the moment).
-        let size = get_merkle_tree_leafs(store_range, branches);
+        let size = get_merkle_tree_leafs(store_range, branches)?;
         ensure!(
             size == next_pow2(size),
             "Inconsistent merkle tree height detected"
@@ -152,7 +152,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
             .open(data_path)?;
 
         let store_size = E::byte_len() * size;
-        let leafs = get_merkle_tree_leafs(size, branches);
+        let leafs = get_merkle_tree_leafs(size, branches)?;
 
         ensure!(
             leafs == next_pow2(leafs),
@@ -250,7 +250,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         // massaged next pow2 (guaranteed if created with
         // DiskStore::compact, which is the only supported method at
         // the moment).
-        let size = get_merkle_tree_leafs(store_range, branches);
+        let size = get_merkle_tree_leafs(store_range, branches)?;
         ensure!(
             size == next_pow2(size),
             "Inconsistent merkle tree height detected"
@@ -622,7 +622,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         // massaged next pow2 (guaranteed if created with
         // DiskStore::compact, which is the only supported method at
         // the moment).
-        let size = get_merkle_tree_leafs(store_range, branches);
+        let size = get_merkle_tree_leafs(store_range, branches)?;
         ensure!(
             size == next_pow2(size),
             "Inconsistent merkle tree height detected"
@@ -654,7 +654,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         // massaged next pow2 (guaranteed if created with
         // DiskStore::compact, which is the only supported method at
         // the moment).
-        let size = get_merkle_tree_leafs(store_range, branches);
+        let size = get_merkle_tree_leafs(store_range, branches)?;
         ensure!(
             size == next_pow2(size),
             "Inconsistent merkle tree height detected"

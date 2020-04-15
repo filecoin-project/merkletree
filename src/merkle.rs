@@ -1097,7 +1097,7 @@ impl<
                     "Generate a partial proof with all data available?"
                 );
 
-                let cached_leafs = get_merkle_tree_leafs(cache_size, branches);
+                let cached_leafs = get_merkle_tree_leafs(cache_size, branches)?;
                 ensure!(
                     cached_leafs == next_pow2(cached_leafs),
                     "The size of the cached leafs must be a power of 2"
@@ -1196,7 +1196,7 @@ impl<
         let total_size = get_merkle_tree_len(data_width, branches)?;
         let cache_size = get_merkle_tree_cache_size(self.leafs, branches, levels)?;
         let cache_index_start = total_size - cache_size;
-        let cached_leafs = get_merkle_tree_leafs(cache_size, branches);
+        let cached_leafs = get_merkle_tree_leafs(cache_size, branches)?;
         ensure!(
             cached_leafs == next_pow2(cached_leafs),
             "Cached leafs size must be a power of 2"
@@ -1853,10 +1853,21 @@ pub fn get_merkle_proof_lemma_len(height: usize, branches: usize) -> usize {
 // This method returns the number of 'leafs' given a merkle tree
 // length of 'len', where leafs must be a power of 2, respecting the
 // number of branches.
-pub fn get_merkle_tree_leafs(len: usize, branches: usize) -> usize {
+pub fn get_merkle_tree_leafs(len: usize, branches: usize) -> Result<usize> {
+    ensure!(
+        branches == next_pow2(branches),
+        "branches must be a power of 2"
+    );
+
     // Optimization:
     if branches == 2 {
-        return (len >> 1) + 1;
+        let leafs = (len >> 1) + 1;
+        ensure!(
+            leafs == next_pow2(leafs),
+            "Invalid tree length for binary arity"
+        );
+
+        return Ok(leafs);
     }
 
     let mut leafs = 1;
@@ -1865,10 +1876,10 @@ pub fn get_merkle_tree_leafs(len: usize, branches: usize) -> usize {
     while cur != 1 {
         leafs <<= shift; // leafs *= branches
         cur -= leafs;
-        assert!(cur < len);
+        ensure!(cur < len, "Invalid tree length provided for the arity");
     }
 
-    leafs
+    Ok(leafs)
 }
 
 /// returns next highest power of two from a given number if it is not
@@ -1965,4 +1976,22 @@ fn test_get_merkle_tree_methods() {
     assert!(get_merkle_tree_len(1, 2).is_err());
     assert!(get_merkle_tree_len(4, 16).is_err());
     assert!(get_merkle_tree_len(1024, 11).is_err());
+
+    assert!(get_merkle_tree_leafs(31, 2).is_ok());
+    assert!(get_merkle_tree_leafs(15, 2).is_ok());
+    assert!(get_merkle_tree_leafs(127, 2).is_ok());
+
+    assert!(get_merkle_tree_leafs(1398101, 4).is_ok());
+    assert!(get_merkle_tree_leafs(299593, 8).is_ok());
+
+    assert!(get_merkle_tree_leafs(32, 2).is_err());
+    assert!(get_merkle_tree_leafs(16, 2).is_err());
+    assert!(get_merkle_tree_leafs(128, 2).is_err());
+
+    assert!(get_merkle_tree_leafs(32, 8).is_err());
+    assert!(get_merkle_tree_leafs(16, 8).is_err());
+    assert!(get_merkle_tree_leafs(128, 8).is_err());
+
+    assert!(get_merkle_tree_leafs(1398102, 4).is_err());
+    assert!(get_merkle_tree_leafs(299594, 8).is_err());
 }

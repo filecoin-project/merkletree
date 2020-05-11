@@ -11,7 +11,7 @@ use typenum::{U0, U2};
 use crate::hash::{Algorithm, Hashable};
 use crate::proof::Proof;
 use crate::store::{
-    ExternalReader, LevelCacheStore, Store, StoreConfig, VecStore, BUILD_CHUNK_NODES,
+    ExternalReader, LevelCacheStore, ReplicaConfig, Store, StoreConfig, VecStore, BUILD_CHUNK_NODES,
 };
 
 // Number of batched nodes processed and stored together when
@@ -201,25 +201,26 @@ impl<
     MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity, SubTreeArity, TopTreeArity>
 {
     /// Given a pathbuf, instantiate an ExternalReader and set it for the LevelCacheStore.
-    pub fn set_external_reader_path(&mut self, path: &PathBuf) -> Result<()> {
+    pub fn set_external_reader_path(&mut self, path: &PathBuf, offset: usize) -> Result<()> {
         ensure!(self.data.store_mut().is_some(), "store data required");
 
         self.data
             .store_mut()
             .unwrap()
-            .set_external_reader(ExternalReader::new_from_path(path)?)
+            .set_external_reader(ExternalReader::new_from_path(path, offset)?)
     }
 
     /// Given a set of StoreConfig's (i.e on-disk references to
-    /// levelcache stores) and replica_paths, instantiate each tree
-    /// and return a compound merkle tree with them.  The ordering of
-    /// the trees is significant, as trees are leaf indexed /
-    /// addressable in the same sequence that they are provided here.
+    /// levelcache stores) and replica config info, instantiate each
+    /// tree and return a compound merkle tree with them.  The
+    /// ordering of the trees is significant, as trees are leaf
+    /// indexed / addressable in the same sequence that they are
+    /// provided here.
     #[allow(clippy::type_complexity)]
-    pub fn from_store_configs_and_replicas(
+    pub fn from_store_configs_and_replica(
         leafs: usize,
         configs: &[StoreConfig],
-        replica_paths: &[PathBuf],
+        replica_config: &ReplicaConfig,
     ) -> Result<
         MerkleTree<
             E,
@@ -233,18 +234,15 @@ impl<
         let branches = BaseTreeArity::to_usize();
         let mut trees = Vec::with_capacity(configs.len());
         ensure!(
-            configs.len() == replica_paths.len(),
-            "Config and Replica list lengths are invalid"
+            configs.len() == replica_config.offsets.len(),
+            "Config and Replica offset lists lengths are invalid"
         );
-        for i in 0..configs.len() {
-            let config = &configs[i];
-            let replica_path = &replica_paths[i];
-
+        for (i, config) in configs.iter().enumerate() {
             let data = LevelCacheStore::new_from_disk_with_reader(
                 get_merkle_tree_len(leafs, branches)?,
                 branches,
                 config,
-                ExternalReader::new_from_path(replica_path)?,
+                ExternalReader::new_from_path(&replica_config.path, replica_config.offsets[i])?,
             )
             .context("failed to instantiate levelcache store")?;
             trees.push(
@@ -258,15 +256,16 @@ impl<
     }
 
     /// Given a set of StoreConfig's (i.e on-disk references to
-    /// levelcache stores) and replica_paths, instantiate each sub tree
-    /// and return a compound merkle tree with them.  The ordering of
-    /// the trees is significant, as trees are leaf indexed /
-    /// addressable in the same sequence that they are provided here.
+    /// levelcache stores) and replica config info, instantiate each
+    /// sub tree and return a compound merkle tree with them.  The
+    /// ordering of the trees is significant, as trees are leaf
+    /// indexed / addressable in the same sequence that they are
+    /// provided here.
     #[allow(clippy::type_complexity)]
-    pub fn from_sub_tree_store_configs_and_replicas(
+    pub fn from_sub_tree_store_configs_and_replica(
         leafs: usize,
         configs: &[StoreConfig],
-        replica_paths: &[PathBuf],
+        replica_config: &ReplicaConfig,
     ) -> Result<
         MerkleTree<
             E,
@@ -278,8 +277,8 @@ impl<
         >,
     > {
         ensure!(
-            configs.len() == replica_paths.len(),
-            "Config and Replica list lengths are invalid"
+            configs.len() == replica_config.offsets.len(),
+            "Config and Replica offset lists lengths are invalid"
         );
 
         let sub_tree_count = TopTreeArity::to_usize();
@@ -295,10 +294,10 @@ impl<
                 LevelCacheStore<_, _>,
                 BaseTreeArity,
                 SubTreeArity,
-            >::from_store_configs_and_replicas(
+            >::from_store_configs_and_replica(
                 leafs,
                 &configs[start..end],
-                &replica_paths[start..end],
+                &replica_config,
             )?);
             start = end;
             end += configs.len() / sub_tree_count;
@@ -747,7 +746,7 @@ impl<
         MerkleTree::from_trees(trees)
     }
 
-    /// Given a set of StoreConfig's (i.e on-disk references to
+    /// Given a set of StoreConfig's (i.e on-disk references to disk
     /// stores), instantiate each tree and return a compound merkle
     /// tree with them.  The ordering of the trees is significant, as
     /// trees are leaf indexed / addressable in the same sequence that
@@ -773,11 +772,11 @@ impl<
         MerkleTree::from_trees(trees)
     }
 
-    /// Given a set of StoreConfig's (i.e on-disk references to
-    /// levelcache stores) and replica_paths, instantiate each sub tree
-    /// and return a compound merkle tree with them.  The ordering of
-    /// the trees is significant, as trees are leaf indexed /
-    /// addressable in the same sequence that they are provided here.
+    /// Given a set of StoreConfig's (i.e on-disk references to dis
+    /// stores), instantiate each sub tree and return a compound
+    /// merkle tree with them.  The ordering of the trees is
+    /// significant, as trees are leaf indexed / addressable in the
+    /// same sequence that they are provided here.
     #[allow(clippy::type_complexity)]
     pub fn from_sub_tree_store_configs(
         leafs: usize,

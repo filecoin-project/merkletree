@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crate::hash::*;
 use crate::merkle::MerkleTree;
-use crate::store::{DiskStore, StoreConfig, VecStore};
+use crate::store::{DiskStore, ReplicaConfig, StoreConfig, VecStore};
 
 //use crate::proof::Proof;
 use crate::merkle::{
@@ -14,6 +14,7 @@ use crate::store::{
 };
 use rayon::iter::{plumbing::*, IntoParallelIterator, ParallelIterator};
 use std::fs::OpenOptions;
+use std::io::prelude::*;
 use std::os::unix::prelude::FileExt;
 use std::path::PathBuf;
 use typenum::marker_traits::Unsigned;
@@ -147,7 +148,7 @@ pub fn get_levelcache_tree_from_slice<U: Unsigned>(
     assert_eq!(mt.leafs(), leafs);
     assert_eq!(mt.height(), height);
 
-    mt.set_external_reader_path(&replica_path)
+    mt.set_external_reader_path(&replica_path, 0)
         .expect("Failed to set external reader");
 
     mt
@@ -186,7 +187,7 @@ fn get_levelcache_tree_from_iter<U: Unsigned>(
     assert_eq!(mt.leafs(), leafs);
     assert_eq!(mt.height(), height);
 
-    mt.set_external_reader_path(&replica_path)
+    mt.set_external_reader_path(&replica_path, 0)
         .expect("Failed to set external reader");
 
     mt
@@ -527,7 +528,7 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
     assert!(is_merkle_tree_size_valid(sub_tree_leafs, branches));
 
     let sub_tree_count = N::to_usize();
-    let mut replica_paths = Vec::with_capacity(sub_tree_count);
+    let mut replica_offsets = Vec::with_capacity(sub_tree_count);
     let mut sub_tree_configs = Vec::with_capacity(sub_tree_count);
 
     let test_name = "test_compound_levelcache_tree_from_store_configs";
@@ -535,6 +536,16 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
     let levels = StoreConfig::default_cached_above_base_layer(sub_tree_leafs, branches);
     let len = get_merkle_tree_len(sub_tree_leafs, branches).expect("failed to get merkle len");
     let height = get_merkle_tree_height(sub_tree_leafs, branches);
+
+    let replica_path = StoreConfig::data_path(
+        &temp_dir.path().to_path_buf(),
+        &format!(
+            "{}-{}-{}-{}-replica",
+            test_name, sub_tree_leafs, len, height
+        ),
+    );
+    let mut f_replica =
+        std::fs::File::create(&replica_path).expect("failed to create replica file");
 
     for i in 0..sub_tree_count {
         let lc_name = format!(
@@ -547,10 +558,22 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
         );
         let config = StoreConfig::new(temp_dir.path(), String::from(&replica), levels);
         build_disk_tree_from_iter::<B>(sub_tree_leafs, len, height, &config);
+        let store = DiskStore::new_with_config(len, branches, config.clone())
+            .expect("failed to open store");
 
-        // Use that data store as the replica.
-        let replica_path = StoreConfig::data_path(&config.path, &config.id);
-        replica_paths.push(replica_path.clone());
+        // Use that data store as the replica (concat the data to the replica_path)
+        let data: Vec<[u8; 16]> = store
+            .read_range(std::ops::Range {
+                start: 0,
+                end: sub_tree_leafs,
+            })
+            .expect("failed to read store");
+        for element in data {
+            f_replica
+                .write_all(&element)
+                .expect("failed to write replica data");
+        }
+        replica_offsets.push(i * (16 * sub_tree_leafs));
 
         let lc_config = StoreConfig::from_config(&config, String::from(lc_name), Some(len));
         get_levelcache_tree_from_slice::<B>(sub_tree_leafs, len, height, &lc_config, &replica_path);
@@ -558,8 +581,9 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
         sub_tree_configs.push(lc_config);
     }
 
+    let replica_config = ReplicaConfig::new(replica_path, replica_offsets);
     let tree =
-        MerkleTree::<[u8; 16], XOR128, LevelCacheStore<[u8; 16], std::fs::File>, B, N>::from_store_configs_and_replicas(sub_tree_leafs, &sub_tree_configs, &replica_paths)
+        MerkleTree::<[u8; 16], XOR128, LevelCacheStore<[u8; 16], std::fs::File>, B, N>::from_store_configs_and_replica(sub_tree_leafs, &sub_tree_configs, &replica_config)
             .expect("Failed to build compound levelcache tree");
 
     assert_eq!(
@@ -1206,7 +1230,7 @@ fn test_level_cache_tree_v2() {
             get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
             BINARY_ARITY,
             &config,
-            ExternalReader::new_from_path(&output_file).unwrap(),
+            ExternalReader::new_from_path(&output_file, 0).unwrap(),
         )
         .unwrap();
 
@@ -1353,7 +1377,7 @@ fn test_various_trees_with_partial_cache_v2_only() {
                     get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
                     BINARY_ARITY,
                     &config,
-                    ExternalReader::new_from_path(&output_file).unwrap(),
+                    ExternalReader::new_from_path(&output_file, 0).unwrap(),
                 )
                 .unwrap();
 

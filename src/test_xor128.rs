@@ -148,7 +148,7 @@ pub fn get_levelcache_tree_from_slice<U: Unsigned>(
     assert_eq!(mt.leafs(), leafs);
     assert_eq!(mt.height(), height);
 
-    mt.set_external_reader_path(&replica_path, 0)
+    mt.set_external_reader_path(&replica_path)
         .expect("Failed to set external reader");
 
     mt
@@ -187,7 +187,7 @@ fn get_levelcache_tree_from_iter<U: Unsigned>(
     assert_eq!(mt.leafs(), leafs);
     assert_eq!(mt.height(), height);
 
-    mt.set_external_reader_path(&replica_path, 0)
+    mt.set_external_reader_path(&replica_path)
         .expect("Failed to set external reader");
 
     mt
@@ -1230,7 +1230,7 @@ fn test_level_cache_tree_v2() {
             get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
             BINARY_ARITY,
             &config,
-            ExternalReader::new_from_path(&output_file, 0).unwrap(),
+            ExternalReader::new_from_path(&output_file).unwrap(),
         )
         .unwrap();
 
@@ -1377,7 +1377,7 @@ fn test_various_trees_with_partial_cache_v2_only() {
                     get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
                     BINARY_ARITY,
                     &config,
-                    ExternalReader::new_from_path(&output_file, 0).unwrap(),
+                    ExternalReader::new_from_path(&output_file).unwrap(),
                 )
                 .unwrap();
 

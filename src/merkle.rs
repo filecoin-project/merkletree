@@ -201,13 +201,13 @@ impl<
     MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity, SubTreeArity, TopTreeArity>
 {
     /// Given a pathbuf, instantiate an ExternalReader and set it for the LevelCacheStore.
-    pub fn set_external_reader_path(&mut self, path: &PathBuf, offset: usize) -> Result<()> {
+    pub fn set_external_reader_path(&mut self, path: &PathBuf) -> Result<()> {
         ensure!(self.data.store_mut().is_some(), "store data required");
 
         self.data
             .store_mut()
             .unwrap()
-            .set_external_reader(ExternalReader::new_from_path(path, offset)?)
+            .set_external_reader(ExternalReader::new_from_path(path)?)
     }
 
     /// Given a set of StoreConfig's (i.e on-disk references to
@@ -242,7 +242,7 @@ impl<
                 get_merkle_tree_len(leafs, branches)?,
                 branches,
                 config,
-                ExternalReader::new_from_path(&replica_config.path, replica_config.offsets[i])?,
+                ExternalReader::new_from_config(replica_config, i)?,
             )
             .context("failed to instantiate levelcache store")?;
             trees.push(
@@ -288,6 +288,10 @@ impl<
         let mut trees = Vec::with_capacity(sub_tree_count);
 
         for _ in 0..sub_tree_count {
+            let replica_sub_config = ReplicaConfig {
+                path: replica_config.path.clone(),
+                offsets: replica_config.offsets[start..end].to_vec(),
+            };
             trees.push(MerkleTree::<
                 E,
                 A,
@@ -297,7 +301,7 @@ impl<
             >::from_store_configs_and_replica(
                 leafs,
                 &configs[start..end],
-                &replica_config,
+                &replica_sub_config,
             )?);
             start = end;
             end += configs.len() / sub_tree_count;

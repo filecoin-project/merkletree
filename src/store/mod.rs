@@ -56,11 +56,11 @@ impl<R: Read + Send + Sync> ExternalReader<R> {
 }
 
 impl ExternalReader<std::fs::File> {
-    pub fn new_from_path(path: &PathBuf, offset: usize) -> Result<Self> {
-        let reader = OpenOptions::new().read(true).open(path)?;
+    pub fn new_from_config(replica_config: &ReplicaConfig, index: usize) -> Result<Self> {
+        let reader = OpenOptions::new().read(true).open(&replica_config.path)?;
 
         Ok(ExternalReader {
-            offset,
+            offset: replica_config.offsets[index],
             source: reader,
             read_fn: |start, end, buf: &mut [u8], reader: &std::fs::File| {
                 reader.read_exact_at(start as u64, &mut buf[0..end - start])?;
@@ -68,6 +68,10 @@ impl ExternalReader<std::fs::File> {
                 Ok(end - start)
             },
         })
+    }
+
+    pub fn new_from_path(path: &PathBuf) -> Result<Self> {
+        Self::new_from_config(&ReplicaConfig::from(path), 0)
     }
 }
 
@@ -104,6 +108,15 @@ impl ReplicaConfig {
         ReplicaConfig {
             path: path.into(),
             offsets,
+        }
+    }
+}
+
+impl From<&PathBuf> for ReplicaConfig {
+    fn from(path: &PathBuf) -> Self {
+        ReplicaConfig {
+            path: path.clone(),
+            offsets: vec![0],
         }
     }
 }

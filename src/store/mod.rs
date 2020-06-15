@@ -168,7 +168,7 @@ impl StoreConfig {
         match branches {
             2 => std::cmp::min(max_rows_to_discard, 7),
             4 => std::cmp::min(max_rows_to_discard, 5),
-            _ => std::cmp::min(max_rows_to_discard, 3),
+            _ => std::cmp::min(max_rows_to_discard, 2),
         }
     }
 

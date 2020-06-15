@@ -111,7 +111,9 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         // the cached element data.
         ensure!(
             store_size == cache_size,
-            "Inconsistent store size detected with external reader"
+            "Inconsistent store size detected with external reader ({} != {})",
+            store_size,
+            cache_size,
         );
 
         Ok(LevelCacheStore {

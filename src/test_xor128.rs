@@ -774,7 +774,10 @@ fn test_large_quad_with_partial_cache() {
             len,
             row_count,
             num_challenges,
-            rows_to_discard,
+            std::cmp::min(
+                rows_to_discard,
+                StoreConfig::default_rows_to_discard(leafs, OCT_ARITY),
+            ),
         );
     }
 }
@@ -820,7 +823,10 @@ fn test_large_octo_with_partial_cache() {
             len,
             row_count,
             num_challenges,
-            rows_to_discard,
+            std::cmp::min(
+                rows_to_discard,
+                StoreConfig::default_rows_to_discard(leafs, OCT_ARITY),
+            ),
         );
     }
 }
@@ -830,7 +836,16 @@ fn test_large_octo_with_partial_cache() {
 fn test_large_octo_with_partial_cache_full() {
     let (leafs, len, row_count, num_challenges, rows_to_discard) =
         { (2097152, 2396745, 8, 2048, 3) };
-    test_levelcache_v1_tree_from_iter::<U8>(leafs, len, row_count, num_challenges, rows_to_discard);
+    test_levelcache_v1_tree_from_iter::<U8>(
+        leafs,
+        len,
+        row_count,
+        num_challenges,
+        std::cmp::min(
+            rows_to_discard,
+            StoreConfig::default_rows_to_discard(leafs, OCT_ARITY),
+        ),
+    );
 }
 
 #[test]
@@ -851,7 +866,16 @@ fn test_xlarge_octo_with_disk_store() {
 fn test_xlarge_octo_with_partial_cache() {
     let (leafs, len, row_count, num_challenges, rows_to_discard) =
         { (1073741824, 1227133513, 11, 2048, 6) };
-    test_levelcache_v1_tree_from_iter::<U8>(leafs, len, row_count, num_challenges, rows_to_discard);
+    test_levelcache_v1_tree_from_iter::<U8>(
+        leafs,
+        len,
+        row_count,
+        num_challenges,
+        std::cmp::min(
+            rows_to_discard,
+            StoreConfig::default_rows_to_discard(leafs, OCT_ARITY),
+        ),
+    );
 }
 
 #[test]
@@ -1281,7 +1305,7 @@ fn test_various_trees_with_partial_cache_v2_only() {
             let config = StoreConfig::new(
                 &temp_path,
                 String::from(format!("test-partial-cache-{}", i)),
-                i,
+                std::cmp::min(i, StoreConfig::default_rows_to_discard(count, BINARY_ARITY)),
             );
 
             let mut mt_cache: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =

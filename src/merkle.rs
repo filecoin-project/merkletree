@@ -1119,8 +1119,15 @@ impl<
 
                 let branches = BaseTreeArity::to_usize();
                 let total_size = get_merkle_tree_len(self.leafs, branches)?;
+                // If rows to discard is specified and we *know* it's a value that will cause an error
+                // (i.e. there are not enough rows to discard, we use a sane default instead).  This
+                // primarily affects tests because it only affects 'small' trees, entirely outside the
+                // scope of any 'production' tree width.
                 let rows_to_discard = if let Some(rows) = rows_to_discard {
-                    rows
+                    std::cmp::min(
+                        rows,
+                        StoreConfig::default_rows_to_discard(self.leafs, branches),
+                    )
                 } else {
                     StoreConfig::default_rows_to_discard(self.leafs, branches)
                 };

@@ -368,6 +368,7 @@ fn test_levelcache_direct_build_from_iter<U: Unsigned>(
 }
 
 #[test]
+#[ignore]
 fn test_levelcache_direct_build_quad() {
     let (leafs, len, row_count, num_challenges) = { (1048576, 1398101, 11, 2048) };
 
@@ -377,6 +378,7 @@ fn test_levelcache_direct_build_quad() {
 }
 
 #[test]
+#[ignore]
 fn test_levelcache_direct_build_octo() {
     let (leafs, len, row_count, num_challenges, rows_to_discard) =
         { (262144, 299593, 7, 262144, 2) };
@@ -766,6 +768,7 @@ fn test_small_quad_with_partial_cache() {
 }
 
 #[test]
+#[ignore]
 fn test_large_quad_with_partial_cache() {
     let (leafs, len, row_count, num_challenges) = { (1048576, 1398101, 11, 2048) };
     for rows_to_discard in 5..7 {
@@ -797,12 +800,14 @@ fn test_octo_from_iter() {
 }
 
 #[test]
+#[ignore]
 fn test_large_octo_from_iter() {
     let (leafs, len, row_count, num_challenges) = { (16777216, 19173961, 9, 1024) };
     test_vec_tree_from_iter::<U8>(leafs, len, row_count, num_challenges);
 }
 
 #[test]
+#[ignore]
 fn test_large_octo_with_disk_store() {
     let (leafs, len, row_count, num_challenges) = { (2097152, 2396745, 8, 2048) };
     test_disk_tree_from_iter::<U8>(
@@ -815,6 +820,7 @@ fn test_large_octo_with_disk_store() {
 }
 
 #[test]
+#[ignore]
 fn test_large_octo_with_partial_cache() {
     let (leafs, len, row_count, num_challenges) = { (2097152, 2396745, 8, 2048) };
     for rows_to_discard in 5..7 {

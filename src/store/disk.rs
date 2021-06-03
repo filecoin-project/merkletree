@@ -129,7 +129,10 @@ impl<E: Element> Store<E> for DiskStore<E> {
     fn new_from_disk(size: usize, _branches: usize, config: &StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
-        let file = File::open(&data_path)?;
+        let file = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .open(data_path)?;
         let metadata = file.metadata()?;
         let store_size = metadata.len() as usize;
 

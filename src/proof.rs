@@ -327,6 +327,7 @@ fn test_compound_single_octree_broken_proofs() {
 }
 
 #[test]
+#[ignore]
 fn test_compound_octree_broken_proofs() {
     let leafs = 32768;
     let mt1 = get_vec_tree_from_slice::<U8>(leafs);
@@ -381,6 +382,7 @@ fn test_ccompound_quad_broken_proofs() {
 }
 
 #[test]
+#[ignore]
 fn test_ccompound_single_quad_broken_proofs() {
     let leafs = 16384;
 
@@ -403,6 +405,7 @@ fn test_ccompound_single_quad_broken_proofs() {
 }
 
 #[test]
+#[ignore]
 fn test_ccompound_octree_broken_proofs() {
     let leafs = 32768;
 
@@ -457,6 +460,7 @@ fn test_ccompound_octree_broken_proofs() {
 }
 
 #[test]
+#[ignore]
 fn test_ccompound_single_octree_broken_proofs() {
     let leafs = 32768;
 

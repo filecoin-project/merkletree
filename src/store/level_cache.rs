@@ -80,10 +80,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
     ) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
-        let file = OpenOptions::new()
-            .write(true)
-            .read(true)
-            .open(data_path)?;
+        let file = OpenOptions::new().write(true).read(true).open(data_path)?;
         let metadata = file.metadata()?;
         let store_size = metadata.len() as usize;
 
@@ -248,10 +245,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
     fn new_from_disk(store_range: usize, branches: usize, config: &StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
-        let file = OpenOptions::new()
-            .write(true)
-            .read(true)
-            .open(data_path)?;
+        let file = OpenOptions::new().write(true).read(true).open(data_path)?;
         let metadata = file.metadata()?;
         let store_size = metadata.len() as usize;
 

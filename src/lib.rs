@@ -66,17 +66,6 @@
 //! [`test_xor128.rs`]: most comprehensive tests for library features
 //! [`proof.rs`]: contains impl and tests for proofs across pow2 arity trees
 //!
-//! # Building and testing
-//!
-//! # Run tests in release mode
-//! ```
-//! cargo test --release --all
-//! ```
-//!
-//! # Run ignored tests in release mode
-//! ```
-//! cargo test --release --all -- --ignored
-//! ```
 
 // missing_docs,
 #![deny(

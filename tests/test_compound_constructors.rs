@@ -123,11 +123,7 @@ fn instantiate_ctree_from_store_configs<
         .map(|index| {
             let replica = format!(
                 "{}-{}-{}-{}-{}-replica",
-                distinguisher,
-                index.to_string(),
-                base_tree_leaves,
-                len,
-                row_count,
+                distinguisher, index, base_tree_leaves, len, row_count,
             );
 
             let config = StoreConfig::new(

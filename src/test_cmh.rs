@@ -10,6 +10,7 @@ use crate::test_item::Item;
 
 /// Custom merkle hash util test
 #[derive(Debug, Clone, Default)]
+#[allow(clippy::upper_case_acronyms)]
 struct CMH(DefaultHasher);
 
 impl CMH {

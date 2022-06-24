@@ -134,7 +134,7 @@ impl Algorithm<Item> for Sha256Hasher {
         if item_size < hash_output.len() {
             result.copy_from_slice(&hash_output.as_slice()[0..item_size]);
         } else {
-            result.copy_from_slice(&hash_output.as_slice())
+            result.copy_from_slice(hash_output.as_slice())
         }
         result
     }

@@ -464,7 +464,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
                 let hashed_nodes_as_bytes = chunk_nodes.chunks(branches).fold(
                     Vec::with_capacity(nodes_size),
                     |mut acc, nodes| {
-                        let h = A::default().multi_node(&nodes, level);
+                        let h = A::default().multi_node(nodes, level);
                         acc.extend_from_slice(h.as_ref());
                         acc
                     },

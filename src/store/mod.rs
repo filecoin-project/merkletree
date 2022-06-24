@@ -66,7 +66,7 @@ impl ExternalReader<std::fs::File> {
         })
     }
 
-    pub fn new_from_path(path: &PathBuf) -> Result<Self> {
+    pub fn new_from_path(path: &Path) -> Result<Self> {
         Self::new_from_config(&ReplicaConfig::from(path), 0)
     }
 }
@@ -74,10 +74,10 @@ impl ExternalReader<std::fs::File> {
 impl<R: Read + Send + Sync> fmt::Debug for ExternalReader<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExternalReader")
-            .field("source: Read + Send + Sync", &1)
+            .field("source: Read + Send + Sync", &1i32)
             .field(
                 "read_fn: callback(start: usize, end: usize, buf: &mut [u8])",
-                &2,
+                &2i32,
             )
             .finish()
     }
@@ -108,10 +108,10 @@ impl ReplicaConfig {
     }
 }
 
-impl From<&PathBuf> for ReplicaConfig {
-    fn from(path: &PathBuf) -> Self {
+impl From<&Path> for ReplicaConfig {
+    fn from(path: &Path) -> Self {
         ReplicaConfig {
-            path: path.clone(),
+            path: path.to_owned(),
             offsets: vec![0],
         }
     }
@@ -174,7 +174,7 @@ impl StoreConfig {
 
     // Deterministically create the data_path on-disk location from a
     // path and specified id.
-    pub fn data_path(path: &PathBuf, id: &str) -> PathBuf {
+    pub fn data_path(path: &Path, id: &str) -> PathBuf {
         Path::new(&path).join(format!(
             "sc-{:0>2}-data-{}.dat",
             DEFAULT_STORE_CONFIG_DATA_VERSION, id
@@ -283,7 +283,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
                 let layer: Vec<_> = self
                     .read_range(read_start..read_start + width)?
                     .par_chunks(branches)
-                    .map(|nodes| A::default().multi_node(&nodes, level))
+                    .map(|nodes| A::default().multi_node(nodes, level))
                     .collect();
 
                 (layer, write_start)
@@ -344,7 +344,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
                 let hashed_nodes_as_bytes = chunk_nodes.chunks(branches).fold(
                     Vec::with_capacity(nodes_size),
                     |mut acc, nodes| {
-                        let h = A::default().multi_node(&nodes, level);
+                        let h = A::default().multi_node(nodes, level);
                         acc.extend_from_slice(h.as_ref());
                         acc
                     },
@@ -495,7 +495,7 @@ macro_rules! impl_parallel_iter {
         }
 
         #[derive(Debug, Clone)]
-        pub struct $producer<'data, E: 'data + Element> {
+        pub struct $producer<'data, E: Element> {
             pub(crate) current: usize,
             pub(crate) end: usize,
             pub(crate) store: &'data $name<E>,
@@ -561,7 +561,7 @@ macro_rules! impl_parallel_iter {
             }
         }
         #[derive(Debug)]
-        pub struct $iter<'data, E: 'data + Element> {
+        pub struct $iter<'data, E: Element> {
             current: usize,
             end: usize,
             err: bool,

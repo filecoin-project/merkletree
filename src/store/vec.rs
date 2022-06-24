@@ -64,7 +64,7 @@ impl<E: Element> Store<E> for VecStore<E> {
         data: &[u8],
         _config: StoreConfig,
     ) -> Result<Self> {
-        Self::new_from_slice(size, &data)
+        Self::new_from_slice(size, data)
     }
 
     fn new_from_slice(size: usize, data: &[u8]) -> Result<Self> {

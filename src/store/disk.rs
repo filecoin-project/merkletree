@@ -375,7 +375,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
                 let hashed_nodes_as_bytes = chunk_nodes.chunks(branches).fold(
                     Vec::with_capacity(nodes_size),
                     |mut acc, nodes| {
-                        let h = A::default().multi_node(&nodes, level);
+                        let h = A::default().multi_node(nodes, level);
                         acc.extend_from_slice(h.as_ref());
                         acc
                     },

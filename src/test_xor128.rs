@@ -5,7 +5,7 @@ use std::fs::OpenOptions;
 use std::io::Write as ioWrite;
 use std::num::ParseIntError;
 use std::os::unix::prelude::FileExt;
-use std::path::PathBuf;
+use std::path::Path;
 
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
@@ -61,7 +61,7 @@ pub fn get_levelcache_tree_from_slice<U: Unsigned>(
     len: usize,
     row_count: usize,
     config: &StoreConfig,
-    replica_path: &PathBuf,
+    replica_path: &Path,
 ) -> MerkleTree<[u8; 16], XOR128, LevelCacheStore<[u8; 16], std::fs::File>, U> {
     let branches = U::to_usize();
     assert_eq!(
@@ -82,7 +82,7 @@ pub fn get_levelcache_tree_from_slice<U: Unsigned>(
     assert_eq!(mt.leafs(), leafs);
     assert_eq!(mt.row_count(), row_count);
 
-    mt.set_external_reader_path(&replica_path)
+    mt.set_external_reader_path(replica_path)
         .expect("Failed to set external reader");
 
     mt
@@ -93,7 +93,7 @@ fn get_levelcache_tree_from_iter<U: Unsigned>(
     len: usize,
     row_count: usize,
     config: &StoreConfig,
-    replica_path: &PathBuf,
+    replica_path: &Path,
 ) -> MerkleTree<[u8; 16], XOR128, LevelCacheStore<[u8; 16], std::fs::File>, U> {
     let branches = U::to_usize();
     assert_eq!(
@@ -121,7 +121,7 @@ fn get_levelcache_tree_from_iter<U: Unsigned>(
     assert_eq!(mt.leafs(), leafs);
     assert_eq!(mt.row_count(), row_count);
 
-    mt.set_external_reader_path(&replica_path)
+    mt.set_external_reader_path(replica_path)
         .expect("Failed to set external reader");
 
     mt
@@ -143,7 +143,7 @@ fn test_levelcache_v1_tree_from_iter<U: Unsigned>(
     let temp_dir = tempdir::TempDir::new(&name).unwrap();
 
     // Construct and store an MT using a named DiskStore.
-    let config = StoreConfig::new(temp_dir.path(), String::from(name), rows_to_discard);
+    let config = StoreConfig::new(temp_dir.path(), name, rows_to_discard);
     build_disk_tree_from_iter::<U>(leafs, len, row_count, &config);
 
     // Sanity check loading the store from disk and then re-creating
@@ -158,7 +158,7 @@ fn test_levelcache_v1_tree_from_iter<U: Unsigned>(
     assert_eq!(mt_cache.row_count(), row_count);
 
     match mt_cache.compact(config.clone(), StoreConfigDataVersion::One as u32) {
-        Ok(x) => assert_eq!(x, true),
+        Ok(x) => assert!(x),
         Err(_) => panic!("Compaction failed"),
     }
 
@@ -200,7 +200,7 @@ fn test_levelcache_direct_build_from_slice<U: Unsigned>(
     let test_name = "test_levelcache_direct_build_from_slice";
     let replica = format!("{}-{}-{}-{}-replica", test_name, leafs, len, row_count);
     let lc_name = format!("{}-{}-{}-{}", test_name, leafs, len, row_count);
-    let temp_dir = tempdir::TempDir::new(&test_name).unwrap();
+    let temp_dir = tempdir::TempDir::new(test_name).unwrap();
 
     let rows_to_discard = match rows_to_discard {
         Some(x) => x,
@@ -214,7 +214,7 @@ fn test_levelcache_direct_build_from_slice<U: Unsigned>(
     let replica_path = StoreConfig::data_path(&config.path, &config.id);
 
     // Construct level cache tree/store directly, using the above replica.
-    let lc_config = StoreConfig::from_config(&config, String::from(lc_name), Some(len));
+    let lc_config = StoreConfig::from_config(&config, lc_name, Some(len));
     let lc_tree =
         get_levelcache_tree_from_slice::<U>(leafs, len, row_count, &lc_config, &replica_path);
 
@@ -240,7 +240,7 @@ fn test_levelcache_direct_build_from_iter<U: Unsigned>(
     let test_name = "test_levelcache_direct_build_from_iter";
     let replica = format!("{}-{}-{}-{}-replica", test_name, leafs, len, row_count);
     let lc_name = format!("{}-{}-{}-{}", test_name, leafs, len, row_count);
-    let temp_dir = tempdir::TempDir::new(&test_name).unwrap();
+    let temp_dir = tempdir::TempDir::new(test_name).unwrap();
 
     let rows_to_discard = match rows_to_discard {
         Some(x) => x,
@@ -254,7 +254,7 @@ fn test_levelcache_direct_build_from_iter<U: Unsigned>(
     let replica_path = StoreConfig::data_path(&config.path, &config.id);
 
     // Construct level cache tree/store directly, using the above replica.
-    let lc_config = StoreConfig::from_config(&config, String::from(lc_name), Some(len));
+    let lc_config = StoreConfig::from_config(&config, lc_name, Some(len));
     let lc_tree =
         get_levelcache_tree_from_iter::<U>(leafs, len, row_count, &lc_config, &replica_path);
 
@@ -383,7 +383,7 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
     let row_count = get_merkle_tree_row_count(sub_tree_leafs, branches);
 
     let replica_path = StoreConfig::data_path(
-        &temp_dir.path().to_path_buf(),
+        temp_dir.path(),
         &format!(
             "{}-{}-{}-{}-replica",
             test_name, sub_tree_leafs, len, row_count
@@ -424,7 +424,7 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
         }
         replica_offsets.push(i * (16 * sub_tree_leafs));
 
-        let lc_config = StoreConfig::from_config(&config, String::from(lc_name), Some(len));
+        let lc_config = StoreConfig::from_config(&config, lc_name, Some(len));
         get_levelcache_tree_from_slice::<B>(
             sub_tree_leafs,
             len,
@@ -638,7 +638,7 @@ fn test_level_cache_tree_v2() {
     let mut mt_disk: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
         MerkleTree::from_par_iter_with_config(
             (0..count).into_par_iter().map(|x| {
-                let mut xor_128 = a.clone();
+                let mut xor_128 = a;
                 xor_128.reset();
                 x.hash(&mut xor_128);
                 99.hash(&mut xor_128);
@@ -680,7 +680,7 @@ fn test_level_cache_tree_v2() {
     // stores only the cached data and requires the ExternalReader
     // for base data retrieval).
     match mt_disk.compact(config.clone(), StoreConfigDataVersion::Two as u32) {
-        Ok(x) => assert_eq!(x, true),
+        Ok(x) => assert!(x),
         Err(_) => panic!("Compaction failed"), // Could not do any compaction with this configuration.
     }
 
@@ -742,7 +742,7 @@ fn test_various_trees_with_partial_cache_v2_only() {
             // Construct and store an MT using a named DiskStore.
             let config = StoreConfig::new(
                 &temp_path,
-                String::from(format!("test-partial-cache-{}", i)),
+                format!("test-partial-cache-{}", i),
                 std::cmp::min(i, StoreConfig::default_rows_to_discard(count, BINARY_ARITY)),
             );
 
@@ -827,7 +827,7 @@ fn test_various_trees_with_partial_cache_v2_only() {
             // compaction could fail.  It does NOT panic here because
             // for v2 compaction, we only store the cached data.
             match mt_cache.compact(config.clone(), StoreConfigDataVersion::Two as u32) {
-                Ok(x) => assert_eq!(x, true),
+                Ok(x) => assert!(x),
                 Err(_) => panic!("Compaction failed"), // Could not do any compaction with this configuration.
             }
 

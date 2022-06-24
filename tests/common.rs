@@ -114,7 +114,7 @@ impl Default for TestXOR128 {
 
 impl Algorithm<TestItem> for TestXOR128 {
     fn hash(&mut self) -> TestItem {
-        self.data.clone()
+        self.data
     }
 }
 
@@ -168,7 +168,7 @@ impl Algorithm<TestItem> for TestSha256Hasher {
                 .0
                 .copy_from_slice(&hash_output.as_slice()[0..item_size]);
         } else {
-            result.0.copy_from_slice(&hash_output.as_slice())
+            result.0.copy_from_slice(hash_output.as_slice())
         }
         result
     }
@@ -211,11 +211,10 @@ pub fn generate_byte_slice_tree<E: Element, A: Algorithm<E>>(leaves: usize) -> V
             a.hash()
         })
         .take(leaves)
-        .map(|item| {
+        .flat_map(|item| {
             a2.reset();
             a2.leaf(item).as_ref().to_vec()
         })
-        .flatten()
         .collect();
 
     dataset

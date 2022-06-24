@@ -130,7 +130,7 @@ fn test_compound_compound_tree_arities() {
             .unwrap();
 
         let base_trees = (0..TopTreeArity::to_usize())
-            .map(|_| {
+            .flat_map(|_| {
                 get_vector_of_base_trees::<
                     TestItemType,
                     TestSha256Hasher,
@@ -139,7 +139,6 @@ fn test_compound_compound_tree_arities() {
                     SubTreeArity,
                 >(leaves)
             })
-            .flatten()
             .collect::<Vec<MerkleTree<_, _, _, BaseTreeArity>>>();
 
         let tree = MerkleTree::from_sub_trees_as_trees(base_trees).expect(

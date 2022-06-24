@@ -44,9 +44,9 @@ impl From<u64> for Item {
     }
 }
 
-impl Into<u64> for Item {
-    fn into(self) -> u64 {
-        self.0
+impl From<Item> for u64 {
+    fn from(x: Item) -> u64 {
+        x.0
     }
 }
 

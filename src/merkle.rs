@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result};
@@ -209,7 +209,7 @@ impl<
     MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity, SubTreeArity, TopTreeArity>
 {
     /// Given a pathbuf, instantiate an ExternalReader and set it for the LevelCacheStore.
-    pub fn set_external_reader_path(&mut self, path: &PathBuf) -> Result<()> {
+    pub fn set_external_reader_path(&mut self, path: &Path) -> Result<()> {
         ensure!(self.data.store_mut().is_some(), "store data required");
 
         self.data
@@ -445,7 +445,7 @@ impl<
             is_merkle_tree_size_valid(leafs, branches),
             "MerkleTree size is invalid given the arity"
         );
-        let store = S::new_from_slice(tree_len, &data).context("failed to create data store")?;
+        let store = S::new_from_slice(tree_len, data).context("failed to create data store")?;
         let root = store.read_at(store.len() - 1)?;
 
         Ok(MerkleTree {
@@ -490,7 +490,7 @@ impl<
             "MerkleTree size is invalid given the arity"
         );
 
-        let store = S::new_from_slice_with_config(tree_len, branches, &data, config)
+        let store = S::new_from_slice_with_config(tree_len, branches, data, config)
             .context("failed to create data store")?;
         let root = store.read_at(store.len() - 1)?;
 
@@ -522,11 +522,11 @@ impl<
         ensure!(
             trees
                 .iter()
-                .all(|ref mt| mt.row_count() == trees[0].row_count()),
+                .all(|mt| mt.row_count() == trees[0].row_count()),
             "All passed in trees must have the same row_count"
         );
         ensure!(
-            trees.iter().all(|ref mt| mt.len() == trees[0].len()),
+            trees.iter().all(|mt| mt.len() == trees[0].len()),
             "All passed in trees must have the same length"
         );
 
@@ -587,11 +587,11 @@ impl<
         ensure!(
             trees
                 .iter()
-                .all(|ref mt| mt.row_count() == trees[0].row_count()),
+                .all(|mt| mt.row_count() == trees[0].row_count()),
             "All passed in trees must have the same row_count"
         );
         ensure!(
-            trees.iter().all(|ref mt| mt.len() == trees[0].len()),
+            trees.iter().all(|mt| mt.len() == trees[0].len()),
             "All passed in trees must have the same length"
         );
 
@@ -646,11 +646,11 @@ impl<
         ensure!(
             trees
                 .iter()
-                .all(|ref mt| mt.row_count() == trees[0].row_count()),
+                .all(|mt| mt.row_count() == trees[0].row_count()),
             "All passed in trees must have the same row_count"
         );
         ensure!(
-            trees.iter().all(|ref mt| mt.len() == trees[0].len()),
+            trees.iter().all(|mt| mt.len() == trees[0].len()),
             "All passed in trees must have the same length"
         );
 

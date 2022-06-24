@@ -47,12 +47,11 @@ fn instantiate_cctree_from_sub_trees_as_trees<
     base_tree_leaves: usize,
 ) -> MerkleTree<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity> {
     let base_trees = (0..TopTreeArity::to_usize())
-        .map(|_| {
+        .flat_map(|_| {
             (0..SubTreeArity::to_usize())
                 .map(|_| instantiate_new(base_tree_leaves, None))
                 .collect::<Vec<MerkleTree<E, A, S, BaseTreeArity, U0, U0>>>()
         })
-        .flatten()
         .collect();
 
     MerkleTree::from_sub_trees_as_trees(base_trees)
@@ -78,16 +77,12 @@ fn instantiate_cctree_from_sub_tree_store_configs<
         .expect("can't get tree len [instantiate_cctree_from_sub_tree_store_configs]");
 
     let configs = (0..TopTreeArity::to_usize())
-        .map(|j| {
+        .flat_map(|j| {
             (0..SubTreeArity::to_usize())
                 .map(|i| {
                     let replica = format!(
                         "{}-{}-{}-{}-{}-replica",
-                        distinguisher,
-                        i.to_string(),
-                        j.to_string(),
-                        base_tree_leaves,
-                        len,
+                        distinguisher, i, j, base_tree_leaves, len,
                     );
 
                     // we attempt to discard all intermediate layers, except bottom one (set of leaves) and top-level root of base tree
@@ -101,7 +96,6 @@ fn instantiate_cctree_from_sub_tree_store_configs<
                 })
                 .collect::<Vec<StoreConfig>>()
         })
-        .flatten()
         .collect::<Vec<StoreConfig>>();
 
     MerkleTree::from_sub_tree_store_configs(base_tree_leaves, &configs)

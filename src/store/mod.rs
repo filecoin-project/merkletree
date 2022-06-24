@@ -12,7 +12,6 @@ use rayon::iter::plumbing::*;
 use rayon::iter::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use typenum::marker_traits::Unsigned;
 
 use crate::hash::Algorithm;
 use crate::merkle::{get_merkle_tree_row_count, log2_pow2, next_pow2, Element};
@@ -257,7 +256,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
     }
 
     #[inline]
-    fn build_small_tree<A: Algorithm<E>, U: Unsigned>(
+    fn build_small_tree<A: Algorithm<E>, const BRANCHES: usize>(
         &mut self,
         leafs: usize,
         row_count: usize,
@@ -267,8 +266,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
         let mut level: usize = 0;
         let mut width = leafs;
         let mut level_node_index = 0;
-        let branches = U::to_usize();
-        let shift = log2_pow2(branches);
+        let shift = log2_pow2(BRANCHES);
 
         while width > 1 {
             // Same indexing logic as `build`.
@@ -282,7 +280,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
 
                 let layer: Vec<_> = self
                     .read_range(read_start..read_start + width)?
-                    .par_chunks(branches)
+                    .par_chunks(BRANCHES)
                     .map(|nodes| A::default().multi_node(nodes, level))
                     .collect();
 
@@ -305,14 +303,13 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
         self.last()
     }
 
-    fn process_layer<A: Algorithm<E>, U: Unsigned>(
+    fn process_layer<A: Algorithm<E>, const BRANCHES: usize>(
         &mut self,
         width: usize,
         level: usize,
         read_start: usize,
         write_start: usize,
     ) -> Result<()> {
-        let branches = U::to_usize();
         let data_lock = Arc::new(RwLock::new(self));
 
         // Allocate `width` indexes during operation (which is a negligible memory bloat
@@ -321,7 +318,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
         // Process `BUILD_CHUNK_NODES` nodes in each thread at a time to reduce contention,
         // optimized for big sector sizes (small ones will just have one thread doing all
         // the work).
-        ensure!(BUILD_CHUNK_NODES % branches == 0, "Invalid chunk size");
+        ensure!(BUILD_CHUNK_NODES % BRANCHES == 0, "Invalid chunk size");
         Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
             .par_iter()
             .try_for_each(|&chunk_index| -> Result<()> {
@@ -338,10 +335,10 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
                 // We write the hashed nodes to the next level in the
                 // position that would be "in the middle" of the
                 // previous pair (dividing by branches).
-                let write_delta = (chunk_index - read_start) / branches;
+                let write_delta = (chunk_index - read_start) / BRANCHES;
 
-                let nodes_size = (chunk_nodes.len() / branches) * E::byte_len();
-                let hashed_nodes_as_bytes = chunk_nodes.chunks(branches).fold(
+                let nodes_size = (chunk_nodes.len() / BRANCHES) * E::byte_len();
+                let hashed_nodes_as_bytes = chunk_nodes.chunks(BRANCHES).fold(
                     Vec::with_capacity(nodes_size),
                     |mut acc, nodes| {
                         let h = A::default().multi_node(nodes, level);
@@ -352,7 +349,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
 
                 // Check that we correctly pre-allocated the space.
                 ensure!(
-                    hashed_nodes_as_bytes.len() == chunk_size / branches * E::byte_len(),
+                    hashed_nodes_as_bytes.len() == chunk_size / BRANCHES * E::byte_len(),
                     "Invalid hashed node length"
                 );
 
@@ -365,25 +362,24 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
     }
 
     // Default merkle-tree build, based on store type.
-    fn build<A: Algorithm<E>, U: Unsigned>(
+    fn build<A: Algorithm<E>, const BRANCHES: usize>(
         &mut self,
         leafs: usize,
         row_count: usize,
         _config: Option<StoreConfig>,
     ) -> Result<E> {
-        let branches = U::to_usize();
         ensure!(
-            next_pow2(branches) == branches,
+            next_pow2(BRANCHES) == BRANCHES,
             "branches MUST be a power of 2"
         );
         ensure!(Store::len(self) == leafs, "Inconsistent data");
         ensure!(leafs % 2 == 0, "Leafs must be a power of two");
 
         if leafs <= SMALL_TREE_BUILD {
-            return self.build_small_tree::<A, U>(leafs, row_count);
+            return self.build_small_tree::<A, BRANCHES>(leafs, row_count);
         }
 
-        let shift = log2_pow2(branches);
+        let shift = log2_pow2(BRANCHES);
 
         // Process one `level` at a time of `width` nodes. Each level has half the nodes
         // as the previous one; the first level, completely stored in `data`, has `leafs`
@@ -405,7 +401,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
                 (level_node_index, level_node_index + width)
             };
 
-            self.process_layer::<A, U>(width, level, read_start, write_start)?;
+            self.process_layer::<A, BRANCHES>(width, level, read_start, write_start)?;
 
             level_node_index += width;
             level += 1;

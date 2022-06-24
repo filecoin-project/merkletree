@@ -2,7 +2,6 @@
 pub mod common;
 
 use rayon::iter::IntoParallelIterator;
-use typenum::{Unsigned, U0, U2, U8};
 
 use merkletree::hash::Algorithm;
 use merkletree::merkle::{
@@ -19,28 +18,33 @@ use crate::common::{
 };
 
 /// Base tree constructors
-fn instantiate_try_from_iter<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
+fn instantiate_try_from_iter<E: Element, A: Algorithm<E>, S: Store<E>, const BRANCHES: usize>(
     leaves: usize,
     _config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
+) -> MerkleTree<E, A, S, BRANCHES> {
     let dataset = common::generate_vector_of_elements::<E>(leaves);
     MerkleTree::try_from_iter(dataset.into_iter().map(Ok))
         .expect("failed to instantiate tree [try_from_iter]")
 }
 
-fn instantiate_from_par_iter<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
+fn instantiate_from_par_iter<E: Element, A: Algorithm<E>, S: Store<E>, const BRANCHES: usize>(
     leaves: usize,
     _config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
+) -> MerkleTree<E, A, S, BRANCHES> {
     let dataset = common::generate_vector_of_elements::<E>(leaves);
     MerkleTree::from_par_iter(dataset.into_par_iter())
         .expect("failed to instantiate tree [try_from_par_iter]")
 }
 
-fn instantiate_try_from_iter_with_config<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
+fn instantiate_try_from_iter_with_config<
+    E: Element,
+    A: Algorithm<E>,
+    S: Store<E>,
+    const BRANCHES: usize,
+>(
     leaves: usize,
     config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
+) -> MerkleTree<E, A, S, BRANCHES> {
     let dataset = common::generate_vector_of_elements::<E>(leaves);
     MerkleTree::try_from_iter_with_config(
         dataset.into_iter().map(Ok),
@@ -49,10 +53,15 @@ fn instantiate_try_from_iter_with_config<E: Element, A: Algorithm<E>, S: Store<E
     .expect("failed to instantiate tree [try_from_iter_with_config]")
 }
 
-fn instantiate_from_par_iter_with_config<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
+fn instantiate_from_par_iter_with_config<
+    E: Element,
+    A: Algorithm<E>,
+    S: Store<E>,
+    const BRANCHES: usize,
+>(
     leaves: usize,
     config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
+) -> MerkleTree<E, A, S, BRANCHES> {
     let dataset = common::generate_vector_of_elements::<E>(leaves);
     MerkleTree::from_par_iter_with_config(
         dataset,
@@ -61,18 +70,23 @@ fn instantiate_from_par_iter_with_config<E: Element, A: Algorithm<E>, S: Store<E
     .expect("failed to instantiate tree [from_par_iter_with_config]")
 }
 
-fn instantiate_from_data<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
+fn instantiate_from_data<E: Element, A: Algorithm<E>, S: Store<E>, const BRANCHES: usize>(
     leaves: usize,
     _config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
+) -> MerkleTree<E, A, S, BRANCHES> {
     let dataset = generate_vector_of_usizes(leaves);
     MerkleTree::from_data(dataset.as_slice()).expect("failed to instantiate tree [from_data]")
 }
 
-fn instantiate_from_data_with_config<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
+fn instantiate_from_data_with_config<
+    E: Element,
+    A: Algorithm<E>,
+    S: Store<E>,
+    const BRANCHES: usize,
+>(
     leaves: usize,
     config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
+) -> MerkleTree<E, A, S, BRANCHES> {
     let dataset = generate_vector_of_usizes(leaves);
     MerkleTree::from_data_with_config(
         dataset.as_slice(),
@@ -81,11 +95,11 @@ fn instantiate_from_data_with_config<E: Element, A: Algorithm<E>, S: Store<E>, U
     .expect("failed to instantiate tree [from_data_with_config]")
 }
 
-fn instantiate_from_data_store<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
+fn instantiate_from_data_store<E: Element, A: Algorithm<E>, S: Store<E>, const BRANCHES: usize>(
     leaves: usize,
     _config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
-    let tree = instantiate_from_data::<E, A, S, U>(leaves, None);
+) -> MerkleTree<E, A, S, BRANCHES> {
+    let tree = instantiate_from_data::<E, A, S, BRANCHES>(leaves, None);
     let serialized_tree = common::serialize_tree(tree);
     let store = Store::new_from_slice(serialized_tree.len(), &serialized_tree)
         .expect("can't create new store over existing one [from_data_store]");
@@ -93,20 +107,20 @@ fn instantiate_from_data_store<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsi
         .expect("failed to instantiate tree [from_data_store]")
 }
 
-fn instantiate_from_tree_slice<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
+fn instantiate_from_tree_slice<E: Element, A: Algorithm<E>, S: Store<E>, const BRANCHES: usize>(
     leaves: usize,
     _config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
-    let tree = instantiate_from_data::<E, A, S, U>(leaves, None);
+) -> MerkleTree<E, A, S, BRANCHES> {
+    let tree = instantiate_from_data::<E, A, S, BRANCHES>(leaves, None);
     let serialized_tree = common::serialize_tree(tree);
     MerkleTree::from_tree_slice(serialized_tree.as_slice(), leaves)
         .expect("failed to instantiate tree [from_tree_slice]")
 }
 
-fn instantiate_from_byte_slice<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
+fn instantiate_from_byte_slice<E: Element, A: Algorithm<E>, S: Store<E>, const BRANCHES: usize>(
     leaves: usize,
     _config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
+) -> MerkleTree<E, A, S, BRANCHES> {
     let dataset = common::generate_byte_slice_tree::<E, A>(leaves);
     MerkleTree::from_byte_slice(dataset.as_slice())
         .expect("failed to instantiate tree [from_byte_slice]")
@@ -116,11 +130,11 @@ fn instantiate_from_byte_slice_with_config<
     E: Element,
     A: Algorithm<E>,
     S: Store<E>,
-    U: Unsigned,
+    const BRANCHES: usize,
 >(
     leaves: usize,
     config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
+) -> MerkleTree<E, A, S, BRANCHES> {
     let dataset = common::generate_byte_slice_tree::<E, A>(leaves);
     MerkleTree::from_byte_slice_with_config(
         dataset.as_slice(),
@@ -133,12 +147,12 @@ fn instantiate_from_tree_slice_with_config<
     E: Element,
     A: Algorithm<E>,
     S: Store<E>,
-    U: Unsigned,
+    const BRANCHES: usize,
 >(
     leaves: usize,
     config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
-    let tmp_tree = instantiate_from_data::<E, A, S, U>(leaves, None);
+) -> MerkleTree<E, A, S, BRANCHES> {
+    let tmp_tree = instantiate_from_data::<E, A, S, BRANCHES>(leaves, None);
     let serialized_tree = common::serialize_tree(tmp_tree);
     MerkleTree::from_tree_slice_with_config(
         serialized_tree.as_slice(),
@@ -149,23 +163,23 @@ fn instantiate_from_tree_slice_with_config<
 }
 
 /// Test executor
-fn run_test_base_tree<E: Element, A: Algorithm<E>, S: Store<E>, BaseTreeArity: Unsigned>(
-    constructor: fn(usize, Option<StoreConfig>) -> MerkleTree<E, A, S, BaseTreeArity>,
+fn run_test_base_tree<E: Element, A: Algorithm<E>, S: Store<E>, const BASE_TREE_ARITY: usize>(
+    constructor: fn(usize, Option<StoreConfig>) -> MerkleTree<E, A, S, BASE_TREE_ARITY>,
     leaves_in_tree: usize,
     config: Option<StoreConfig>,
     expected_leaves: usize,
     expected_len: usize,
     expected_root: E,
 ) {
-    // base tree has SubTreeArity and TopTreeArity parameters equal to zero
-    let tree: MerkleTree<E, A, S, BaseTreeArity, U0, U0> = constructor(leaves_in_tree, config);
+    // base tree has SUB_TREE_ARITY and TOP_TREE_ARITY parameters equal to zero
+    let tree: MerkleTree<E, A, S, BASE_TREE_ARITY, 0, 0> = constructor(leaves_in_tree, config);
     test_disk_mmap_vec_tree_functionality(tree, expected_leaves, expected_len, expected_root);
 }
 
 /// Ultimately we have a list of constructors for base trees
 /// that we can divide by actual dataset generator and organize
 /// complex integration tests that evaluate correct instantiation
-/// of base tree (with fixing base tree arity parameter to U8 - oct tree)
+/// of base tree (with fixing base tree arity parameter to 8 - oct tree)
 /// using distinct hashers
 ///
 /// [Iterable]
@@ -190,9 +204,9 @@ fn test_iterable() {
     fn run_tests<E: Element + Copy, A: Algorithm<E>, S: Store<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves;
-        let len = get_merkle_tree_len_generic::<U8, U0, U0>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<8, 0, 0>(base_tree_leaves).unwrap();
 
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_new,
             base_tree_leaves,
             None,
@@ -201,7 +215,7 @@ fn test_iterable() {
             root,
         );
 
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_try_from_iter,
             base_tree_leaves,
             None,
@@ -210,7 +224,7 @@ fn test_iterable() {
             root,
         );
 
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_from_par_iter,
             base_tree_leaves,
             None,
@@ -221,7 +235,7 @@ fn test_iterable() {
 
         let distinguisher = "instantiate_new_with_config";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_new_with_config,
             base_tree_leaves,
             Some(StoreConfig::new(
@@ -236,7 +250,7 @@ fn test_iterable() {
 
         let distinguisher = "instantiate_try_from_iter_with_config";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_try_from_iter_with_config,
             base_tree_leaves,
             Some(StoreConfig::new(
@@ -251,7 +265,7 @@ fn test_iterable() {
 
         let distinguisher = "instantiate_from_par_iter_with_config";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_from_par_iter_with_config,
             base_tree_leaves,
             Some(StoreConfig::new(
@@ -286,9 +300,9 @@ fn test_iterable_hashable_and_serialization() {
     fn run_tests<E: Element + Copy, A: Algorithm<E>, S: Store<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves;
-        let len = get_merkle_tree_len_generic::<U8, U0, U0>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<8, 0, 0>(base_tree_leaves).unwrap();
 
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_from_data,
             base_tree_leaves,
             None,
@@ -299,7 +313,7 @@ fn test_iterable_hashable_and_serialization() {
 
         let distinguisher = "instantiate_from_data_with_config";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_from_data_with_config,
             base_tree_leaves,
             Some(StoreConfig::new(
@@ -312,7 +326,7 @@ fn test_iterable_hashable_and_serialization() {
             root,
         );
 
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_from_data_store,
             base_tree_leaves,
             None,
@@ -321,7 +335,7 @@ fn test_iterable_hashable_and_serialization() {
             root,
         );
 
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_from_tree_slice,
             base_tree_leaves,
             None,
@@ -330,7 +344,7 @@ fn test_iterable_hashable_and_serialization() {
             root,
         );
 
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_from_byte_slice,
             base_tree_leaves,
             None,
@@ -341,7 +355,7 @@ fn test_iterable_hashable_and_serialization() {
 
         let distinguisher = "instantiate_from_byte_slice_with_config";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_from_byte_slice_with_config,
             base_tree_leaves,
             Some(StoreConfig::new(
@@ -356,7 +370,7 @@ fn test_iterable_hashable_and_serialization() {
 
         let distinguisher = "instantiate_from_tree_slice_with_config";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-        run_test_base_tree::<E, A, S, U8>(
+        run_test_base_tree::<E, A, S, 8>(
             instantiate_from_tree_slice_with_config,
             base_tree_leaves,
             Some(StoreConfig::new(
@@ -391,8 +405,13 @@ fn test_iterable_hashable_and_serialization() {
 /// Since Rust doesn't provide special tools for comparing types (only some unstable tools
 /// exist - https://stackoverflow.com/questions/60138397/how-to-test-for-type-equality-in-rust)
 /// we just compare partial strings from formatted storages
-fn run_base_tree_storage_test<E: Element, A: Algorithm<E>, S: Store<E>, BaseTreeArity: Unsigned>(
-    constructor: fn(usize, Option<StoreConfig>) -> MerkleTree<E, A, S, BaseTreeArity>,
+fn run_base_tree_storage_test<
+    E: Element,
+    A: Algorithm<E>,
+    S: Store<E>,
+    const BASE_TREE_ARITY: usize,
+>(
+    constructor: fn(usize, Option<StoreConfig>) -> MerkleTree<E, A, S, BASE_TREE_ARITY>,
     leaves_in_tree: usize,
     config: Option<StoreConfig>,
     expected_storage: S,
@@ -426,7 +445,7 @@ fn test_storage_types() {
     type DiskStorage = DiskStore<TestItemType>;
     let distinguisher = "instantiate_new_with_config-disk";
     let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-    run_base_tree_storage_test::<TestItemType, TestXOR128, DiskStorage, U8>(
+    run_base_tree_storage_test::<TestItemType, TestXOR128, DiskStorage, 8>(
         instantiate_new_with_config,
         base_tree_leaves,
         Some(StoreConfig::new(
@@ -441,7 +460,7 @@ fn test_storage_types() {
     type MmapStorage = MmapStore<TestItemType>;
     let distinguisher = "instantiate_new_with_config-mmap";
     let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-    run_base_tree_storage_test::<TestItemType, TestXOR128, MmapStorage, U8>(
+    run_base_tree_storage_test::<TestItemType, TestXOR128, MmapStorage, 8>(
         instantiate_new_with_config,
         base_tree_leaves,
         Some(StoreConfig::new(
@@ -456,7 +475,7 @@ fn test_storage_types() {
     type LevelCacheStorage = LevelCacheStore<TestItemType, std::fs::File>;
     let distinguisher = "instantiate_new_with_config-level-cache";
     let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-    run_base_tree_storage_test::<TestItemType, TestXOR128, LevelCacheStorage, U8>(
+    run_base_tree_storage_test::<TestItemType, TestXOR128, LevelCacheStorage, 8>(
         instantiate_new_with_config,
         base_tree_leaves,
         Some(StoreConfig::new(
@@ -472,14 +491,14 @@ fn test_storage_types() {
 #[test]
 #[ignore]
 fn test_large_base_trees() {
-    fn run_test<BaseTreeArity: Unsigned>(
+    fn run_test<const BASE_TREE_ARITY: usize>(
         leaves: usize,
         len: usize,
         row_count: usize,
         num_challenges: usize,
     ) {
         let big_tree =
-            instantiate_new::<TestItemType, TestXOR128, VecStore<TestItemType>, BaseTreeArity>(
+            instantiate_new::<TestItemType, TestXOR128, VecStore<TestItemType>, BASE_TREE_ARITY>(
                 leaves, None,
             );
 
@@ -497,14 +516,14 @@ fn test_large_base_trees() {
     }
 
     let (leaves, len, row_count, num_challenges) = { (16777216, 19173961, 9, 1024) };
-    run_test::<U8>(leaves, len, row_count, num_challenges);
+    run_test::<8>(leaves, len, row_count, num_challenges);
 
     let leaves = SMALL_TREE_BUILD * 2;
     let num_challenges = SMALL_TREE_BUILD * 2;
     let branches = 2;
-    run_test::<U2>(
+    run_test::<2>(
         leaves,
-        get_merkle_tree_len_generic::<U2, U0, U0>(leaves).expect("can't get tree len"),
+        get_merkle_tree_len_generic::<2, 0, 0>(leaves).expect("can't get tree len"),
         get_merkle_tree_row_count(leaves, branches),
         num_challenges,
     );

@@ -30,7 +30,6 @@ use merkletree::merkle::{
     get_merkle_tree_len_generic, Element, FromIndexedParallelIterator, MerkleTree,
 };
 use merkletree::store::{DiskStore, LevelCacheStore, ReplicaConfig, StoreConfig, VecStore};
-use typenum::{Unsigned, U0, U2, U8};
 
 use crate::common::{
     dump_tree_data_to_replica, generate_byte_slice_tree, generate_vector_of_elements,
@@ -39,11 +38,11 @@ use crate::common::{
 };
 
 /// LevelCacheStore constructors of base trees
-fn lc_instantiate_new_with_config<E: Element, A: Algorithm<E>, BaseTreeArity: Unsigned>(
+fn lc_instantiate_new_with_config<E: Element, A: Algorithm<E>, const BASE_TREE_ARITY: usize>(
     leaves: usize,
     temp_dir_path: &Path,
     rows_to_discard: usize,
-) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity> {
+) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY> {
     let dataset = generate_vector_of_elements::<E>(leaves);
 
     let replica_path = StoreConfig::data_path(temp_dir_path, "replica_path");
@@ -58,13 +57,13 @@ fn lc_instantiate_new_with_config<E: Element, A: Algorithm<E>, BaseTreeArity: Un
     );
 
     // instantiation of this temp tree is required for binding config to actual file on disk for subsequent dumping the data to replica
-    let tree = MerkleTree::<E, A, DiskStore<E>, BaseTreeArity>::new_with_config(
+    let tree = MerkleTree::<E, A, DiskStore<E>, BASE_TREE_ARITY>::new_with_config(
         dataset.clone(),
         config.clone(),
     )
     .expect("failed to instantiate tree [lc_instantiate_new_with_config]");
 
-    dump_tree_data_to_replica::<E, BaseTreeArity>(
+    dump_tree_data_to_replica::<E, BASE_TREE_ARITY>(
         tree.leafs(),
         tree.len(),
         &config,
@@ -78,7 +77,7 @@ fn lc_instantiate_new_with_config<E: Element, A: Algorithm<E>, BaseTreeArity: Un
         Some(tree.len()),
     );
     let mut tree =
-        MerkleTree::<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity>::new_with_config(
+        MerkleTree::<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY>::new_with_config(
             dataset, lc_config,
         )
         .expect("failed to instantiate LC tree [lc_instantiate_new_with_config]");
@@ -90,12 +89,12 @@ fn lc_instantiate_new_with_config<E: Element, A: Algorithm<E>, BaseTreeArity: Un
 fn lc_instantiate_try_from_iter_with_config<
     E: Element,
     A: Algorithm<E>,
-    BaseTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
 >(
     leaves: usize,
     temp_dir_path: &Path,
     rows_to_discard: usize,
-) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity> {
+) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY> {
     let dataset = generate_vector_of_elements::<E>(leaves);
 
     let replica_path = StoreConfig::data_path(temp_dir_path, "replica_path");
@@ -110,13 +109,13 @@ fn lc_instantiate_try_from_iter_with_config<
     );
 
     // instantiation of this temp tree is required for binding config to actual file on disk for subsequent dumping the data to replica
-    let tree = MerkleTree::<E, A, DiskStore<E>, BaseTreeArity>::try_from_iter_with_config(
+    let tree = MerkleTree::<E, A, DiskStore<E>, BASE_TREE_ARITY>::try_from_iter_with_config(
         dataset.clone().into_iter().map(Ok),
         config.clone(),
     )
     .expect("failed to instantiate tree [lc_instantiate_try_from_iter_with_config]");
 
-    dump_tree_data_to_replica::<E, BaseTreeArity>(
+    dump_tree_data_to_replica::<E, BASE_TREE_ARITY>(
         tree.leafs(),
         tree.len(),
         &config,
@@ -129,7 +128,7 @@ fn lc_instantiate_try_from_iter_with_config<
         format!("{}-{}", "lc_instantiate_try_from_iter_with_config", "lc"),
         Some(tree.len()),
     );
-    let mut tree = MerkleTree::<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity>::try_from_iter_with_config(dataset.into_iter().map(Ok), lc_config).expect("failed to instantiate LC tree [lc_instantiate_try_from_iter_with_config]");
+    let mut tree = MerkleTree::<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY>::try_from_iter_with_config(dataset.into_iter().map(Ok), lc_config).expect("failed to instantiate LC tree [lc_instantiate_try_from_iter_with_config]");
     tree.set_external_reader_path(&replica_path)
         .expect("can't set external reader path [lc_instantiate_try_from_iter_with_config]");
     tree
@@ -138,12 +137,12 @@ fn lc_instantiate_try_from_iter_with_config<
 fn lc_instantiate_from_par_iter_with_config<
     E: Element,
     A: Algorithm<E>,
-    BaseTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
 >(
     leaves: usize,
     temp_dir_path: &Path,
     rows_to_discard: usize,
-) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity> {
+) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY> {
     let dataset = generate_vector_of_elements::<E>(leaves);
 
     let replica_path = StoreConfig::data_path(temp_dir_path, "replica_path");
@@ -158,13 +157,13 @@ fn lc_instantiate_from_par_iter_with_config<
     );
 
     // instantiation of this temp tree is required for binding config to actual file on disk for subsequent dumping the data to replica
-    let tree = MerkleTree::<E, A, DiskStore<E>, BaseTreeArity>::from_par_iter_with_config(
+    let tree = MerkleTree::<E, A, DiskStore<E>, BASE_TREE_ARITY>::from_par_iter_with_config(
         dataset.clone(),
         config.clone(),
     )
     .expect("failed to instantiate tree [lc_instantiate_from_par_iter_with_config]");
 
-    dump_tree_data_to_replica::<E, BaseTreeArity>(
+    dump_tree_data_to_replica::<E, BASE_TREE_ARITY>(
         tree.leafs(),
         tree.len(),
         &config,
@@ -177,17 +176,21 @@ fn lc_instantiate_from_par_iter_with_config<
         format!("{}-{}", "lc_instantiate_from_par_iter_with_config", "lc"),
         Some(tree.len()),
     );
-    let mut tree = MerkleTree::<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity>::from_par_iter_with_config(dataset, lc_config).expect("failed to instantiate LC tree [lc_instantiate_from_par_iter_with_config]");
+    let mut tree = MerkleTree::<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY>::from_par_iter_with_config(dataset, lc_config).expect("failed to instantiate LC tree [lc_instantiate_from_par_iter_with_config]");
     tree.set_external_reader_path(&replica_path)
         .expect("can't set external reader path [lc_instantiate_from_par_iter_with_config]");
     tree
 }
 
-fn lc_instantiate_from_data_with_config<E: Element, A: Algorithm<E>, BaseTreeArity: Unsigned>(
+fn lc_instantiate_from_data_with_config<
+    E: Element,
+    A: Algorithm<E>,
+    const BASE_TREE_ARITY: usize,
+>(
     leaves: usize,
     temp_dir_path: &Path,
     rows_to_discard: usize,
-) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity> {
+) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY> {
     let dataset = generate_vector_of_usizes(leaves);
 
     let replica_path = StoreConfig::data_path(temp_dir_path, "replica_path");
@@ -202,13 +205,13 @@ fn lc_instantiate_from_data_with_config<E: Element, A: Algorithm<E>, BaseTreeAri
     );
 
     // instantiation of this temp tree is required for binding config to actual file on disk for subsequent dumping the data to replica
-    let tree = MerkleTree::<E, A, DiskStore<E>, BaseTreeArity>::from_data_with_config(
+    let tree = MerkleTree::<E, A, DiskStore<E>, BASE_TREE_ARITY>::from_data_with_config(
         dataset.as_slice(),
         config.clone(),
     )
     .expect("failed to instantiate tree [lc_instantiate_from_data_with_config]");
 
-    dump_tree_data_to_replica::<E, BaseTreeArity>(
+    dump_tree_data_to_replica::<E, BASE_TREE_ARITY>(
         tree.leafs(),
         tree.len(),
         &config,
@@ -221,7 +224,7 @@ fn lc_instantiate_from_data_with_config<E: Element, A: Algorithm<E>, BaseTreeAri
         format!("{}-{}", "lc_instantiate_from_data_with_config", "lc"),
         Some(tree.len()),
     );
-    let mut tree = MerkleTree::<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity>::from_data_with_config(dataset.as_slice(), lc_config).expect("failed to instantiate LC tree [lc_instantiate_from_data_with_config]");
+    let mut tree = MerkleTree::<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY>::from_data_with_config(dataset.as_slice(), lc_config).expect("failed to instantiate LC tree [lc_instantiate_from_data_with_config]");
     tree.set_external_reader_path(&replica_path)
         .expect("can't set external reader path [lc_instantiate_from_data_with_config]");
     tree
@@ -230,12 +233,12 @@ fn lc_instantiate_from_data_with_config<E: Element, A: Algorithm<E>, BaseTreeAri
 fn lc_instantiate_from_byte_slice_with_config<
     E: Element,
     A: Algorithm<E>,
-    BaseTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
 >(
     leaves: usize,
     temp_dir_path: &Path,
     rows_to_discard: usize,
-) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity> {
+) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY> {
     let dataset = generate_byte_slice_tree::<E, A>(leaves);
 
     let replica_path = StoreConfig::data_path(temp_dir_path, "replica_path");
@@ -250,13 +253,13 @@ fn lc_instantiate_from_byte_slice_with_config<
     );
 
     // instantiation of this temp tree is required for binding config to actual file on disk for subsequent dumping the data to replica
-    let tree = MerkleTree::<E, A, DiskStore<E>, BaseTreeArity>::from_byte_slice_with_config(
+    let tree = MerkleTree::<E, A, DiskStore<E>, BASE_TREE_ARITY>::from_byte_slice_with_config(
         dataset.as_slice(),
         config.clone(),
     )
     .expect("failed to instantiate tree [lc_instantiate_from_byte_slice_with_config]");
 
-    dump_tree_data_to_replica::<E, BaseTreeArity>(
+    dump_tree_data_to_replica::<E, BASE_TREE_ARITY>(
         tree.leafs(),
         tree.len(),
         &config,
@@ -269,7 +272,7 @@ fn lc_instantiate_from_byte_slice_with_config<
         format!("{}-{}", "lc_instantiate_from_byte_slice_with_config", "lc"),
         Some(tree.len()),
     );
-    let mut tree = MerkleTree::<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity>::from_byte_slice_with_config(dataset.as_slice(), lc_config).expect("failed to instantiate LC tree [lc_instantiate_from_byte_slice_with_config]");
+    let mut tree = MerkleTree::<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY>::from_byte_slice_with_config(dataset.as_slice(), lc_config).expect("failed to instantiate LC tree [lc_instantiate_from_byte_slice_with_config]");
     tree.set_external_reader_path(&replica_path)
         .expect("can't set external reader path [lc_instantiate_from_byte_slice_with_config]");
     tree
@@ -279,14 +282,14 @@ fn lc_instantiate_from_byte_slice_with_config<
 fn lc_instantiate_from_tree_slice_with_config<
     E: Element,
     A: Algorithm<E>,
-    BaseTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
 >(
     leaves: usize,
     temp_dir_path: &Path,
     rows_to_discard: usize,
-) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity> {
+) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY> {
     let dataset = generate_vector_of_usizes(leaves);
-    let tmp_tree = MerkleTree::<E, A, VecStore<E>, BaseTreeArity>::from_data(dataset.as_slice())
+    let tmp_tree = MerkleTree::<E, A, VecStore<E>, BASE_TREE_ARITY>::from_data(dataset.as_slice())
         .expect("failed to instantiate tree [lc_instantiate_from_tree_slice_with_config]");
     let dataset = serialize_tree(tmp_tree);
 
@@ -302,14 +305,14 @@ fn lc_instantiate_from_tree_slice_with_config<
     );
 
     // instantiation of this temp tree is required for binding config to actual file on disk for subsequent dumping the data to replica
-    let tree = MerkleTree::<E, A, DiskStore<E>, BaseTreeArity>::from_tree_slice_with_config(
+    let tree = MerkleTree::<E, A, DiskStore<E>, BASE_TREE_ARITY>::from_tree_slice_with_config(
         dataset.as_slice(),
         leaves,
         config.clone(),
     )
     .expect("failed to instantiate tree [lc_instantiate_from_tree_slice_with_config]");
 
-    dump_tree_data_to_replica::<E, BaseTreeArity>(
+    dump_tree_data_to_replica::<E, BASE_TREE_ARITY>(
         tree.leafs(),
         tree.len(),
         &config,
@@ -322,7 +325,7 @@ fn lc_instantiate_from_tree_slice_with_config<
         format!("{}-{}", "lc_instantiate_from_tree_slice_with_config", "lc"),
         Some(tree.len()),
     );
-    let mut tree = MerkleTree::<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity>::from_tree_slice_with_config(dataset.as_slice(), leaves, lc_config).expect("failed to instantiate LC tree [lc_instantiate_from_tree_slice_with_config]");
+    let mut tree = MerkleTree::<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY>::from_tree_slice_with_config(dataset.as_slice(), leaves, lc_config).expect("failed to instantiate LC tree [lc_instantiate_from_tree_slice_with_config]");
     tree.set_external_reader_path(&replica_path)
         .expect("can't set external reader path [lc_instantiate_from_tree_slice_with_config]");
     tree
@@ -330,12 +333,12 @@ fn lc_instantiate_from_tree_slice_with_config<
 
 /// Test executor
 #[allow(clippy::type_complexity)]
-fn run_test_base_lc_tree<E: Element, A: Algorithm<E>, BaseTreeArity: Unsigned>(
+fn run_test_base_lc_tree<E: Element, A: Algorithm<E>, const BASE_TREE_ARITY: usize>(
     constructor: fn(
         usize,
         &Path,
         usize,
-    ) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity>,
+    ) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY>,
     leaves_in_tree: usize,
     temp_dir_path: &Path,
     rows_to_discard: usize,
@@ -343,8 +346,8 @@ fn run_test_base_lc_tree<E: Element, A: Algorithm<E>, BaseTreeArity: Unsigned>(
     expected_len: usize,
     expected_root: E,
 ) {
-    // base tree has SubTreeArity and TopTreeArity parameters equal to zero
-    let tree: MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity> =
+    // base tree has SUB_TREE_ARITY and TOP_TREE_ARITY parameters equal to zero
+    let tree: MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY> =
         constructor(leaves_in_tree, temp_dir_path, rows_to_discard);
     test_levelcache_tree_functionality(
         tree,
@@ -364,12 +367,12 @@ fn test_base_levelcache_trees_iterable() {
     fn run_tests<E: Element + Copy, A: Algorithm<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves;
-        let len = get_merkle_tree_len_generic::<U8, U0, U0>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<8, 0, 0>(base_tree_leaves).unwrap();
         let rows_to_discard = 0;
 
         let distinguisher = "lc_instantiate_new_with_config";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-        run_test_base_lc_tree::<E, A, U8>(
+        run_test_base_lc_tree::<E, A, 8>(
             lc_instantiate_new_with_config,
             base_tree_leaves,
             temp_dir.path(),
@@ -381,7 +384,7 @@ fn test_base_levelcache_trees_iterable() {
 
         let distinguisher = "lc_instantiate_try_from_iter_with_config";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-        run_test_base_lc_tree::<E, A, U8>(
+        run_test_base_lc_tree::<E, A, 8>(
             lc_instantiate_try_from_iter_with_config,
             base_tree_leaves,
             temp_dir.path(),
@@ -393,7 +396,7 @@ fn test_base_levelcache_trees_iterable() {
 
         let distinguisher = "lc_instantiate_from_par_iter_with_config";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-        run_test_base_lc_tree::<E, A, U8>(
+        run_test_base_lc_tree::<E, A, 8>(
             lc_instantiate_from_par_iter_with_config,
             base_tree_leaves,
             temp_dir.path(),
@@ -419,12 +422,12 @@ fn test_base_levelcache_trees_iterable_hashable_and_serialization() {
     fn run_tests<E: Element + Copy, A: Algorithm<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves;
-        let len = get_merkle_tree_len_generic::<U8, U0, U0>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<8, 0, 0>(base_tree_leaves).unwrap();
         let rows_to_discard = 0;
 
         let distinguisher = "lc_instantiate_from_data_with_config";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-        run_test_base_lc_tree::<E, A, U8>(
+        run_test_base_lc_tree::<E, A, 8>(
             lc_instantiate_from_data_with_config,
             base_tree_leaves,
             temp_dir.path(),
@@ -436,7 +439,7 @@ fn test_base_levelcache_trees_iterable_hashable_and_serialization() {
 
         let distinguisher = "lc_instantiate_from_byte_slice_with_config";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-        run_test_base_lc_tree::<E, A, U8>(
+        run_test_base_lc_tree::<E, A, 8>(
             lc_instantiate_from_byte_slice_with_config,
             base_tree_leaves,
             temp_dir.path(),
@@ -449,7 +452,7 @@ fn test_base_levelcache_trees_iterable_hashable_and_serialization() {
         /* TODO investigate, why this test fails
         let distinguisher = "lc_instantiate_from_tree_slice_with_config";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
-        run_test_base_lc_tree::<E, A, U8>(
+        run_test_base_lc_tree::<E, A, 8>(
             lc_instantiate_from_tree_slice_with_config,
             base_tree_leaves,
             temp_dir.path(),
@@ -474,25 +477,23 @@ fn test_base_levelcache_trees_iterable_hashable_and_serialization() {
 fn lc_instantiate_ctree_from_store_configs_and_replica<
     E: Element,
     A: Algorithm<E>,
-    BaseTreeArity: Unsigned,
-    SubTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
+    const SUB_TREE_ARITY: usize,
 >(
     base_tree_leaves: usize,
     temp_dir_path: &Path,
     rows_to_discard: Option<usize>,
-) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity, SubTreeArity> {
+) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BASE_TREE_ARITY, SUB_TREE_ARITY> {
     let replica_path = StoreConfig::data_path(temp_dir_path, "replica_path");
     let mut replica_file = std::fs::File::create(&replica_path).expect(
         "failed to create replica file [lc_instantiate_ctree_from_store_configs_and_replica]",
     );
 
-    let sub_tree_arity = SubTreeArity::to_usize();
-
-    let offsets = (0..sub_tree_arity)
+    let offsets = (0..SUB_TREE_ARITY)
         .map(|index| index * E::byte_len() * base_tree_leaves)
         .collect();
 
-    let configs = (0..sub_tree_arity)
+    let configs = (0..SUB_TREE_ARITY)
         .map(|index| {
             // prepare replica file content
             let config = StoreConfig::new(
@@ -502,11 +503,11 @@ fn lc_instantiate_ctree_from_store_configs_and_replica<
                     .expect("can't get rows_to_discard [lc_instantiate_ctree_from_store_configs_and_replica]"),
             );
             // instantiation of this temp tree is required for binding config to actual file on disk for subsequent dumping the data to replica
-            let tree = instantiate_new_with_config::<E, A, DiskStore<E>, BaseTreeArity>(
+            let tree = instantiate_new_with_config::<E, A, DiskStore<E>, BASE_TREE_ARITY>(
                 base_tree_leaves,
                 Some(config.clone()),
             );
-            dump_tree_data_to_replica::<E, BaseTreeArity>(
+            dump_tree_data_to_replica::<E, BASE_TREE_ARITY>(
                 tree.leafs(),
                 tree.len(),
                 &config,
@@ -523,7 +524,7 @@ fn lc_instantiate_ctree_from_store_configs_and_replica<
                 E,
                 A,
                 LevelCacheStore<E, std::fs::File>,
-                BaseTreeArity,
+                BASE_TREE_ARITY,
             >(base_tree_leaves, Some(lc_config.clone()));
             tree.set_external_reader_path(&replica_path)
                 .expect("can't set external reader path [lc_instantiate_ctree_from_store_configs_and_replica]");
@@ -548,18 +549,18 @@ fn test_compound_levelcache_trees() {
     fn run_tests<E: Element + Copy, A: Algorithm<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves * 8;
-        let len = get_merkle_tree_len_generic::<U8, U8, U0>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<8, 8, 0>(base_tree_leaves).unwrap();
 
         let distinguisher = "instantiate_cctree_from_sub_tree_store_configs_and_replica";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
         let rows_to_discard = 0;
-        let tree = lc_instantiate_ctree_from_store_configs_and_replica::<E, A, U8, U8>(
+        let tree = lc_instantiate_ctree_from_store_configs_and_replica::<E, A, 8, 8>(
             base_tree_leaves,
             temp_dir.path(),
             Some(rows_to_discard),
         );
 
-        test_levelcache_tree_functionality::<E, A, U8, U8, U0>(
+        test_levelcache_tree_functionality::<E, A, 8, 8, 0>(
             tree,
             Some(rows_to_discard),
             expected_total_leaves,
@@ -581,29 +582,32 @@ fn test_compound_levelcache_trees() {
 fn lc_instantiate_cctree_from_sub_tree_store_configs_and_replica<
     E: Element,
     A: Algorithm<E>,
-    BaseTreeArity: Unsigned,
-    SubTreeArity: Unsigned,
-    TopTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
+    const SUB_TREE_ARITY: usize,
+    const TOP_TREE_ARITY: usize,
 >(
     base_tree_leaves: usize,
     temp_dir_path: &Path,
     rows_to_discard: Option<usize>,
-) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity, SubTreeArity, TopTreeArity>
-{
+) -> MerkleTree<
+    E,
+    A,
+    LevelCacheStore<E, std::fs::File>,
+    BASE_TREE_ARITY,
+    SUB_TREE_ARITY,
+    TOP_TREE_ARITY,
+> {
     let replica_path = StoreConfig::data_path(temp_dir_path, "replica_path");
     let mut replica_file = std::fs::File::create(&replica_path)
         .expect("failed to create replica file [lc_instantiate_cctree_from_sub_tree_store_configs_and_replica]");
 
-    let sub_tree_arity = SubTreeArity::to_usize();
-    let top_tree_arity = TopTreeArity::to_usize();
-
-    let offsets = (0..sub_tree_arity * top_tree_arity)
+    let offsets = (0..SUB_TREE_ARITY * TOP_TREE_ARITY)
         .map(|index| index * E::byte_len() * base_tree_leaves)
         .collect();
 
-    let configs = (0..TopTreeArity::to_usize())
+    let configs = (0..TOP_TREE_ARITY)
         .flat_map(|j| {
-            (0..SubTreeArity::to_usize())
+            (0..SUB_TREE_ARITY)
                 .map(|i| {
                     // prepare replica file content
                     let config = StoreConfig::new(
@@ -619,11 +623,11 @@ fn lc_instantiate_cctree_from_sub_tree_store_configs_and_replica<
                     );
                     // instantiation of this temp tree is required for binding config to actual file on disk for subsequent dumping the data to replica
                     let tree =
-                        instantiate_new_with_config::<E, A, DiskStore<E>, BaseTreeArity>(
+                        instantiate_new_with_config::<E, A, DiskStore<E>, BASE_TREE_ARITY>(
                             base_tree_leaves,
                             Some(config.clone()),
                         );
-                    dump_tree_data_to_replica::<E, BaseTreeArity>(
+                    dump_tree_data_to_replica::<E, BASE_TREE_ARITY>(
                         tree.leafs(),
                         tree.len(),
                         &config,
@@ -644,7 +648,7 @@ fn lc_instantiate_cctree_from_sub_tree_store_configs_and_replica<
                         E,
                         A,
                         LevelCacheStore<E, std::fs::File>,
-                        BaseTreeArity,
+                        BASE_TREE_ARITY,
                     >(base_tree_leaves, Some(lc_config.clone()));
                     tree.set_external_reader_path(&replica_path).expect(
                         "can't set external reader path [lc_instantiate_cctree_from_sub_tree_store_configs_and_replica]",
@@ -672,18 +676,18 @@ fn test_compound_compound_levelcache_trees() {
     fn run_tests<E: Element + Copy, A: Algorithm<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves * 8 * 2;
-        let len = get_merkle_tree_len_generic::<U8, U8, U2>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<8, 8, 2>(base_tree_leaves).unwrap();
 
         let distinguisher = "instantiate_cctree_from_sub_tree_store_configs_and_replica";
         let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
         let rows_to_discard = 0;
-        let tree = lc_instantiate_cctree_from_sub_tree_store_configs_and_replica::<E, A, U8, U8, U2>(
+        let tree = lc_instantiate_cctree_from_sub_tree_store_configs_and_replica::<E, A, 8, 8, 2>(
             base_tree_leaves,
             temp_dir.path(),
             Some(rows_to_discard),
         );
 
-        test_levelcache_tree_functionality::<E, A, U8, U8, U2>(
+        test_levelcache_tree_functionality::<E, A, 8, 8, 2>(
             tree,
             Some(rows_to_discard),
             expected_total_leaves,

@@ -5,7 +5,6 @@ use std::io::Write;
 
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
-use typenum::Unsigned;
 
 use merkletree::hash::{Algorithm, Hashable};
 use merkletree::merkle::{Element, MerkleTree};
@@ -225,11 +224,11 @@ pub fn test_disk_mmap_vec_tree_functionality<
     E: Element,
     A: Algorithm<E>,
     S: Store<E>,
-    BaseTreeArity: Unsigned,
-    SubTreeArity: Unsigned,
-    TopTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
+    const SUB_TREE_ARITY: usize,
+    const TOP_TREE_ARITY: usize,
 >(
-    tree: MerkleTree<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity>,
+    tree: MerkleTree<E, A, S, BASE_TREE_ARITY, SUB_TREE_ARITY, TOP_TREE_ARITY>,
     expected_leaves: usize,
     expected_len: usize,
     expected_root: E,
@@ -247,17 +246,17 @@ pub fn test_disk_mmap_vec_tree_functionality<
 pub fn test_levelcache_tree_functionality<
     E: Element,
     A: Algorithm<E>,
-    BaseTreeArity: Unsigned,
-    SubTreeArity: Unsigned,
-    TopTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
+    const SUB_TREE_ARITY: usize,
+    const TOP_TREE_ARITY: usize,
 >(
     tree: MerkleTree<
         E,
         A,
         LevelCacheStore<E, std::fs::File>,
-        BaseTreeArity,
-        SubTreeArity,
-        TopTreeArity,
+        BASE_TREE_ARITY,
+        SUB_TREE_ARITY,
+        TOP_TREE_ARITY,
     >,
     rows_to_discard: Option<usize>,
     expected_leaves: usize,
@@ -275,8 +274,8 @@ pub fn test_levelcache_tree_functionality<
 }
 
 /// Utilities
-pub fn serialize_tree<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
-    tree: MerkleTree<E, A, S, U>,
+pub fn serialize_tree<E: Element, A: Algorithm<E>, S: Store<E>, const BRANCHES: usize>(
+    tree: MerkleTree<E, A, S, BRANCHES>,
 ) -> Vec<u8> {
     let data = tree.data().expect("can't get tree's data [serialize_tree]");
     let data: Vec<E> = data
@@ -293,18 +292,23 @@ pub fn serialize_tree<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
     serialized_tree
 }
 
-pub fn instantiate_new<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
+pub fn instantiate_new<E: Element, A: Algorithm<E>, S: Store<E>, const BRANCHES: usize>(
     leaves: usize,
     _config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
+) -> MerkleTree<E, A, S, BRANCHES> {
     let dataset = generate_vector_of_elements::<E>(leaves);
     MerkleTree::new(dataset).expect("failed to instantiate tree [new]")
 }
 
-pub fn instantiate_new_with_config<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
+pub fn instantiate_new_with_config<
+    E: Element,
+    A: Algorithm<E>,
+    S: Store<E>,
+    const BRANCHES: usize,
+>(
     leaves: usize,
     config: Option<StoreConfig>,
-) -> MerkleTree<E, A, S, U> {
+) -> MerkleTree<E, A, S, BRANCHES> {
     let dataset = generate_vector_of_elements::<E>(leaves);
     MerkleTree::new_with_config(
         dataset,
@@ -313,14 +317,14 @@ pub fn instantiate_new_with_config<E: Element, A: Algorithm<E>, S: Store<E>, U: 
     .expect("failed to instantiate tree [new_with_config]")
 }
 
-pub fn dump_tree_data_to_replica<E: Element, BaseTreeArity: Unsigned>(
+pub fn dump_tree_data_to_replica<E: Element, const BASE_TREE_ARITY: usize>(
     leaves: usize,
     len: usize,
     config: &StoreConfig,
     replica_file: &mut std::fs::File,
 ) {
     // Dump tree data to disk
-    let store = DiskStore::new_with_config(len, BaseTreeArity::to_usize(), config.clone())
+    let store = DiskStore::new_with_config(len, BASE_TREE_ARITY, config.clone())
         .expect("failed to open store [dump_tree_data_to_replica]");
 
     // Use that data store as the replica (concat the data to the replica_path)
@@ -343,14 +347,14 @@ pub fn get_vector_of_base_trees_as_slices<
     E: Element,
     A: Algorithm<E>,
     S: Store<E>,
-    BaseTreeArity: Unsigned,
-    SubTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
+    const SUB_TREE_ARITY: usize,
 >(
     base_tree_leaves: usize,
 ) -> Vec<Vec<u8>> {
-    (0..SubTreeArity::to_usize())
+    (0..SUB_TREE_ARITY)
         .map(|_| {
-            let base_tree = instantiate_new::<E, A, S, BaseTreeArity>(base_tree_leaves, None);
+            let base_tree = instantiate_new::<E, A, S, BASE_TREE_ARITY>(base_tree_leaves, None);
             serialize_tree(base_tree)
         })
         .collect()
@@ -360,12 +364,12 @@ pub fn get_vector_of_base_trees<
     E: Element,
     A: Algorithm<E>,
     S: Store<E>,
-    BaseTreeArity: Unsigned,
-    SubTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
+    const SUB_TREE_ARITY: usize,
 >(
     base_tree_leaves: usize,
-) -> Vec<MerkleTree<E, A, S, BaseTreeArity>> {
-    (0..SubTreeArity::to_usize())
+) -> Vec<MerkleTree<E, A, S, BASE_TREE_ARITY>> {
+    (0..SUB_TREE_ARITY)
         .map(|_| instantiate_new(base_tree_leaves, None))
         .collect()
 }

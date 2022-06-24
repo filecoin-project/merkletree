@@ -1,8 +1,6 @@
 #![cfg(not(tarpaulin_include))]
 pub mod common;
 
-use typenum::{Unsigned, U0, U2, U8};
-
 use merkletree::hash::Algorithm;
 use merkletree::merkle::{get_merkle_tree_len_generic, Element, MerkleTree};
 use merkletree::store::{DiskStore, MmapStore, Store, StoreConfig, VecStore};
@@ -17,16 +15,17 @@ fn instantiate_cctree_from_sub_trees<
     E: Element,
     A: Algorithm<E>,
     S: Store<E>,
-    BaseTreeArity: Unsigned,
-    SubTreeArity: Unsigned,
-    TopTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
+    const SUB_TREE_ARITY: usize,
+    const TOP_TREE_ARITY: usize,
 >(
     base_tree_leaves: usize,
-) -> MerkleTree<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity> {
-    let compound_trees = (0..TopTreeArity::to_usize())
+) -> MerkleTree<E, A, S, BASE_TREE_ARITY, SUB_TREE_ARITY, TOP_TREE_ARITY> {
+    let compound_trees = (0..TOP_TREE_ARITY)
         .map(|_| {
-            let base_trees =
-                get_vector_of_base_trees::<E, A, S, BaseTreeArity, SubTreeArity>(base_tree_leaves);
+            let base_trees = get_vector_of_base_trees::<E, A, S, BASE_TREE_ARITY, SUB_TREE_ARITY>(
+                base_tree_leaves,
+            );
             MerkleTree::from_trees(base_trees)
                 .expect("failed to instantiate compound tree [instantiate_cctree_from_sub_trees]")
         })
@@ -40,17 +39,17 @@ fn instantiate_cctree_from_sub_trees_as_trees<
     E: Element,
     A: Algorithm<E>,
     S: Store<E>,
-    BaseTreeArity: Unsigned,
-    SubTreeArity: Unsigned,
-    TopTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
+    const SUB_TREE_ARITY: usize,
+    const TOP_TREE_ARITY: usize,
 >(
     base_tree_leaves: usize,
-) -> MerkleTree<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity> {
-    let base_trees = (0..TopTreeArity::to_usize())
+) -> MerkleTree<E, A, S, BASE_TREE_ARITY, SUB_TREE_ARITY, TOP_TREE_ARITY> {
+    let base_trees = (0..TOP_TREE_ARITY)
         .flat_map(|_| {
-            (0..SubTreeArity::to_usize())
+            (0..SUB_TREE_ARITY)
                 .map(|_| instantiate_new(base_tree_leaves, None))
-                .collect::<Vec<MerkleTree<E, A, S, BaseTreeArity, U0, U0>>>()
+                .collect::<Vec<MerkleTree<E, A, S, BASE_TREE_ARITY, 0, 0>>>()
         })
         .collect();
 
@@ -62,23 +61,23 @@ fn instantiate_cctree_from_sub_tree_store_configs<
     E: Element,
     A: Algorithm<E>,
     S: Store<E>,
-    BaseTreeArity: Unsigned,
-    SubTreeArity: Unsigned,
-    TopTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
+    const SUB_TREE_ARITY: usize,
+    const TOP_TREE_ARITY: usize,
 >(
     base_tree_leaves: usize,
-) -> MerkleTree<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity> {
+) -> MerkleTree<E, A, S, BASE_TREE_ARITY, SUB_TREE_ARITY, TOP_TREE_ARITY> {
     let distinguisher = "instantiate_ctree_from_store_configs";
     let temp_dir = tempdir::TempDir::new(distinguisher)
         .expect("can't create temp dir [instantiate_cctree_from_sub_tree_store_configs]");
 
     // compute len for base tree as we are going to instantiate compound tree from set of base trees
-    let len = get_merkle_tree_len_generic::<BaseTreeArity, U0, U0>(base_tree_leaves)
+    let len = get_merkle_tree_len_generic::<BASE_TREE_ARITY, 0, 0>(base_tree_leaves)
         .expect("can't get tree len [instantiate_cctree_from_sub_tree_store_configs]");
 
-    let configs = (0..TopTreeArity::to_usize())
+    let configs = (0..TOP_TREE_ARITY)
         .flat_map(|j| {
-            (0..SubTreeArity::to_usize())
+            (0..SUB_TREE_ARITY)
                 .map(|i| {
                     let replica = format!(
                         "{}-{}-{}-{}-{}-replica",
@@ -88,7 +87,7 @@ fn instantiate_cctree_from_sub_tree_store_configs<
                     // we attempt to discard all intermediate layers, except bottom one (set of leaves) and top-level root of base tree
                     let config = StoreConfig::new(temp_dir.path(), replica, 0);
                     // we need to instantiate a tree in order to dump tree data into Disk-based storages and bind them to configs
-                    instantiate_new_with_config::<E, A, S, BaseTreeArity>(
+                    instantiate_new_with_config::<E, A, S, BASE_TREE_ARITY>(
                         base_tree_leaves,
                         Some(config.clone()),
                     );
@@ -107,19 +106,19 @@ fn run_test_compound_compound_tree<
     E: Element,
     A: Algorithm<E>,
     S: Store<E>,
-    BaseTreeArity: Unsigned,
-    SubTreeArity: Unsigned,
-    TopTreeArity: Unsigned,
+    const BASE_TREE_ARITY: usize,
+    const SUB_TREE_ARITY: usize,
+    const TOP_TREE_ARITY: usize,
 >(
-    constructor: fn(usize) -> MerkleTree<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity>,
+    constructor: fn(usize) -> MerkleTree<E, A, S, BASE_TREE_ARITY, SUB_TREE_ARITY, TOP_TREE_ARITY>,
     base_tree_leaves: usize,
     expected_leaves: usize,
     expected_len: usize,
     expected_root: E,
 ) {
-    let compound_tree: MerkleTree<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity> =
+    let compound_tree: MerkleTree<E, A, S, BASE_TREE_ARITY, SUB_TREE_ARITY, TOP_TREE_ARITY> =
         constructor(base_tree_leaves);
-    test_disk_mmap_vec_tree_functionality::<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity>(
+    test_disk_mmap_vec_tree_functionality::<E, A, S, BASE_TREE_ARITY, SUB_TREE_ARITY, TOP_TREE_ARITY>(
         compound_tree,
         expected_leaves,
         expected_len,
@@ -136,9 +135,9 @@ fn test_compound_compound_constructors() {
     fn run_test<E: Element + Copy, A: Algorithm<E>, S: Store<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves * 8 * 2;
-        let len = get_merkle_tree_len_generic::<U8, U8, U2>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<8, 8, 2>(base_tree_leaves).unwrap();
 
-        run_test_compound_compound_tree::<E, A, S, U8, U8, U2>(
+        run_test_compound_compound_tree::<E, A, S, 8, 8, 2>(
             instantiate_cctree_from_sub_trees,
             base_tree_leaves,
             expected_total_leaves,
@@ -146,7 +145,7 @@ fn test_compound_compound_constructors() {
             root,
         );
 
-        run_test_compound_compound_tree::<E, A, S, U8, U8, U2>(
+        run_test_compound_compound_tree::<E, A, S, 8, 8, 2>(
             instantiate_cctree_from_sub_trees_as_trees,
             base_tree_leaves,
             expected_total_leaves,
@@ -165,10 +164,10 @@ fn test_compound_compound_constructors() {
 
     let base_tree_leaves = 64;
     let expected_total_leaves = base_tree_leaves * 8 * 2;
-    let len = get_merkle_tree_len_generic::<U8, U8, U2>(base_tree_leaves).unwrap();
+    let len = get_merkle_tree_len_generic::<8, 8, 2>(base_tree_leaves).unwrap();
 
     // this instantiator works only with DiskStore / MmapStore trees
-    run_test_compound_compound_tree::<TestItemType, TestXOR128, DiskStore<TestItemType>, U8, U8, U2>(
+    run_test_compound_compound_tree::<TestItemType, TestXOR128, DiskStore<TestItemType>, 8, 8, 2>(
         instantiate_cctree_from_sub_tree_store_configs,
         base_tree_leaves,
         expected_total_leaves,
@@ -180,9 +179,9 @@ fn test_compound_compound_constructors() {
         TestItemType,
         TestSha256Hasher,
         DiskStore<TestItemType>,
-        U8,
-        U8,
-        U2,
+        8,
+        8,
+        2,
     >(
         instantiate_cctree_from_sub_tree_store_configs,
         base_tree_leaves,
@@ -192,7 +191,7 @@ fn test_compound_compound_constructors() {
     );
 
     // same instantiator for MmapStore..
-    run_test_compound_compound_tree::<TestItemType, TestXOR128, MmapStore<TestItemType>, U8, U8, U2>(
+    run_test_compound_compound_tree::<TestItemType, TestXOR128, MmapStore<TestItemType>, 8, 8, 2>(
         instantiate_cctree_from_sub_tree_store_configs,
         base_tree_leaves,
         expected_total_leaves,
@@ -204,9 +203,9 @@ fn test_compound_compound_constructors() {
         TestItemType,
         TestSha256Hasher,
         MmapStore<TestItemType>,
-        U8,
-        U8,
-        U2,
+        8,
+        8,
+        2,
     >(
         instantiate_cctree_from_sub_tree_store_configs,
         base_tree_leaves,

@@ -7,7 +7,6 @@ use std::hash::Hasher;
 
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
-use typenum::marker_traits::Unsigned;
 
 use crate::hash::Algorithm;
 use crate::merkle::{Element, MerkleTree};
@@ -140,9 +139,9 @@ impl Algorithm<Item> for Sha256Hasher {
     }
 }
 
-pub fn get_vec_tree_from_slice<E: Element, A: Algorithm<E>, U: Unsigned>(
+pub fn get_vec_tree_from_slice<E: Element, A: Algorithm<E>, const BRANCHES: usize>(
     leafs: usize,
-) -> MerkleTree<E, A, VecStore<E>, U> {
+) -> MerkleTree<E, A, VecStore<E>, BRANCHES> {
     let mut x = Vec::with_capacity(leafs);
     for i in 0..leafs {
         x.push(i * 93);

@@ -13,7 +13,6 @@ use positioned_io::{ReadAt, WriteAt};
 use rayon::iter::*;
 use rayon::prelude::*;
 use tempfile::tempfile;
-use typenum::marker_traits::Unsigned;
 
 use crate::hash::Algorithm;
 use crate::merkle::{
@@ -423,7 +422,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
     }
 
     #[allow(unsafe_code)]
-    fn process_layer<A: Algorithm<E>, U: Unsigned>(
+    fn process_layer<A: Algorithm<E>, const BRANCHES: usize>(
         &mut self,
         width: usize,
         level: usize,
@@ -441,11 +440,10 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         }?;
 
         let data_lock = Arc::new(RwLock::new(self));
-        let branches = U::to_usize();
-        let shift = log2_pow2(branches);
+        let shift = log2_pow2(BRANCHES);
         let write_chunk_width = (BUILD_CHUNK_NODES >> shift) * E::byte_len();
 
-        ensure!(BUILD_CHUNK_NODES % branches == 0, "Invalid chunk size");
+        ensure!(BUILD_CHUNK_NODES % BRANCHES == 0, "Invalid chunk size");
         Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
             .into_par_iter()
             .zip(mmap.par_chunks_mut(write_chunk_width))
@@ -460,8 +458,8 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
                         .read_range_internal(chunk_index..chunk_index + chunk_size)?
                 };
 
-                let nodes_size = (chunk_nodes.len() / branches) * E::byte_len();
-                let hashed_nodes_as_bytes = chunk_nodes.chunks(branches).fold(
+                let nodes_size = (chunk_nodes.len() / BRANCHES) * E::byte_len();
+                let hashed_nodes_as_bytes = chunk_nodes.chunks(BRANCHES).fold(
                     Vec::with_capacity(nodes_size),
                     |mut acc, nodes| {
                         let h = A::default().multi_node(nodes, level);
@@ -473,7 +471,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
                 // Check that we correctly pre-allocated the space.
                 let hashed_nodes_as_bytes_len = hashed_nodes_as_bytes.len();
                 ensure!(
-                    hashed_nodes_as_bytes.len() == chunk_size / branches * E::byte_len(),
+                    hashed_nodes_as_bytes.len() == chunk_size / BRANCHES * E::byte_len(),
                     "Invalid hashed node length"
                 );
 
@@ -484,15 +482,14 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
     }
 
     // LevelCacheStore specific merkle-tree build.
-    fn build<A: Algorithm<E>, U: Unsigned>(
+    fn build<A: Algorithm<E>, const BRANCHES: usize>(
         &mut self,
         leafs: usize,
         row_count: usize,
         config: Option<StoreConfig>,
     ) -> Result<E> {
-        let branches = U::to_usize();
         ensure!(
-            next_pow2(branches) == branches,
+            next_pow2(BRANCHES) == BRANCHES,
             "branches MUST be a power of 2"
         );
         ensure!(Store::len(self) == leafs, "Inconsistent data");
@@ -511,11 +508,11 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         let mut level_node_index = 0;
 
         let config = config.unwrap();
-        let shift = log2_pow2(branches);
+        let shift = log2_pow2(BRANCHES);
 
         // Both in terms of elements, not bytes.
-        let cache_size = get_merkle_tree_cache_size(leafs, branches, config.rows_to_discard)?;
-        let cache_index_start = (get_merkle_tree_len(leafs, branches)?) - cache_size;
+        let cache_size = get_merkle_tree_cache_size(leafs, BRANCHES, config.rows_to_discard)?;
+        let cache_index_start = (get_merkle_tree_len(leafs, BRANCHES)?) - cache_size;
 
         while width > 1 {
             // Start reading at the beginning of the current level, and writing the next
@@ -534,7 +531,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
                 )
             };
 
-            self.process_layer::<A, U>(width, level, read_start, write_start)?;
+            self.process_layer::<A, BRANCHES>(width, level, read_start, write_start)?;
 
             if level_node_index < cache_index_start {
                 self.front_truncate(&config, width)?;
@@ -554,7 +551,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         self.set_len(Store::len(self) + 1);
         // Ensure every element is accounted for.
         ensure!(
-            Store::len(self) == get_merkle_tree_len(leafs, branches)?,
+            Store::len(self) == get_merkle_tree_len(leafs, BRANCHES)?,
             "Invalid merkle tree length"
         );
 

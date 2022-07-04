@@ -21,7 +21,7 @@ edition = "2018"
 pre-release-commit-message = "chore(release): release {{version}}"
 pro-release-commit-message = "chore(release): starting development cycle for {{next_version}}"
 
-[dependencies]
+[depens]
 rayon = "1.0.0"
 memmap = "0.7"
 arrayref = "0.3.5"

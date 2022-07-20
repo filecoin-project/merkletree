@@ -4,7 +4,7 @@ use std::ops;
 use std::path::Path;
 
 use anyhow::Result;
-use memmap::MmapMut;
+use memmap2::MmapMut;
 
 use crate::merkle::Element;
 use crate::store::{Store, StoreConfig};

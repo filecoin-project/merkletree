@@ -368,7 +368,10 @@ fn test_base_levelcache_trees_iterable() {
         let rows_to_discard = 0;
 
         let distinguisher = "lc_instantiate_new_with_config";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         run_test_base_lc_tree::<E, A, U8>(
             lc_instantiate_new_with_config,
             base_tree_leaves,
@@ -380,7 +383,10 @@ fn test_base_levelcache_trees_iterable() {
         );
 
         let distinguisher = "lc_instantiate_try_from_iter_with_config";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         run_test_base_lc_tree::<E, A, U8>(
             lc_instantiate_try_from_iter_with_config,
             base_tree_leaves,
@@ -392,7 +398,10 @@ fn test_base_levelcache_trees_iterable() {
         );
 
         let distinguisher = "lc_instantiate_from_par_iter_with_config";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         run_test_base_lc_tree::<E, A, U8>(
             lc_instantiate_from_par_iter_with_config,
             base_tree_leaves,
@@ -423,7 +432,10 @@ fn test_base_levelcache_trees_iterable_hashable_and_serialization() {
         let rows_to_discard = 0;
 
         let distinguisher = "lc_instantiate_from_data_with_config";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         run_test_base_lc_tree::<E, A, U8>(
             lc_instantiate_from_data_with_config,
             base_tree_leaves,
@@ -435,7 +447,10 @@ fn test_base_levelcache_trees_iterable_hashable_and_serialization() {
         );
 
         let distinguisher = "lc_instantiate_from_byte_slice_with_config";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         run_test_base_lc_tree::<E, A, U8>(
             lc_instantiate_from_byte_slice_with_config,
             base_tree_leaves,
@@ -448,7 +463,7 @@ fn test_base_levelcache_trees_iterable_hashable_and_serialization() {
 
         /* TODO investigate, why this test fails
         let distinguisher = "lc_instantiate_from_tree_slice_with_config";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new().prefix(distinguisher).tempdir().unwrap();
         run_test_base_lc_tree::<E, A, U8>(
             lc_instantiate_from_tree_slice_with_config,
             base_tree_leaves,
@@ -551,7 +566,10 @@ fn test_compound_levelcache_trees() {
         let len = get_merkle_tree_len_generic::<U8, U8, U0>(base_tree_leaves).unwrap();
 
         let distinguisher = "instantiate_cctree_from_sub_tree_store_configs_and_replica";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         let rows_to_discard = 0;
         let tree = lc_instantiate_ctree_from_store_configs_and_replica::<E, A, U8, U8>(
             base_tree_leaves,
@@ -675,7 +693,10 @@ fn test_compound_compound_levelcache_trees() {
         let len = get_merkle_tree_len_generic::<U8, U8, U2>(base_tree_leaves).unwrap();
 
         let distinguisher = "instantiate_cctree_from_sub_tree_store_configs_and_replica";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         let rows_to_discard = 0;
         let tree = lc_instantiate_cctree_from_sub_tree_store_configs_and_replica::<E, A, U8, U8, U2>(
             base_tree_leaves,

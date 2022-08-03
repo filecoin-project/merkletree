@@ -69,7 +69,9 @@ fn instantiate_cctree_from_sub_tree_store_configs<
     base_tree_leaves: usize,
 ) -> MerkleTree<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity> {
     let distinguisher = "instantiate_ctree_from_store_configs";
-    let temp_dir = tempdir::TempDir::new(distinguisher)
+    let temp_dir = tempfile::Builder::new()
+        .prefix(distinguisher)
+        .tempdir()
         .expect("can't create temp dir [instantiate_cctree_from_sub_tree_store_configs]");
 
     // compute len for base tree as we are going to instantiate compound tree from set of base trees

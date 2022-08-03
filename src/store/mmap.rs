@@ -4,12 +4,12 @@ use std::ops;
 use std::path::Path;
 
 use anyhow::Result;
-use memmap2::MmapMut;
+use mapr::MmapMut;
 
 use crate::merkle::Element;
 use crate::store::{Store, StoreConfig};
 
-/// Store that saves the data on disk, and accesses it using memmap.
+/// Store that saves the data on disk, and accesses it using mapr.
 #[derive(Debug)]
 pub struct MmapStore<E: Element> {
     map: Option<MmapMut>,

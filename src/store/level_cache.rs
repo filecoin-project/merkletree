@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result};
-use memmap2::MmapOptions;
+use mapr::MmapOptions;
 use positioned_io::{ReadAt, WriteAt};
 use rayon::iter::*;
 use rayon::prelude::*;

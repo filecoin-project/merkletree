@@ -140,7 +140,7 @@ fn test_levelcache_v1_tree_from_iter<U: Unsigned>(
         "test_levelcache_v1_tree_from_iter-{}-{}-{}",
         leafs, len, row_count
     );
-    let temp_dir = tempdir::TempDir::new(&name).unwrap();
+    let temp_dir = tempfile::Builder::new().prefix(&name).tempdir().unwrap();
 
     // Construct and store an MT using a named DiskStore.
     let config = StoreConfig::new(temp_dir.path(), name, rows_to_discard);
@@ -200,7 +200,10 @@ fn test_levelcache_direct_build_from_slice<U: Unsigned>(
     let test_name = "test_levelcache_direct_build_from_slice";
     let replica = format!("{}-{}-{}-{}-replica", test_name, leafs, len, row_count);
     let lc_name = format!("{}-{}-{}-{}", test_name, leafs, len, row_count);
-    let temp_dir = tempdir::TempDir::new(test_name).unwrap();
+    let temp_dir = tempfile::Builder::new()
+        .prefix(&test_name)
+        .tempdir()
+        .unwrap();
 
     let rows_to_discard = match rows_to_discard {
         Some(x) => x,
@@ -240,7 +243,10 @@ fn test_levelcache_direct_build_from_iter<U: Unsigned>(
     let test_name = "test_levelcache_direct_build_from_iter";
     let replica = format!("{}-{}-{}-{}-replica", test_name, leafs, len, row_count);
     let lc_name = format!("{}-{}-{}-{}", test_name, leafs, len, row_count);
-    let temp_dir = tempdir::TempDir::new(test_name).unwrap();
+    let temp_dir = tempfile::Builder::new()
+        .prefix(&test_name)
+        .tempdir()
+        .unwrap();
 
     let rows_to_discard = match rows_to_discard {
         Some(x) => x,
@@ -378,7 +384,10 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
     let mut sub_tree_configs = Vec::with_capacity(sub_tree_count);
 
     let test_name = "test_compound_levelcache_tree_from_store_configs";
-    let temp_dir = tempdir::TempDir::new("test_compound_levelcache_tree").unwrap();
+    let temp_dir = tempfile::Builder::new()
+        .prefix("test_compound_levelcache_tree")
+        .tempdir()
+        .unwrap();
     let len = get_merkle_tree_len(sub_tree_leafs, branches).expect("failed to get merkle len");
     let row_count = get_merkle_tree_row_count(sub_tree_leafs, branches);
 
@@ -592,7 +601,10 @@ fn test_read_into() {
         assert_eq!(read_buffer, data);
     }
 
-    let temp_dir = tempdir::TempDir::new("test_read_into").unwrap();
+    let temp_dir = tempfile::Builder::new()
+        .prefix("test_read_into")
+        .tempdir()
+        .unwrap();
     let config = StoreConfig::new(
         temp_dir.path(),
         "test-read-into",
@@ -625,7 +637,10 @@ fn test_level_cache_tree_v2() {
     let a = XOR128::new();
     let count = SMALL_TREE_BUILD * 2;
 
-    let temp_dir = tempdir::TempDir::new("test_level_cache_tree_v2").unwrap();
+    let temp_dir = tempfile::Builder::new()
+        .prefix("test_level_cache_tree_v2")
+        .tempdir()
+        .unwrap();
     let temp_path = temp_dir.path();
 
     // Construct and store an MT using a named DiskStore.
@@ -736,7 +751,10 @@ fn test_various_trees_with_partial_cache_v2_only() {
         //
         // compaction correctly fails at 0 and row_count
         for i in 1..row_count - 1 {
-            let temp_dir = tempdir::TempDir::new("test_various_trees_with_partial_cache").unwrap();
+            let temp_dir = tempfile::Builder::new()
+                .prefix("test_various_trees_with_partial_cache")
+                .tempdir()
+                .unwrap();
             let temp_path = temp_dir.path();
 
             // Construct and store an MT using a named DiskStore.

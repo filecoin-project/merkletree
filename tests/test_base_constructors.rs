@@ -28,6 +28,7 @@ fn instantiate_try_from_iter<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsign
         .expect("failed to instantiate tree [try_from_iter]")
 }
 
+// some comment
 fn instantiate_from_par_iter<E: Element, A: Algorithm<E>, S: Store<E>, U: Unsigned>(
     leaves: usize,
     _config: Option<StoreConfig>,

@@ -7,9 +7,8 @@ use std::num::ParseIntError;
 use std::os::unix::prelude::FileExt;
 use std::path::Path;
 
-use crypto::digest::Digest;
-use crypto::sha2::Sha256;
 use rayon::iter::{plumbing::Producer, IntoParallelIterator, ParallelIterator};
+use sha2::{Digest, Sha256};
 use typenum::marker_traits::Unsigned;
 use typenum::{U2, U3, U4, U5, U7, U8};
 
@@ -355,11 +354,10 @@ fn test_hasher_light() {
     let mut sha256 = Sha256::new();
     let number_of_hashing = 951;
     let input = decode_hex("000102030405060708090a0b0c0d0e0f").unwrap();
-    let mut expected_output = vec![0u8; sha256.output_bytes()];
     for _ in 0..number_of_hashing {
-        sha256.input(input.as_slice());
+        sha256.update(input.as_slice());
     }
-    sha256.result(expected_output.as_mut_slice());
+    let mut expected_output = sha256.finalize().to_vec();
     expected_output.truncate(Item::byte_len());
 
     run_test::<Item, Sha256Hasher>(number_of_hashing, input, expected_output);

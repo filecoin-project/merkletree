@@ -1,12 +1,11 @@
 #![cfg(test)]
 #![cfg(not(tarpaulin_include))]
 
+use sha2::{Digest, Sha256};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hasher;
 
-use crypto::digest::Digest;
-use crypto::sha2::Sha256;
 use typenum::marker_traits::Unsigned;
 
 use crate::hash::Algorithm;
@@ -86,7 +85,7 @@ impl Element for [u8; 16] {
 /// Implementation of SHA-256 Hasher
 ///
 /// It is used for testing purposes
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Sha256Hasher {
     engine: Sha256,
 }
@@ -120,7 +119,7 @@ impl Hasher for Sha256Hasher {
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        self.engine.input(bytes)
+        self.engine.update(bytes)
     }
 }
 
@@ -128,8 +127,7 @@ impl Algorithm<Item> for Sha256Hasher {
     fn hash(&mut self) -> Item {
         let mut result: Item = Item::default();
         let item_size = result.len();
-        let mut hash_output = vec![0u8; self.engine.output_bytes()];
-        self.engine.result(&mut hash_output);
+        let hash_output = self.engine.clone().finalize().to_vec();
         self.engine.reset();
         if item_size < hash_output.len() {
             result.copy_from_slice(&hash_output.as_slice()[0..item_size]);

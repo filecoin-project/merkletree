@@ -3,8 +3,7 @@ use std::fmt;
 use std::hash::Hasher;
 use std::io::Write;
 
-use crypto::digest::Digest;
-use crypto::sha2::Sha256;
+use sha2::{Digest, Sha256};
 use typenum::Unsigned;
 
 use merkletree::hash::{Algorithm, Hashable};
@@ -152,7 +151,7 @@ impl Hasher for TestSha256Hasher {
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        self.engine.input(bytes)
+        self.engine.update(bytes)
     }
 }
 
@@ -160,8 +159,8 @@ impl Algorithm<TestItem> for TestSha256Hasher {
     fn hash(&mut self) -> TestItem {
         let mut result = TestItem::default();
         let item_size = result.0.len();
-        let mut hash_output = vec![0u8; self.engine.output_bytes()];
-        self.engine.result(&mut hash_output);
+        let hash_output = self.engine.clone().finalize().to_vec();
+        self.engine.reset();
         self.engine.reset();
         if item_size < hash_output.len() {
             result

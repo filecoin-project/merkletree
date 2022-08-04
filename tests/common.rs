@@ -161,7 +161,6 @@ impl Algorithm<TestItem> for TestSha256Hasher {
         let item_size = result.0.len();
         let hash_output = self.engine.clone().finalize().to_vec();
         self.engine.reset();
-        self.engine.reset();
         if item_size < hash_output.len() {
             result
                 .0

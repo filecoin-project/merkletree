@@ -220,7 +220,10 @@ fn test_iterable() {
         );
 
         let distinguisher = "instantiate_new_with_config";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         run_test_base_tree::<E, A, S, U8>(
             instantiate_new_with_config,
             base_tree_leaves,
@@ -235,7 +238,10 @@ fn test_iterable() {
         );
 
         let distinguisher = "instantiate_try_from_iter_with_config";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         run_test_base_tree::<E, A, S, U8>(
             instantiate_try_from_iter_with_config,
             base_tree_leaves,
@@ -250,7 +256,10 @@ fn test_iterable() {
         );
 
         let distinguisher = "instantiate_from_par_iter_with_config";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         run_test_base_tree::<E, A, S, U8>(
             instantiate_from_par_iter_with_config,
             base_tree_leaves,
@@ -298,7 +307,10 @@ fn test_iterable_hashable_and_serialization() {
         );
 
         let distinguisher = "instantiate_from_data_with_config";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         run_test_base_tree::<E, A, S, U8>(
             instantiate_from_data_with_config,
             base_tree_leaves,
@@ -340,7 +352,10 @@ fn test_iterable_hashable_and_serialization() {
         );
 
         let distinguisher = "instantiate_from_byte_slice_with_config";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         run_test_base_tree::<E, A, S, U8>(
             instantiate_from_byte_slice_with_config,
             base_tree_leaves,
@@ -355,7 +370,10 @@ fn test_iterable_hashable_and_serialization() {
         );
 
         let distinguisher = "instantiate_from_tree_slice_with_config";
-        let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .unwrap();
         run_test_base_tree::<E, A, S, U8>(
             instantiate_from_tree_slice_with_config,
             base_tree_leaves,
@@ -425,7 +443,10 @@ fn test_storage_types() {
     // Disk
     type DiskStorage = DiskStore<TestItemType>;
     let distinguisher = "instantiate_new_with_config-disk";
-    let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+    let temp_dir = tempfile::Builder::new()
+        .prefix(distinguisher)
+        .tempdir()
+        .unwrap();
     run_base_tree_storage_test::<TestItemType, TestXOR128, DiskStorage, U8>(
         instantiate_new_with_config,
         base_tree_leaves,
@@ -440,7 +461,10 @@ fn test_storage_types() {
     // Mmap
     type MmapStorage = MmapStore<TestItemType>;
     let distinguisher = "instantiate_new_with_config-mmap";
-    let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+    let temp_dir = tempfile::Builder::new()
+        .prefix(distinguisher)
+        .tempdir()
+        .unwrap();
     run_base_tree_storage_test::<TestItemType, TestXOR128, MmapStorage, U8>(
         instantiate_new_with_config,
         base_tree_leaves,
@@ -455,7 +479,10 @@ fn test_storage_types() {
     // Level-cache
     type LevelCacheStorage = LevelCacheStore<TestItemType, std::fs::File>;
     let distinguisher = "instantiate_new_with_config-level-cache";
-    let temp_dir = tempdir::TempDir::new(distinguisher).unwrap();
+    let temp_dir = tempfile::Builder::new()
+        .prefix(distinguisher)
+        .tempdir()
+        .unwrap();
     run_base_tree_storage_test::<TestItemType, TestXOR128, LevelCacheStorage, U8>(
         instantiate_new_with_config,
         base_tree_leaves,

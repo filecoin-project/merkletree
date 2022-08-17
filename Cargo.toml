@@ -23,7 +23,7 @@ pro-release-commit-message = "chore(release): starting development cycle for {{n
 
 [dependencies]
 rayon = "1.0.0"
-mapr = "0.8.0"
+memmap2 = "0.5.5"
 arrayref = "0.3.5"
 tempfile = "3.3"
 positioned-io = "0.2"

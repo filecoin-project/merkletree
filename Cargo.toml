@@ -26,7 +26,7 @@ rayon = "1.0.0"
 memmap2 = "0.5.7"
 arrayref = "0.3.5"
 tempfile = "3.3"
-positioned-io = "0.2"
+positioned-io = "0.3"
 log = "0.4.7"
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0.23"

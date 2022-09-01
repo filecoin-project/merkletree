@@ -98,20 +98,8 @@ pub mod proof;
 /// Merkle tree abstractions, implementation and algorithms.
 pub mod merkle;
 
-/// Re-usable Testing primitives
-pub mod test_common;
-
 /// Tests XOR128.
-mod test_xor128;
-
-/// Tests data.
-mod test_item;
-
-/// Tests SIP.
-mod test_sip;
-
-/// Tests for Merkle Hasher Customization.
-mod test_cmh;
+mod test_legacy;
 
 #[macro_use]
 extern crate arrayref;

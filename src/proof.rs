@@ -229,7 +229,7 @@ mod tests {
     use crate::merkle::MerkleTree;
     use crate::proof::Proof;
     use crate::store::VecStore;
-    use crate::test_common::{get_vec_tree_from_slice, Item, Sha256Hasher, XOR128};
+    use crate::test_legacy::{get_vec_tree_from_slice, Item, Sha256Hasher, XOR128};
     use typenum::{Unsigned, U0, U1, U2, U3, U4, U5, U8};
 
     // Break one element inside the proof's top layer (if available).

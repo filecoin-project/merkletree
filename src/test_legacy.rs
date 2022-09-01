@@ -1,27 +1,30 @@
 #![cfg(test)]
 #![cfg(not(tarpaulin_include))]
 
+use std::collections::hash_map::DefaultHasher;
+use std::fmt;
+use std::fmt::{Debug, Formatter};
 use std::fs::OpenOptions;
+use std::hash::Hasher;
 use std::io::Write as ioWrite;
 use std::num::ParseIntError;
 use std::os::unix::prelude::FileExt;
 use std::path::Path;
+use std::mem;
+use std::slice;
 
 use rayon::iter::{plumbing::Producer, IntoParallelIterator, ParallelIterator};
 use sha2::{Digest, Sha256};
 use typenum::marker_traits::Unsigned;
 use typenum::{U2, U3, U4, U5, U7, U8};
+use byteorder::{ByteOrder, NativeEndian};
 
 use crate::hash::{Algorithm, Hashable};
-use crate::merkle::{
-    get_merkle_tree_len, get_merkle_tree_row_count, is_merkle_tree_size_valid, Element,
-    FromIndexedParallelIterator, MerkleTree,
-};
+use crate::merkle::{get_merkle_tree_len, get_merkle_tree_row_count, is_merkle_tree_size_valid, Element, FromIndexedParallelIterator, MerkleTree, log2_pow2, next_pow2};
 use crate::store::{
     DiskStore, DiskStoreProducer, ExternalReader, LevelCacheStore, ReplicaConfig, Store,
     StoreConfig, StoreConfigDataVersion, VecStore, SMALL_TREE_BUILD,
 };
-use crate::test_common::{Item, Sha256Hasher, BINARY_ARITY, OCT_ARITY, XOR128};
 
 fn build_disk_tree_from_iter<U: Unsigned>(
     leafs: usize,
@@ -997,4 +1000,380 @@ fn test_parallel_iter_disk_2() {
             assert_eq!(a, b);
         }
     }
+}
+
+pub const SIZE: usize = 0x10;
+
+pub const BINARY_ARITY: usize = 2;
+pub const OCT_ARITY: usize = 8;
+
+pub type Item = [u8; SIZE];
+
+#[derive(Debug, Copy, Clone, Default)]
+pub struct XOR128 {
+    data: Item,
+    i: usize,
+}
+
+/// Implementation of XOR128 Hasher
+///
+/// It is used for testing purposes
+impl XOR128 {
+    pub fn new() -> XOR128 {
+        XOR128 {
+            data: [0; SIZE],
+            i: 0,
+        }
+    }
+}
+
+impl Hasher for XOR128 {
+    fn write(&mut self, bytes: &[u8]) {
+        for x in bytes {
+            self.data[self.i & (SIZE - 1)] ^= *x;
+            self.i += 1;
+        }
+    }
+
+    fn finish(&self) -> u64 {
+        unimplemented!(
+            "Hasher's contract (finish function is not used) is deliberately broken by design"
+        )
+    }
+}
+
+impl Algorithm<Item> for XOR128 {
+    #[inline]
+    fn hash(&mut self) -> [u8; 16] {
+        self.data
+    }
+
+    #[inline]
+    fn reset(&mut self) {
+        *self = XOR128::new();
+    }
+}
+
+impl Element for [u8; 16] {
+    fn byte_len() -> usize {
+        16
+    }
+
+    fn from_slice(bytes: &[u8]) -> Self {
+        assert_eq!(bytes.len(), Self::byte_len());
+        let mut el = [0u8; 16];
+        el[..].copy_from_slice(bytes);
+        el
+    }
+
+    fn copy_to_slice(&self, bytes: &mut [u8]) {
+        bytes.copy_from_slice(self);
+    }
+}
+
+/// Implementation of SHA-256 Hasher
+///
+/// It is used for testing purposes
+#[derive(Clone)]
+pub struct Sha256Hasher {
+    engine: Sha256,
+}
+
+impl Sha256Hasher {
+    pub fn new() -> Sha256Hasher {
+        Sha256Hasher {
+            engine: Sha256::new(),
+        }
+    }
+}
+
+impl Debug for Sha256Hasher {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.write_str("Sha256Hasher")
+    }
+}
+
+impl Default for Sha256Hasher {
+    fn default() -> Self {
+        Sha256Hasher::new()
+    }
+}
+
+impl Hasher for Sha256Hasher {
+    // FIXME: contract is broken by design
+    fn finish(&self) -> u64 {
+        unimplemented!(
+            "Hasher's contract (finish function is not used) is deliberately broken by design"
+        )
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        self.engine.update(bytes)
+    }
+}
+
+impl Algorithm<Item> for Sha256Hasher {
+    fn hash(&mut self) -> Item {
+        let mut result: Item = Item::default();
+        let item_size = result.len();
+        let hash_output = self.engine.clone().finalize().to_vec();
+        self.engine.reset();
+        if item_size < hash_output.len() {
+            result.copy_from_slice(&hash_output.as_slice()[0..item_size]);
+        } else {
+            result.copy_from_slice(hash_output.as_slice())
+        }
+        result
+    }
+}
+
+pub fn get_vec_tree_from_slice<E: Element, A: Algorithm<E>, U: Unsigned>(
+    leafs: usize,
+) -> MerkleTree<E, A, VecStore<E>, U> {
+    let mut x = Vec::with_capacity(leafs);
+    for i in 0..leafs {
+        x.push(i * 93);
+    }
+    MerkleTree::from_data(&x).expect("failed to create tree from slice")
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Debug)]
+pub struct Item2(pub u64);
+
+impl Element for Item2 {
+    fn byte_len() -> usize {
+        8
+    }
+
+    fn from_slice(bytes: &[u8]) -> Self {
+        Item2(NativeEndian::read_u64(bytes))
+    }
+
+    fn copy_to_slice(&self, bytes: &mut [u8]) {
+        NativeEndian::write_u64(bytes, 1);
+    }
+}
+
+impl AsRef<[u8]> for Item2 {
+    #[allow(unsafe_code)]
+    fn as_ref(&self) -> &[u8] {
+        unsafe { slice::from_raw_parts(mem::transmute(&self.0), 8) }
+    }
+}
+
+impl PartialEq<u64> for Item2 {
+    fn eq(&self, other: &u64) -> bool {
+        self.0 == *other
+    }
+}
+
+impl From<u64> for Item2 {
+    fn from(x: u64) -> Self {
+        Item2(x)
+    }
+}
+
+impl From<Item2> for u64 {
+    fn from(x: Item2) -> u64 {
+        x.0
+    }
+}
+
+impl<A: Algorithm<Item2>> Hashable<A> for Item2 {
+    fn hash(&self, state: &mut A) {
+        state.write_u64(self.0)
+    }
+}
+
+#[test]
+fn test_simple_tree() {
+    impl Algorithm<Item2> for DefaultHasher {
+        #[inline]
+        fn hash(&mut self) -> Item2 {
+            Item2(self.finish())
+        }
+
+        #[inline]
+        fn reset(&mut self) {
+            *self = DefaultHasher::default()
+        }
+    }
+
+    let answer: Vec<Vec<u64>> = vec![
+        vec![
+            18161131233134742049,
+            15963407371316104707,
+            8061613778145084206,
+        ],
+        vec![
+            18161131233134742049,
+            15963407371316104707,
+            2838807777806232157,
+            2838807777806232157,
+            8061613778145084206,
+            8605533607343419251,
+            12698627859487956302,
+        ],
+        vec![
+            18161131233134742049,
+            15963407371316104707,
+            2838807777806232157,
+            4356248227606450052,
+            8061613778145084206,
+            6971098229507888078,
+            452397072384919190,
+        ],
+        vec![
+            18161131233134742049,
+            15963407371316104707,
+            2838807777806232157,
+            4356248227606450052,
+            5528330654215492654,
+            5528330654215492654,
+            8061613778145084206,
+            6971098229507888078,
+            7858164776785041459,
+            7858164776785041459,
+            452397072384919190,
+            13691461346724970593,
+            12928874197991182098,
+        ],
+        vec![
+            18161131233134742049,
+            15963407371316104707,
+            2838807777806232157,
+            4356248227606450052,
+            5528330654215492654,
+            11057097817362835984,
+            8061613778145084206,
+            6971098229507888078,
+            6554444691020019791,
+            6554444691020019791,
+            452397072384919190,
+            2290028692816887453,
+            151678167824896071,
+        ],
+        vec![
+            18161131233134742049,
+            15963407371316104707,
+            2838807777806232157,
+            4356248227606450052,
+            5528330654215492654,
+            11057097817362835984,
+            15750323574099240302,
+            15750323574099240302,
+            8061613778145084206,
+            6971098229507888078,
+            6554444691020019791,
+            13319587930734024288,
+            452397072384919190,
+            15756788945533226834,
+            8300325667420840753,
+        ],
+    ];
+    for items in [2, 4].iter() {
+        let mut a = DefaultHasher::new();
+        let mt: MerkleTree<Item2, DefaultHasher, VecStore<Item2>> = MerkleTree::try_from_iter(
+            [1, 2, 3, 4, 5, 6, 7, 8]
+                .iter()
+                .map(|x| {
+                    a.reset();
+                    x.hash(&mut a);
+                    Ok(a.hash())
+                })
+                .take(*items),
+        )
+            .unwrap();
+
+        assert_eq!(mt.leafs(), *items);
+        assert_eq!(mt.row_count(), log2_pow2(next_pow2(mt.len())));
+        assert_eq!(
+            mt.read_range(0, mt.len()).unwrap(),
+            answer[*items - 2].as_slice()
+        );
+
+        for i in 0..mt.leafs() {
+            let p = mt.gen_proof(i).unwrap();
+            assert!(p.validate::<DefaultHasher>().expect("failed to validate"));
+        }
+    }
+}
+
+/// Custom merkle hash util test
+#[derive(Debug, Clone, Default)]
+#[allow(clippy::upper_case_acronyms)]
+struct CMH(DefaultHasher);
+
+impl CMH {
+    pub fn new() -> CMH {
+        CMH(DefaultHasher::new())
+    }
+}
+
+impl Hasher for CMH {
+    #[inline]
+    fn write(&mut self, msg: &[u8]) {
+        <dyn Hasher>::write(&mut self.0, msg)
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0.finish()
+    }
+}
+
+impl Algorithm<Item2> for CMH {
+    #[inline]
+    fn hash(&mut self) -> Item2 {
+        Item2(self.finish())
+    }
+
+    #[inline]
+    fn reset(&mut self) {
+        *self = CMH::default()
+    }
+
+    #[inline]
+    fn leaf(&mut self, leaf: Item2) -> Item2 {
+        Item2(leaf.0 & 0xff)
+    }
+
+    #[inline]
+    fn node(&mut self, left: Item2, right: Item2, _height: usize) -> Item2 {
+        self.write(&[1u8]);
+        self.write(left.as_ref());
+        self.write(&[2u8]);
+        self.write(right.as_ref());
+        Item2(self.hash().0 & 0xffff)
+    }
+}
+
+#[test]
+fn test_custom_merkle_hasher() {
+    let mut a = CMH::new();
+    let mt: MerkleTree<Item2, CMH, VecStore<Item2>> =
+        MerkleTree::try_from_iter([1, 2, 3, 4, 5, 6, 7, 8].iter().map(|x| {
+            a.reset();
+            x.hash(&mut a);
+            Ok(a.hash())
+        }))
+            .unwrap();
+
+    assert_eq!(
+        mt.read_range(0, 3)
+            .unwrap()
+            .iter()
+            .take(mt.leafs())
+            .filter(|&&x| x.0 > 255)
+            .count(),
+        0
+    );
+    assert_eq!(
+        mt.read_range(0, 3)
+            .unwrap()
+            .iter()
+            .filter(|&&x| x.0 > 65535)
+            .count(),
+        0
+    );
 }

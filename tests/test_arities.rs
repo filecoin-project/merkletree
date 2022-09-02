@@ -15,7 +15,8 @@ use crate::common::{
 fn test_base_tree_arities() {
     fn run_test<BaseTreeArity: Unsigned>(leaves: usize, root: TestItemType) {
         let expected_leaves = leaves;
-        let len = get_merkle_tree_len_generic::<BaseTreeArity, U0, U0>(leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<BaseTreeArity, U0, U0>(leaves)
+            .expect("[test_base_tree_arities] couldn't compute Merkle Tree len");
 
         let tree = instantiate_new::<
             TestItemType,
@@ -56,7 +57,8 @@ fn test_compound_tree_arities() {
         root: TestItemType,
     ) {
         let expected_leaves = leaves * SubTreeArity::to_usize();
-        let len = get_merkle_tree_len_generic::<BaseTreeArity, SubTreeArity, U0>(leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<BaseTreeArity, SubTreeArity, U0>(leaves)
+            .expect("[test_compound_tree_arities] couldn't compute Merkle Tree len");
 
         let tree = MerkleTree::<
             TestItemType,
@@ -127,7 +129,7 @@ fn test_compound_compound_tree_arities() {
     ) {
         let expected_leaves = leaves * SubTreeArity::to_usize() * TopTreeArity::to_usize();
         let len = get_merkle_tree_len_generic::<BaseTreeArity, SubTreeArity, TopTreeArity>(leaves)
-            .unwrap();
+            .expect("[test_compound_compound_tree_arities] couldn't compute Merkle Tree len");
 
         let base_trees = (0..TopTreeArity::to_usize())
             .flat_map(|_| {

@@ -214,7 +214,9 @@ impl<
 
         self.data
             .store_mut()
-            .unwrap()
+            .expect(
+                "[set_external_reader_path] couldn't access to the actual data of LevelCacheStore",
+            )
             .set_external_reader(ExternalReader::new_from_path(path)?)
     }
 
@@ -869,7 +871,7 @@ impl<
         // Generate the sub tree proof at this tree level.
         let sub_tree_proof = if top_layer {
             ensure!(self.data.sub_trees().is_some(), "sub trees required");
-            let sub_trees = self.data.sub_trees().unwrap();
+            let sub_trees = self.data.sub_trees().unwrap(); // safe
             ensure!(arity == sub_trees.len(), "Top layer tree shape mis-match");
 
             let tree = &sub_trees[tree_index];
@@ -878,7 +880,7 @@ impl<
             tree.gen_proof(leaf_index)
         } else {
             ensure!(self.data.base_trees().is_some(), "base trees required");
-            let base_trees = self.data.base_trees().unwrap();
+            let base_trees = self.data.base_trees().unwrap(); // safe
             ensure!(arity == base_trees.len(), "Sub tree layer shape mis-match");
 
             let tree = &base_trees[tree_index];
@@ -895,12 +897,12 @@ impl<
             if i != tree_index {
                 lemma.push(if top_layer {
                     ensure!(self.data.sub_trees().is_some(), "sub trees required");
-                    let sub_trees = self.data.sub_trees().unwrap();
+                    let sub_trees = self.data.sub_trees().unwrap(); // safe
 
                     sub_trees[i].root()
                 } else {
                     ensure!(self.data.base_trees().is_some(), "base trees required");
-                    let base_trees = self.data.base_trees().unwrap();
+                    let base_trees = self.data.base_trees().unwrap(); // safe
 
                     base_trees[i].root()
                 });
@@ -1006,7 +1008,7 @@ impl<
 
         // Locate the sub-tree the leaf is contained in.
         ensure!(self.data.sub_trees().is_some(), "sub trees required");
-        let trees = &self.data.sub_trees().unwrap();
+        let trees = &self.data.sub_trees().unwrap(); // safe
         let tree_index = i / (self.leafs / Arity::to_usize());
         let tree = &trees[tree_index];
         let tree_leafs = tree.leafs();
@@ -1054,7 +1056,7 @@ impl<
 
         // Locate the sub-tree the leaf is contained in.
         ensure!(self.data.base_trees().is_some(), "base trees required");
-        let trees = &self.data.base_trees().unwrap();
+        let trees = &self.data.base_trees().unwrap(); // safe
         let tree_index = i / (self.leafs / Arity::to_usize());
         let tree = &trees[tree_index];
         let tree_leafs = tree.leafs();
@@ -1165,6 +1167,7 @@ impl<
                 ensure!(self.data.store().is_some(), "store data required");
 
                 self.data.store().unwrap().read_range_into(
+                    // safe
                     segment_start,
                     segment_end,
                     &mut data_copy,
@@ -1360,7 +1363,7 @@ impl<
 
         self.data
             .store_mut()
-            .unwrap()
+            .unwrap() // safe
             .compact(branches, config, store_version)
     }
 
@@ -1368,7 +1371,7 @@ impl<
     pub fn reinit(&mut self) -> Result<()> {
         ensure!(self.data.store_mut().is_some(), "store data required");
 
-        self.data.store_mut().unwrap().reinit()
+        self.data.store_mut().unwrap().reinit() // safe
     }
 
     /// Removes the backing store for this merkle tree.
@@ -1454,21 +1457,21 @@ impl<
         ensure!(start < end, "start must be less than end");
         ensure!(self.data.store().is_some(), "store data required");
 
-        self.data.store().unwrap().read_range(start..end)
+        self.data.store().unwrap().read_range(start..end) // safe
     }
 
     pub fn read_range_into(&self, start: usize, end: usize, buf: &mut [u8]) -> Result<()> {
         ensure!(start < end, "start must be less than end");
         ensure!(self.data.store().is_some(), "store data required");
 
-        self.data.store().unwrap().read_range_into(start, end, buf)
+        self.data.store().unwrap().read_range_into(start, end, buf) // safe
     }
 
     /// Reads into a pre-allocated slice (for optimization purposes).
     pub fn read_into(&self, pos: usize, buf: &mut [u8]) -> Result<()> {
         ensure!(self.data.store().is_some(), "store data required");
 
-        self.data.store().unwrap().read_into(pos, buf)
+        self.data.store().unwrap().read_into(pos, buf) // safe
     }
 
     /// Build the tree given a slice of all leafs, in bytes form.
@@ -2051,11 +2054,14 @@ where
             }
             store
                 .write()
-                .unwrap()
+                .expect("[populate_data_par] couldn't block current thread while copying")
                 .copy_from_slice(&buf[..], BUILD_DATA_BLOCK_SIZE * index)
         })?;
 
-    store.write().unwrap().sync()?;
+    store
+        .write()
+        .expect("[populate_data_par] couldn't block current thread while sync")
+        .sync()?;
     Ok(())
 }
 
@@ -2089,15 +2095,18 @@ mod tests {
         assert!(get_merkle_tree_len_generic::<U11, U0, U0>(1024).is_err());
 
         assert_eq!(
-            get_merkle_tree_len_generic::<U2, U0, U0>(16).unwrap(),
+            get_merkle_tree_len_generic::<U2, U0, U0>(16)
+                .expect("[test_get_merkle_tree_methods] couldn't compute Merkle Tree len"),
             16 + 8 + 4 + 2 + 1
         );
         assert_eq!(
-            get_merkle_tree_len_generic::<U2, U4, U0>(16).unwrap(),
+            get_merkle_tree_len_generic::<U2, U4, U0>(16)
+                .expect("[test_get_merkle_tree_methods] couldn't compute Merkle Tree len"),
             (16 + 8 + 4 + 2 + 1) * 4 + 1
         );
         assert_eq!(
-            get_merkle_tree_len_generic::<U2, U4, U2>(16).unwrap(),
+            get_merkle_tree_len_generic::<U2, U4, U2>(16)
+                .expect("[test_get_merkle_tree_methods] couldn't compute Merkle Tree len"),
             ((16 + 8 + 4 + 2 + 1) * 4 + 1) * 2 + 1
         );
 
@@ -2125,8 +2134,10 @@ mod tests {
         // 32 GiB octree cache size sanity checking
         let leafs = 32 * gib / 32;
         let rows_to_discard = StoreConfig::default_rows_to_discard(leafs, 8);
-        let tree_size = get_merkle_tree_len(leafs, 8).expect("");
-        let cache_size = get_merkle_tree_cache_size(leafs, 8, rows_to_discard).expect("");
+        let tree_size = get_merkle_tree_len(leafs, 8)
+            .expect("[test_get_merkle_tree_methods] couldn't compute Merkle Tree len");
+        let cache_size = get_merkle_tree_cache_size(leafs, 8, rows_to_discard)
+            .expect("[test_get_merkle_tree_methods] couldn't compute Merkle Tree cache size");
         assert_eq!(leafs, 1073741824);
         assert_eq!(tree_size, 1227133513);
         assert_eq!(rows_to_discard, 2);
@@ -2138,8 +2149,10 @@ mod tests {
         // 4 GiB octree cache size sanity checking
         let leafs = 4 * gib / 32;
         let rows_to_discard = StoreConfig::default_rows_to_discard(leafs, 8);
-        let tree_size = get_merkle_tree_len(leafs, 8).expect("");
-        let cache_size = get_merkle_tree_cache_size(leafs, 8, rows_to_discard).expect("");
+        let tree_size = get_merkle_tree_len(leafs, 8)
+            .expect("[test_get_merkle_tree_methods] couldn't compute Merkle Tree len");
+        let cache_size = get_merkle_tree_cache_size(leafs, 8, rows_to_discard)
+            .expect("[test_get_merkle_tree_methods] couldn't compute Merkle Tree cache size");
         assert_eq!(leafs, 134217728);
         assert_eq!(tree_size, 153391689);
         assert_eq!(rows_to_discard, 2);
@@ -2151,8 +2164,10 @@ mod tests {
         // 512 MiB octree cache size sanity checking
         let leafs = 512 * mib / 32;
         let rows_to_discard = StoreConfig::default_rows_to_discard(leafs, 8);
-        let tree_size = get_merkle_tree_len(leafs, 8).expect("");
-        let cache_size = get_merkle_tree_cache_size(leafs, 8, rows_to_discard).expect("");
+        let tree_size = get_merkle_tree_len(leafs, 8)
+            .expect("[test_get_merkle_tree_methods] couldn't compute Merkle Tree len");
+        let cache_size = get_merkle_tree_cache_size(leafs, 8, rows_to_discard)
+            .expect("[test_get_merkle_tree_methods] couldn't compute Merkle Tree cache size");
         assert_eq!(leafs, 16777216);
         assert_eq!(tree_size, 19173961);
         assert_eq!(rows_to_discard, 2);

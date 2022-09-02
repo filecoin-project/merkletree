@@ -456,7 +456,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
                     // Read everything taking the lock once.
                     data_lock
                         .read()
-                        .unwrap()
+                        .expect("[process_layer] couldn't block current thread")
                         .read_range_internal(chunk_index..chunk_index + chunk_size)?
                 };
 
@@ -510,7 +510,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         let mut width = leafs;
         let mut level_node_index = 0;
 
-        let config = config.unwrap();
+        let config = config.unwrap(); // safe
         let shift = log2_pow2(branches);
 
         // Both in terms of elements, not bytes.
@@ -692,7 +692,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         if start < self.data_width * self.elem_len && self.reader.is_some() {
             self.reader
                 .as_ref()
-                .unwrap()
+                .unwrap() // safe
                 .read(start, end, &mut read_data)
                 .with_context(|| {
                     format!(
@@ -794,7 +794,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         if start < self.data_width * self.elem_len && self.reader.is_some() {
             self.reader
                 .as_ref()
-                .unwrap()
+                .unwrap() // safe
                 .read(start, end, buf)
                 .with_context(|| {
                     format!(

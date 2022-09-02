@@ -190,7 +190,8 @@ fn test_iterable() {
     fn run_tests<E: Element + Copy, A: Algorithm<E>, S: Store<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves;
-        let len = get_merkle_tree_len_generic::<U8, U0, U0>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<U8, U0, U0>(base_tree_leaves)
+            .expect("[test_iterable] couldn't compute Merkle Tree len");
 
         run_test_base_tree::<E, A, S, U8>(
             instantiate_new,
@@ -223,7 +224,7 @@ fn test_iterable() {
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_iterable] couldn't create temp_dir");
         run_test_base_tree::<E, A, S, U8>(
             instantiate_new_with_config,
             base_tree_leaves,
@@ -241,7 +242,7 @@ fn test_iterable() {
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_iterable] couldn't create temp_dir");
         run_test_base_tree::<E, A, S, U8>(
             instantiate_try_from_iter_with_config,
             base_tree_leaves,
@@ -259,7 +260,7 @@ fn test_iterable() {
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_iterable] couldn't create temp_dir");
         run_test_base_tree::<E, A, S, U8>(
             instantiate_from_par_iter_with_config,
             base_tree_leaves,
@@ -295,7 +296,8 @@ fn test_iterable_hashable_and_serialization() {
     fn run_tests<E: Element + Copy, A: Algorithm<E>, S: Store<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves;
-        let len = get_merkle_tree_len_generic::<U8, U0, U0>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<U8, U0, U0>(base_tree_leaves)
+            .expect("[test_iterable_hashable_and_serialization] couldn't compute Merkle Tree len");
 
         run_test_base_tree::<E, A, S, U8>(
             instantiate_from_data,
@@ -310,7 +312,7 @@ fn test_iterable_hashable_and_serialization() {
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_iterable_hashable_and_serialization] couldn't create temp_dir");
         run_test_base_tree::<E, A, S, U8>(
             instantiate_from_data_with_config,
             base_tree_leaves,
@@ -355,7 +357,7 @@ fn test_iterable_hashable_and_serialization() {
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_iterable_hashable_and_serialization] couldn't create temp_dir");
         run_test_base_tree::<E, A, S, U8>(
             instantiate_from_byte_slice_with_config,
             base_tree_leaves,
@@ -373,7 +375,7 @@ fn test_iterable_hashable_and_serialization() {
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_iterable_hashable_and_serialization] couldn't create temp_dir");
         run_test_base_tree::<E, A, S, U8>(
             instantiate_from_tree_slice_with_config,
             base_tree_leaves,
@@ -446,7 +448,7 @@ fn test_storage_types() {
     let temp_dir = tempfile::Builder::new()
         .prefix(distinguisher)
         .tempdir()
-        .unwrap();
+        .expect("[test_storage_types] couldn't create temp_dir");
     run_base_tree_storage_test::<TestItemType, TestXOR128, DiskStorage, U8>(
         instantiate_new_with_config,
         base_tree_leaves,
@@ -455,7 +457,7 @@ fn test_storage_types() {
             String::from(distinguisher),
             StoreConfig::default_rows_to_discard(expected_total_leaves, branches),
         )),
-        DiskStorage::new(1).unwrap(),
+        DiskStorage::new(1).expect("[test_storage_types] couldn't create DiskStorage"),
     );
 
     // Mmap
@@ -464,7 +466,7 @@ fn test_storage_types() {
     let temp_dir = tempfile::Builder::new()
         .prefix(distinguisher)
         .tempdir()
-        .unwrap();
+        .expect("[test_storage_types] couldn't create temp_dir");
     run_base_tree_storage_test::<TestItemType, TestXOR128, MmapStorage, U8>(
         instantiate_new_with_config,
         base_tree_leaves,
@@ -473,7 +475,7 @@ fn test_storage_types() {
             String::from(distinguisher),
             StoreConfig::default_rows_to_discard(expected_total_leaves, branches),
         )),
-        MmapStorage::new(1).unwrap(),
+        MmapStorage::new(1).expect("[test_storage_types] couldn't instantiate MmapStorage"),
     );
 
     // Level-cache
@@ -482,7 +484,7 @@ fn test_storage_types() {
     let temp_dir = tempfile::Builder::new()
         .prefix(distinguisher)
         .tempdir()
-        .unwrap();
+        .expect("[test_storage_types] couldn't create temp_dir");
     run_base_tree_storage_test::<TestItemType, TestXOR128, LevelCacheStorage, U8>(
         instantiate_new_with_config,
         base_tree_leaves,
@@ -491,7 +493,8 @@ fn test_storage_types() {
             String::from(distinguisher),
             StoreConfig::default_rows_to_discard(expected_total_leaves, branches),
         )),
-        LevelCacheStorage::new(1).unwrap(),
+        LevelCacheStorage::new(1)
+            .expect("[test_storage_types] couldn't instantiate LevelCacheStorage"),
     );
 }
 

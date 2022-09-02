@@ -7,20 +7,23 @@ use std::fmt::{Debug, Formatter};
 use std::fs::OpenOptions;
 use std::hash::Hasher;
 use std::io::Write as ioWrite;
+use std::mem;
 use std::num::ParseIntError;
 use std::os::unix::prelude::FileExt;
 use std::path::Path;
-use std::mem;
 use std::slice;
 
+use byteorder::{ByteOrder, NativeEndian};
 use rayon::iter::{plumbing::Producer, IntoParallelIterator, ParallelIterator};
 use sha2::{Digest, Sha256};
 use typenum::marker_traits::Unsigned;
 use typenum::{U2, U3, U4, U5, U7, U8};
-use byteorder::{ByteOrder, NativeEndian};
 
 use crate::hash::{Algorithm, Hashable};
-use crate::merkle::{get_merkle_tree_len, get_merkle_tree_row_count, is_merkle_tree_size_valid, Element, FromIndexedParallelIterator, MerkleTree, log2_pow2, next_pow2};
+use crate::merkle::{
+    get_merkle_tree_len, get_merkle_tree_row_count, is_merkle_tree_size_valid, log2_pow2,
+    next_pow2, Element, FromIndexedParallelIterator, MerkleTree,
+};
 use crate::store::{
     DiskStore, DiskStoreProducer, ExternalReader, LevelCacheStore, ReplicaConfig, Store,
     StoreConfig, StoreConfigDataVersion, VecStore, SMALL_TREE_BUILD,
@@ -35,7 +38,8 @@ fn build_disk_tree_from_iter<U: Unsigned>(
     let branches = U::to_usize();
     assert_eq!(
         len,
-        get_merkle_tree_len(leafs, branches).expect("failed to get merkle len")
+        get_merkle_tree_len(leafs, branches)
+            .expect("[build_disk_tree_from_iter] failed to get merkle len")
     );
     assert_eq!(row_count, get_merkle_tree_row_count(leafs, branches));
 
@@ -51,7 +55,7 @@ fn build_disk_tree_from_iter<U: Unsigned>(
         }),
         config.clone(),
     )
-    .expect("failed to create tree");
+    .expect("[build_disk_tree_from_iter] failed to create tree");
 
     assert_eq!(mt.len(), len);
     assert_eq!(mt.leafs(), leafs);
@@ -68,7 +72,8 @@ pub fn get_levelcache_tree_from_slice<U: Unsigned>(
     let branches = U::to_usize();
     assert_eq!(
         len,
-        get_merkle_tree_len(leafs, branches).expect("failed to get merkle len")
+        get_merkle_tree_len(leafs, branches)
+            .expect("[get_levelcache_tree_from_slice] failed to get merkle len")
     );
     assert_eq!(row_count, get_merkle_tree_row_count(leafs, branches));
 
@@ -78,14 +83,14 @@ pub fn get_levelcache_tree_from_slice<U: Unsigned>(
     }
 
     let mut mt = MerkleTree::from_data_with_config(&x, config.clone())
-        .expect("failed to create tree from slice");
+        .expect("[get_levelcache_tree_from_slice] failed to create tree from slice");
 
     assert_eq!(mt.len(), len);
     assert_eq!(mt.leafs(), leafs);
     assert_eq!(mt.row_count(), row_count);
 
     mt.set_external_reader_path(replica_path)
-        .expect("Failed to set external reader");
+        .expect("[get_levelcache_tree_from_slice] Failed to set external reader");
 
     mt
 }
@@ -100,7 +105,8 @@ fn get_levelcache_tree_from_iter<U: Unsigned>(
     let branches = U::to_usize();
     assert_eq!(
         len,
-        get_merkle_tree_len(leafs, branches).expect("failed to get merkle len")
+        get_merkle_tree_len(leafs, branches)
+            .expect("[get_levelcache_tree_from_iter] failed to get merkle len")
     );
     assert_eq!(row_count, get_merkle_tree_row_count(leafs, branches));
 
@@ -117,14 +123,14 @@ fn get_levelcache_tree_from_iter<U: Unsigned>(
             }),
             config.clone(),
         )
-        .expect("failed to create tree");
+        .expect("[get_levelcache_tree_from_iter] failed to create tree");
 
     assert_eq!(mt.len(), len);
     assert_eq!(mt.leafs(), leafs);
     assert_eq!(mt.row_count(), row_count);
 
     mt.set_external_reader_path(replica_path)
-        .expect("Failed to set external reader");
+        .expect("[get_levelcache_tree_from_iter] Failed to set external reader");
 
     mt
 }
@@ -142,7 +148,10 @@ fn test_levelcache_v1_tree_from_iter<U: Unsigned>(
         "test_levelcache_v1_tree_from_iter-{}-{}-{}",
         leafs, len, row_count
     );
-    let temp_dir = tempfile::Builder::new().prefix(&name).tempdir().unwrap();
+    let temp_dir = tempfile::Builder::new()
+        .prefix(&name)
+        .tempdir()
+        .expect("[test_levelcache_v1_tree_from_iter] couldn't create temp_dir");
 
     // Construct and store an MT using a named DiskStore.
     let config = StoreConfig::new(temp_dir.path(), name, rows_to_discard);
@@ -150,10 +159,13 @@ fn test_levelcache_v1_tree_from_iter<U: Unsigned>(
 
     // Sanity check loading the store from disk and then re-creating
     // the MT from it.
-    assert!(DiskStore::<[u8; 16]>::is_consistent(len, branches, &config).unwrap());
-    let store = DiskStore::new_from_disk(len, branches, &config).unwrap();
+    assert!(DiskStore::<[u8; 16]>::is_consistent(len, branches, &config)
+        .expect("[test_levelcache_v1_tree_from_iter] can't check if store is consistent"));
+    let store = DiskStore::new_from_disk(len, branches, &config)
+        .expect("[test_levelcache_v1_tree_from_iter] couldn't instantiate DiskStore");
     let mut mt_cache: MerkleTree<[u8; 16], XOR128, DiskStore<_>, U> =
-        MerkleTree::from_data_store(store, leafs).unwrap();
+        MerkleTree::from_data_store(store, leafs)
+            .expect("[test_levelcache_v1_tree_from_iter] couldn't create Merkle Tree");
 
     assert_eq!(mt_cache.len(), len);
     assert_eq!(mt_cache.leafs(), leafs);
@@ -167,14 +179,17 @@ fn test_levelcache_v1_tree_from_iter<U: Unsigned>(
     // Then re-create an MT using LevelCacheStore and generate all proofs.
     assert!(
         LevelCacheStore::<[u8; 16], std::fs::File>::is_consistent_v1(len, branches, &config)
-            .unwrap()
+            .expect(
+            "[test_levelcache_v1_tree_from_iter] couldn't check if LevelCacheStore is consistent"
+        )
     );
     let level_cache_store: LevelCacheStore<[u8; 16], std::fs::File> =
-        LevelCacheStore::new_from_disk(len, branches, &config).unwrap();
+        LevelCacheStore::new_from_disk(len, branches, &config)
+            .expect("[test_levelcache_v1_tree_from_iter] couldn't instantiate LevelCacheStore");
 
     let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, _>, U> =
         MerkleTree::from_data_store(level_cache_store, leafs)
-            .expect("Failed to create MT from data store");
+            .expect("[test_levelcache_v1_tree_from_iter] Failed to create MT from data store");
 
     assert_eq!(mt_level_cache.len(), len);
     assert_eq!(mt_level_cache.leafs(), leafs);
@@ -185,8 +200,12 @@ fn test_levelcache_v1_tree_from_iter<U: Unsigned>(
         let index = i * (leafs / num_challenges);
         let proof = mt_level_cache
             .gen_cached_proof(index, Some(config.rows_to_discard))
-            .expect("Failed to generate proof and partial tree");
-        assert!(proof.validate::<XOR128>().expect("failed to validate"));
+            .expect(
+                "[test_levelcache_v1_tree_from_iter] Failed to generate proof and partial tree",
+            );
+        assert!(proof
+            .validate::<XOR128>()
+            .expect("[test_levelcache_v1_tree_from_iter] failed to validate"));
     }
 }
 
@@ -205,7 +224,7 @@ fn test_levelcache_direct_build_from_slice<U: Unsigned>(
     let temp_dir = tempfile::Builder::new()
         .prefix(&test_name)
         .tempdir()
-        .unwrap();
+        .expect("[test_levelcache_direct_build_from_slice] couldn't create temp_dir");
 
     let rows_to_discard = match rows_to_discard {
         Some(x) => x,
@@ -228,8 +247,12 @@ fn test_levelcache_direct_build_from_slice<U: Unsigned>(
         let index = i * (leafs / num_challenges);
         let proof = lc_tree
             .gen_cached_proof(index, Some(rows_to_discard))
-            .expect("Failed to generate proof and partial tree");
-        assert!(proof.validate::<XOR128>().expect("failed to validate"));
+            .expect(
+            "[test_levelcache_direct_build_from_slice] Failed to generate proof and partial tree",
+        );
+        assert!(proof
+            .validate::<XOR128>()
+            .expect("[test_levelcache_direct_build_from_slice] failed to validate"));
     }
 }
 
@@ -248,7 +271,7 @@ fn test_levelcache_direct_build_from_iter<U: Unsigned>(
     let temp_dir = tempfile::Builder::new()
         .prefix(&test_name)
         .tempdir()
-        .unwrap();
+        .expect("[test_levelcache_direct_build_from_iter] couldn't create temp_dir");
 
     let rows_to_discard = match rows_to_discard {
         Some(x) => x,
@@ -269,10 +292,12 @@ fn test_levelcache_direct_build_from_iter<U: Unsigned>(
     // Verify all proofs are working.
     for i in 0..num_challenges {
         let index = i * (leafs / num_challenges);
-        let proof = lc_tree
-            .gen_cached_proof(index, None)
-            .expect("Failed to generate proof and partial tree");
-        assert!(proof.validate::<XOR128>().expect("failed to validate"));
+        let proof = lc_tree.gen_cached_proof(index, None).expect(
+            "[test_levelcache_direct_build_from_iter] Failed to generate proof and partial tree",
+        );
+        assert!(proof
+            .validate::<XOR128>()
+            .expect("[test_levelcache_direct_build_from_iter] failed to validate"));
     }
 }
 
@@ -341,28 +366,28 @@ fn test_hasher_light() {
     */
     run_test::<Item, XOR128>(
         2,
-        decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(),
-        decode_hex("00000000000000000000000000000000").unwrap(),
+        decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(), // safe
+        decode_hex("00000000000000000000000000000000").unwrap(), // safe
     );
     run_test::<Item, XOR128>(
         5,
-        decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(),
-        decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(),
+        decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(), // safe
+        decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(), // safe
     );
     run_test::<Item, XOR128>(
         10,
-        decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(),
-        decode_hex("00000000000000000000000000000000").unwrap(),
+        decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(), // safe
+        decode_hex("00000000000000000000000000000000").unwrap(), // safe
     );
     run_test::<Item, XOR128>(
         371,
-        decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(),
-        decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(),
+        decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(), // safe
+        decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(), // safe
     );
 
     let mut sha256 = Sha256::new();
     let number_of_hashing = 951;
-    let input = decode_hex("000102030405060708090a0b0c0d0e0f").unwrap();
+    let input = decode_hex("000102030405060708090a0b0c0d0e0f").unwrap(); // safe
     for _ in 0..number_of_hashing {
         sha256.update(input.as_slice());
     }
@@ -388,8 +413,9 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
     let temp_dir = tempfile::Builder::new()
         .prefix("test_compound_levelcache_tree")
         .tempdir()
-        .unwrap();
-    let len = get_merkle_tree_len(sub_tree_leafs, branches).expect("failed to get merkle len");
+        .expect("[test_compound_levelcache_tree_from_store_configs] couldn't create temp_dir");
+    let len = get_merkle_tree_len(sub_tree_leafs, branches)
+        .expect("[test_compound_levelcache_tree_from_store_configs] failed to get merkle len");
     let row_count = get_merkle_tree_row_count(sub_tree_leafs, branches);
 
     let replica_path = StoreConfig::data_path(
@@ -399,8 +425,8 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
             test_name, sub_tree_leafs, len, row_count
         ),
     );
-    let mut f_replica =
-        std::fs::File::create(&replica_path).expect("failed to create replica file");
+    let mut f_replica = std::fs::File::create(&replica_path)
+        .expect("[test_compound_levelcache_tree_from_store_configs] failed to create replica file");
 
     for i in 0..sub_tree_count {
         let lc_name = format!(
@@ -418,7 +444,7 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
         );
         build_disk_tree_from_iter::<B>(sub_tree_leafs, len, row_count, &config);
         let store = DiskStore::new_with_config(len, branches, config.clone())
-            .expect("failed to open store");
+            .expect("[test_compound_levelcache_tree_from_store_configs] failed to open store");
 
         // Use that data store as the replica (concat the data to the replica_path)
         let data: Vec<[u8; 16]> = store
@@ -426,11 +452,11 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
                 start: 0,
                 end: sub_tree_leafs,
             })
-            .expect("failed to read store");
+            .expect("[test_compound_levelcache_tree_from_store_configs] failed to read store");
         for element in data {
-            f_replica
-                .write_all(&element)
-                .expect("failed to write replica data");
+            f_replica.write_all(&element).expect(
+                "[test_compound_levelcache_tree_from_store_configs] failed to write replica data",
+            );
         }
         replica_offsets.push(i * (16 * sub_tree_leafs));
 
@@ -449,11 +475,12 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
     let replica_config = ReplicaConfig::new(replica_path, replica_offsets);
     let tree =
         MerkleTree::<[u8; 16], XOR128, LevelCacheStore<[u8; 16], std::fs::File>, B, N>::from_store_configs_and_replica(sub_tree_leafs, &sub_tree_configs, &replica_config)
-            .expect("Failed to build compound levelcache tree");
+            .expect("[test_compound_levelcache_tree_from_store_configs] Failed to build compound levelcache tree");
 
     assert_eq!(
         tree.len(),
-        (get_merkle_tree_len(sub_tree_leafs, branches).expect("failed to get merkle len")
+        (get_merkle_tree_len(sub_tree_leafs, branches)
+            .expect("[test_compound_levelcache_tree_from_store_configs] failed to get merkle len")
             * sub_tree_count)
             + 1
     );
@@ -461,11 +488,15 @@ fn test_compound_levelcache_tree_from_store_configs<B: Unsigned, N: Unsigned>(
 
     for i in 0..tree.leafs() {
         // Make sure all elements are accessible.
-        let _ = tree.read_at(i).expect("Failed to read tree element");
+        let _ = tree.read_at(i).expect(
+            "[test_compound_levelcache_tree_from_store_configs] Failed to read tree element",
+        );
 
         // Make sure all proofs validate.
-        let p = tree.gen_cached_proof(i, None).unwrap();
-        assert!(p.validate::<XOR128>().expect("failed to validate"));
+        let p = tree.gen_cached_proof(i, None).expect("[test_compound_levelcache_tree_from_store_configs] couldn't generate cached Merkle Proof");
+        assert!(p
+            .validate::<XOR128>()
+            .expect("[test_compound_levelcache_tree_from_store_configs] failed to validate"));
     }
 }
 
@@ -589,7 +620,7 @@ fn test_xlarge_octo_with_partial_cache() {
 fn test_read_into() {
     let x = [String::from("ars"), String::from("zxc")];
     let mt: MerkleTree<[u8; 16], XOR128, VecStore<_>> =
-        MerkleTree::from_data(&x).expect("failed to create tree");
+        MerkleTree::from_data(&x).expect("[test_read_into] failed to create tree");
     let target_data = [
         [0, 97, 114, 115, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         [0, 122, 120, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -598,14 +629,15 @@ fn test_read_into() {
 
     let mut read_buffer: [u8; 16] = [0; 16];
     for (pos, &data) in target_data.iter().enumerate() {
-        mt.read_into(pos, &mut read_buffer).unwrap();
+        mt.read_into(pos, &mut read_buffer)
+            .expect("[test_read_into] couldn't read data from Merkle Tree");
         assert_eq!(read_buffer, data);
     }
 
     let temp_dir = tempfile::Builder::new()
         .prefix("test_read_into")
         .tempdir()
-        .unwrap();
+        .expect("[test_read_into] couldn't create temp_dir");
     let config = StoreConfig::new(
         temp_dir.path(),
         "test-read-into",
@@ -613,9 +645,11 @@ fn test_read_into() {
     );
 
     let mt2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
-        MerkleTree::from_data_with_config(&x, config).expect("failed to create tree");
+        MerkleTree::from_data_with_config(&x, config)
+            .expect("[test_read_into] failed to create tree");
     for (pos, &data) in target_data.iter().enumerate() {
-        mt2.read_into(pos, &mut read_buffer).unwrap();
+        mt2.read_into(pos, &mut read_buffer)
+            .expect("[test_read_into] couldn't read data from Merkle Tree");
         assert_eq!(read_buffer, data);
     }
 }
@@ -626,7 +660,8 @@ fn test_level_cache_tree_v1() {
     let count = SMALL_TREE_BUILD * 2;
     test_levelcache_v1_tree_from_iter::<U2>(
         count,
-        get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
+        get_merkle_tree_len(count, BINARY_ARITY)
+            .expect("[test_level_cache_tree_v1] failed to get merkle len"),
         get_merkle_tree_row_count(count, BINARY_ARITY),
         count,
         rows_to_discard,
@@ -641,7 +676,7 @@ fn test_level_cache_tree_v2() {
     let temp_dir = tempfile::Builder::new()
         .prefix("test_level_cache_tree_v2")
         .tempdir()
-        .unwrap();
+        .expect("[test_level_cache_tree_v2] couldn't create temp_dir");
     let temp_path = temp_dir.path();
 
     // Construct and store an MT using a named DiskStore.
@@ -662,10 +697,11 @@ fn test_level_cache_tree_v2() {
             }),
             config.clone(),
         )
-        .expect("Failed to create MT");
+        .expect("[test_level_cache_tree_v2] Failed to create MT");
     assert_eq!(
         mt_disk.len(),
-        get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len")
+        get_merkle_tree_len(count, BINARY_ARITY)
+            .expect("[test_level_cache_tree_v2] failed to get merkle len")
     );
 
     // Generate proofs on tree.
@@ -673,8 +709,12 @@ fn test_level_cache_tree_v2() {
         // First generate and validate the proof using the full
         // range of data we have stored on disk (no partial tree
         // is built or used in this case).
-        let p = mt_disk.gen_proof(j).unwrap();
-        assert!(p.validate::<XOR128>().expect("failed to validate"));
+        let p = mt_disk
+            .gen_proof(j)
+            .expect("[test_level_cache_tree_v2] failed to create Merkle Proof");
+        assert!(p
+            .validate::<XOR128>()
+            .expect("[test_level_cache_tree_v2] failed to validate"));
     }
 
     // Copy the base data from the store to a separate file that
@@ -683,53 +723,60 @@ fn test_level_cache_tree_v2() {
     let reader = OpenOptions::new()
         .read(true)
         .open(StoreConfig::data_path(&config.path, &config.id))
-        .expect("Failed to open base layer data");
+        .expect("[test_level_cache_tree_v2] Failed to open base layer data");
     let mut base_layer = vec![0; count * 16];
     reader
         .read_exact_at(&mut base_layer, 0)
-        .expect("Failed to read");
+        .expect("[test_level_cache_tree_v2] Failed to read");
 
     let output_file = temp_path.join("base-data-only");
-    std::fs::write(&output_file, &base_layer).expect("Failed to write output file");
+    std::fs::write(&output_file, &base_layer)
+        .expect("[test_level_cache_tree_v2] Failed to write output file");
 
     // Compact the disk store for use as a LevelCacheStore (v2
     // stores only the cached data and requires the ExternalReader
     // for base data retrieval).
     match mt_disk.compact(config.clone(), StoreConfigDataVersion::Two as u32) {
         Ok(x) => assert!(x),
-        Err(_) => panic!("Compaction failed"), // Could not do any compaction with this configuration.
+        Err(_) => panic!("[test_level_cache_tree_v2] Compaction failed"), // Could not do any compaction with this configuration.
     }
 
     // Then re-create an MT using LevelCacheStore and generate all proofs.
     assert!(LevelCacheStore::<[u8; 16], std::fs::File>::is_consistent(
-        get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
+        get_merkle_tree_len(count, BINARY_ARITY)
+            .expect("[test_level_cache_tree_v2] failed to get merkle len"),
         BINARY_ARITY,
         &config
     )
-    .unwrap());
+    .expect("[test_level_cache_tree_v2] couldn't check if LevelCacheStore is consistent"));
     let level_cache_store: LevelCacheStore<[u8; 16], _> =
         LevelCacheStore::new_from_disk_with_reader(
-            get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
+            get_merkle_tree_len(count, BINARY_ARITY)
+                .expect("[test_level_cache_tree_v2] failed to get merkle len"),
             BINARY_ARITY,
             &config,
-            ExternalReader::new_from_path(&output_file).unwrap(),
+            ExternalReader::new_from_path(&output_file)
+                .expect("[test_level_cache_tree_v2] couldn't instantiate ExternalReader"),
         )
-        .unwrap();
+        .expect("[test_level_cache_tree_v2] couldn't check if LevelCacheStore is consistent");
 
     let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, _>> =
         MerkleTree::from_data_store(level_cache_store, count)
-            .expect("Failed to create MT from data store");
+            .expect("[test_level_cache_tree_v2] Failed to create MT from data store");
     assert_eq!(
         mt_level_cache.len(),
-        get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len")
+        get_merkle_tree_len(count, BINARY_ARITY)
+            .expect("[test_level_cache_tree_v2] failed to get merkle len")
     );
 
     // Generate proofs on tree.
     for j in 0..mt_level_cache.leafs() {
         let proof = mt_level_cache
             .gen_cached_proof(j, None)
-            .expect("Failed to generate proof and partial tree");
-        assert!(proof.validate::<XOR128>().expect("failed to validate"));
+            .expect("[test_level_cache_tree_v2] Failed to generate proof and partial tree");
+        assert!(proof
+            .validate::<XOR128>()
+            .expect("[test_level_cache_tree_v2] failed to validate"));
     }
 }
 
@@ -755,7 +802,7 @@ fn test_various_trees_with_partial_cache_v2_only() {
             let temp_dir = tempfile::Builder::new()
                 .prefix("test_various_trees_with_partial_cache")
                 .tempdir()
-                .unwrap();
+                .expect("[test_various_trees_with_partial_cache_v2_only] couldn't create temp_dr");
             let temp_path = temp_dir.path();
 
             // Construct and store an MT using a named DiskStore.
@@ -775,31 +822,37 @@ fn test_various_trees_with_partial_cache_v2_only() {
                     }),
                     config.clone(),
                 )
-                .expect("failed to create merkle tree from iter with config");
+                .expect("[test_various_trees_with_partial_cache_v2_only] failed to create merkle tree from iter with config");
 
             // Sanity check loading the store from disk and then
             // re-creating the MT from it.
             assert!(DiskStore::<[u8; 16]>::is_consistent(
-                get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
+                get_merkle_tree_len(count, BINARY_ARITY).expect("[test_various_trees_with_partial_cache_v2_only] failed to get merkle len"),
                 BINARY_ARITY,
                 &config
             )
-            .unwrap());
+            .expect("[test_various_trees_with_partial_cache_v2_only] couldn't check if DiskStore is consistent"));
             let store = DiskStore::new_from_disk(
-                get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
+                get_merkle_tree_len(count, BINARY_ARITY).expect(
+                    "[test_various_trees_with_partial_cache_v2_only] failed to get merkle len",
+                ),
                 BINARY_ARITY,
                 &config,
             )
-            .unwrap();
+            .expect(
+                "[test_various_trees_with_partial_cache_v2_only] couldn't instantiate DiskStore",
+            );
             let mt_cache2: MerkleTree<[u8; 16], XOR128, DiskStore<_>> =
-                MerkleTree::from_data_store(store, count).unwrap();
+                MerkleTree::from_data_store(store, count).expect("[test_various_trees_with_partial_cache_v2_only] couldn't instantiate Merkle Tree");
 
             assert_eq!(mt_cache.len(), mt_cache2.len());
             assert_eq!(mt_cache.leafs(), mt_cache2.leafs());
 
             assert_eq!(
                 mt_cache.len(),
-                get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len")
+                get_merkle_tree_len(count, BINARY_ARITY).expect(
+                    "[test_various_trees_with_partial_cache_v2_only] failed to get merkle len"
+                )
             );
             assert_eq!(mt_cache.leafs(), count);
 
@@ -807,8 +860,10 @@ fn test_various_trees_with_partial_cache_v2_only() {
                 // First generate and validate the proof using the full
                 // range of data we have stored on disk (no partial tree
                 // is built or used in this case).
-                let p = mt_cache.gen_proof(j).unwrap();
-                assert!(p.validate::<XOR128>().expect("failed to validate"));
+                let p = mt_cache.gen_proof(j).expect("[test_various_trees_with_partial_cache_v2_only] couldn't generate Merkle Proof");
+                assert!(p
+                    .validate::<XOR128>()
+                    .expect("[test_various_trees_with_partial_cache_v2_only] failed to validate"));
             }
 
             // Once we have the full on-disk MT data, we can optimize
@@ -826,14 +881,16 @@ fn test_various_trees_with_partial_cache_v2_only() {
             let reader = OpenOptions::new()
                 .read(true)
                 .open(StoreConfig::data_path(&config.path, &config.id))
-                .expect("Failed to open base layer data");
+                .expect("[test_various_trees_with_partial_cache_v2_only] Failed to open base layer data");
             let mut base_layer = vec![0; count * 16];
             reader
                 .read_exact_at(&mut base_layer, 0)
-                .expect("Failed to read");
+                .expect("[test_various_trees_with_partial_cache_v2_only] Failed to read");
 
             let output_file = temp_path.join("base-data-only");
-            std::fs::write(&output_file, &base_layer).expect("Failed to write output file");
+            std::fs::write(&output_file, &base_layer).expect(
+                "[test_various_trees_with_partial_cache_v2_only] Failed to write output file",
+            );
 
             // Compact the newly created DiskStore into the
             // LevelCacheStore format.  This uses information from the
@@ -847,28 +904,30 @@ fn test_various_trees_with_partial_cache_v2_only() {
             // for v2 compaction, we only store the cached data.
             match mt_cache.compact(config.clone(), StoreConfigDataVersion::Two as u32) {
                 Ok(x) => assert!(x),
-                Err(_) => panic!("Compaction failed"), // Could not do any compaction with this configuration.
+                Err(_) => {
+                    panic!("[test_various_trees_with_partial_cache_v2_only] Compaction failed")
+                } // Could not do any compaction with this configuration.
             }
 
             // Then re-create an MT using LevelCacheStore and generate all proofs.
             assert!(LevelCacheStore::<[u8; 16], std::fs::File>::is_consistent(
-                get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
+                get_merkle_tree_len(count, BINARY_ARITY).expect("[test_various_trees_with_partial_cache_v2_only] failed to get merkle len"),
                 BINARY_ARITY,
                 &config
             )
-            .unwrap());
+            .expect("[test_various_trees_with_partial_cache_v2_only] couldn't check if LevelCacheStore is consistent"));
             let level_cache_store: LevelCacheStore<[u8; 16], _> =
                 LevelCacheStore::new_from_disk_with_reader(
-                    get_merkle_tree_len(count, BINARY_ARITY).expect("failed to get merkle len"),
+                    get_merkle_tree_len(count, BINARY_ARITY).expect("[test_various_trees_with_partial_cache_v2_only] failed to get merkle len"),
                     BINARY_ARITY,
                     &config,
-                    ExternalReader::new_from_path(&output_file).unwrap(),
+                    ExternalReader::new_from_path(&output_file).expect("[test_various_trees_with_partial_cache_v2_only] couldn't instantiate ExternalReader"),
                 )
-                .unwrap();
+                .expect("[test_various_trees_with_partial_cache_v2_only] couldn't instantiate LevelCacheStore");
 
             let mt_level_cache: MerkleTree<[u8; 16], XOR128, LevelCacheStore<_, _>> =
                 MerkleTree::from_data_store(level_cache_store, count)
-                    .expect("Failed to revive LevelCacheStore after compaction");
+                    .expect("[test_various_trees_with_partial_cache_v2_only] Failed to revive LevelCacheStore after compaction");
 
             // Sanity check that after rebuild, the new MT properties match the original.
             assert_eq!(mt_level_cache.len(), mt_cache_len);
@@ -881,16 +940,18 @@ fn test_various_trees_with_partial_cache_v2_only() {
             for j in 0..mt_level_cache.leafs() {
                 let proof = mt_level_cache
                     .gen_cached_proof(j, Some(i))
-                    .expect("Failed to generate proof and partial tree");
-                assert!(proof.validate::<XOR128>().expect("failed to validate"));
+                    .expect("[test_various_trees_with_partial_cache_v2_only] Failed to generate proof and partial tree");
+                assert!(proof
+                    .validate::<XOR128>()
+                    .expect("[test_various_trees_with_partial_cache_v2_only] failed to validate"));
             }
 
             // Delete the single store backing this MT (for this test,
             // the DiskStore is compacted and then shared with the
             // LevelCacheStore, so it's still a single store on disk).
-            mt_level_cache
-                .delete(config.clone())
-                .expect("Failed to delete test store");
+            mt_level_cache.delete(config.clone()).expect(
+                "[test_various_trees_with_partial_cache_v2_only] Failed to delete test store",
+            );
 
             // This also works (delete the store directly)
             //LevelCacheStore::<[u8; 16]>::delete(config.clone())
@@ -904,7 +965,8 @@ fn test_various_trees_with_partial_cache_v2_only() {
 #[test]
 fn test_parallel_iter_disk_1() {
     let data = vec![1u8; 16 * 128];
-    let store: DiskStore<[u8; 16]> = DiskStore::new_from_slice(128, &data).unwrap();
+    let store: DiskStore<[u8; 16]> = DiskStore::new_from_slice(128, &data)
+        .expect("[test_parallel_iter_disk_1] couldn't instantiate DiskStore");
 
     let p = DiskStoreProducer {
         current: 0,
@@ -982,7 +1044,8 @@ fn test_parallel_iter_disk_2() {
         println!(" --- {}", size);
 
         let data = vec![1u8; 16 * size];
-        let store: DiskStore<[u8; 16]> = DiskStore::new_from_slice(size, &data).unwrap();
+        let store: DiskStore<[u8; 16]> = DiskStore::new_from_slice(size, &data)
+            .expect("[test_parallel_iter_disk_2] couldn't instantiate DiskStore");
 
         let p = DiskStoreProducer {
             current: 0,
@@ -1134,7 +1197,7 @@ pub fn get_vec_tree_from_slice<E: Element, A: Algorithm<E>, U: Unsigned>(
     for i in 0..leafs {
         x.push(i * 93);
     }
-    MerkleTree::from_data(&x).expect("failed to create tree from slice")
+    MerkleTree::from_data(&x).expect("[get_vec_tree_from_slice] failed to create tree from slice")
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Debug)]
@@ -1283,18 +1346,23 @@ fn test_simple_tree() {
                 })
                 .take(*items),
         )
-            .unwrap();
+        .expect("[test_simple_tree] couldn't instantiate Merkle Tree");
 
         assert_eq!(mt.leafs(), *items);
         assert_eq!(mt.row_count(), log2_pow2(next_pow2(mt.len())));
         assert_eq!(
-            mt.read_range(0, mt.len()).unwrap(),
+            mt.read_range(0, mt.len())
+                .expect("[test_simple_tree] couldn't read elements from Merkle Tree"),
             answer[*items - 2].as_slice()
         );
 
         for i in 0..mt.leafs() {
-            let p = mt.gen_proof(i).unwrap();
-            assert!(p.validate::<DefaultHasher>().expect("failed to validate"));
+            let p = mt
+                .gen_proof(i)
+                .expect("[test_simple_tree] couldn't generate Merkle Proof");
+            assert!(p
+                .validate::<DefaultHasher>()
+                .expect("[test_simple_tree] failed to validate"));
         }
     }
 }
@@ -1357,11 +1425,11 @@ fn test_custom_merkle_hasher() {
             x.hash(&mut a);
             Ok(a.hash())
         }))
-            .unwrap();
+        .expect("[test_custom_merkle_hasher] couldn't instantiate Merkle Tree");
 
     assert_eq!(
         mt.read_range(0, 3)
-            .unwrap()
+            .expect("[test_custom_merkle_hasher] couldn't read elements from Merkle Tree")
             .iter()
             .take(mt.leafs())
             .filter(|&&x| x.0 > 255)
@@ -1370,7 +1438,7 @@ fn test_custom_merkle_hasher() {
     );
     assert_eq!(
         mt.read_range(0, 3)
-            .unwrap()
+            .expect("[test_custom_merkle_hasher] couldn't read elements from Merkle Tree")
             .iter()
             .filter(|&&x| x.0 > 65535)
             .count(),

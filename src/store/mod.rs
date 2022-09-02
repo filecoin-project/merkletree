@@ -331,7 +331,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
                     // Read everything taking the lock once.
                     data_lock
                         .read()
-                        .unwrap()
+                        .expect("[process_layer] couldn't block current thread")
                         .read_range(chunk_index..chunk_index + chunk_size)?
                 };
 
@@ -359,7 +359,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
                 // Write the data into the store.
                 data_lock
                     .write()
-                    .unwrap()
+                    .expect("[process_layer] couldn't block current thread")
                     .copy_from_slice(&hashed_nodes_as_bytes, write_start + write_delta)
             })
     }

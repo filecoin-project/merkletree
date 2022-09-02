@@ -60,25 +60,35 @@ impl<T: Eq + Clone + AsRef<[u8]>, BaseTreeArity: Unsigned> Proof<T, BaseTreeArit
 
     /// Return proof target leaf
     pub fn item(&self) -> T {
-        self.lemma.first().unwrap().clone()
+        self.lemma
+            .first()
+            .expect("[item] requested element is empty")
+            .clone()
     }
 
     /// Return sub tree root
     pub fn sub_tree_root(&self) -> T {
         assert!(self.sub_tree_layer_nodes > 0 && self.sub_tree_proof.is_some());
-        self.sub_tree_proof.as_ref().unwrap().root()
+        self.sub_tree_proof.as_ref().unwrap().root() // safe
     }
 
     /// Return tree root
     pub fn root(&self) -> T {
-        self.lemma.last().unwrap().clone()
+        self.lemma
+            .last()
+            .expect("[root] requested element is empty")
+            .clone()
     }
 
     /// Validates sub-tree proofs with the specified arity.
     fn validate_sub_tree_proof<A: Algorithm<T>>(&self, arity: usize) -> Result<bool> {
         // Ensure that the sub_tree validates to the root of that
         // sub_tree.
-        let valid = self.sub_tree_proof.as_ref().unwrap().validate::<A>()?;
+        let valid = self
+            .sub_tree_proof
+            .as_ref()
+            .expect("[validate_sub_tree_proof] couldn't get sub_tree_proof value")
+            .validate::<A>()?;
         if !valid {
             return Ok(valid);
         }
@@ -250,7 +260,7 @@ mod tests {
             assert!(proof
                 .sub_tree_proof
                 .as_ref()
-                .unwrap()
+                .unwrap() // safe
                 .sub_tree_proof
                 .is_some());
         } else if SubTreeArity::to_usize() > 0 {
@@ -261,15 +271,16 @@ mod tests {
         let mut tmp = vec![0u8; E::byte_len()];
 
         if TopTreeArity::to_usize() > 0 || SubTreeArity::to_usize() > 0 {
-            let i = random::<usize>() % proof.sub_tree_proof.as_ref().unwrap().lemma().len();
+            let i = random::<usize>() % proof.sub_tree_proof.as_ref().unwrap().lemma().len(); // safe
             let j = random::<usize>();
 
             j.hash(&mut hasher_alg);
 
             // Break random sub-tree proof element
-            proof.sub_tree_proof.as_ref().unwrap().lemma()[i].copy_to_slice(&mut tmp);
+            proof.sub_tree_proof.as_ref().unwrap().lemma()[i].copy_to_slice(&mut tmp); // safe
             tmp.hash(&mut hasher_alg);
             proof.sub_tree_proof.as_mut().unwrap().lemma_mut()[i] = hasher_alg.hash();
+        // safe
         } else {
             let i = random::<usize>() % proof.lemma.len();
             let k = random::<usize>();
@@ -296,12 +307,14 @@ mod tests {
             let tree = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
 
             for i in 0..tree.leafs() {
-                let mut p = tree.gen_proof(i).unwrap();
-                assert!(p.validate::<A>().expect("failed to validate"));
+                let mut p = tree
+                    .gen_proof(i)
+                    .expect("[test_proofs] failed to generate Merkle proof");
+                assert!(p.validate::<A>().expect("[test_proofs] failed to validate"));
 
                 // Break the proof here and assert negative validation.
                 modify_proof::<E, A, BaseTreeArity, SubTreeArity, TopTreeArity>(&mut p);
-                assert!(!p.validate::<A>().expect("failed to validate"));
+                assert!(!p.validate::<A>().expect("[test_proofs] failed to validate"));
             }
         }
 
@@ -324,14 +337,21 @@ mod tests {
             let mt3 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
 
             let tree: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
-                MerkleTree::from_trees(vec![mt1, mt2, mt3]).expect("Failed to build compound tree");
+                MerkleTree::from_trees(vec![mt1, mt2, mt3])
+                    .expect("[test_compound_quad_broken_proofs] Failed to build compound tree");
 
             for i in 0..tree.leafs() {
-                let mut p = tree.gen_proof(i).unwrap();
-                assert!(p.validate::<A>().expect("failed to validate"));
+                let mut p = tree
+                    .gen_proof(i)
+                    .expect("[test_compound_quad_broken_proofs] failed to generate Merkle proof");
+                assert!(p
+                    .validate::<A>()
+                    .expect("[test_compound_quad_broken_proofs] failed to validate"));
 
                 modify_proof::<E, A, BaseTreeArity, SubTreeArity, TopTreeArity>(&mut p);
-                assert!(!p.validate::<A>().expect("failed to validate"));
+                assert!(!p
+                    .validate::<A>()
+                    .expect("[test_compound_quad_broken_proofs] failed to validate"));
             }
         }
         run_test::<Item, XOR128, U4, U3, U0>();
@@ -351,14 +371,22 @@ mod tests {
             let mt1 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
 
             let tree: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
-                MerkleTree::from_trees(vec![mt1]).expect("Failed to build compound tree");
+                MerkleTree::from_trees(vec![mt1]).expect(
+                    "[test_compound_single_octree_broken_proofs] Failed to build compound tree",
+                );
 
             for i in 0..tree.leafs() {
-                let mut p = tree.gen_proof(i).unwrap();
-                assert!(p.validate::<A>().expect("failed to validate"));
+                let mut p = tree.gen_proof(i).expect(
+                    "[test_compound_single_octree_broken_proofs] failed to generate Merkle proof",
+                );
+                assert!(p
+                    .validate::<A>()
+                    .expect("[test_compound_single_octree_broken_proofs] failed to validate"));
 
                 modify_proof::<E, A, BaseTreeArity, SubTreeArity, TopTreeArity>(&mut p);
-                assert!(!p.validate::<A>().expect("failed to validate"));
+                assert!(!p
+                    .validate::<A>()
+                    .expect("[test_compound_single_octree_broken_proofs] failed to validate"));
             }
         }
         run_test::<Item, XOR128, U8, U1, U0>();
@@ -383,14 +411,20 @@ mod tests {
 
             let tree: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
                 MerkleTree::from_trees(vec![mt1, mt2, mt3, mt4])
-                    .expect("Failed to build compound tree");
+                    .expect("[test_compound_octree_broken_proofs] Failed to build compound tree");
 
             for i in 0..tree.leafs() {
-                let mut p = tree.gen_proof(i).unwrap();
-                assert!(p.validate::<A>().expect("failed to validate"));
+                let mut p = tree
+                    .gen_proof(i)
+                    .expect("[test_compound_octree_broken_proofs] failed to generate Merkle proof");
+                assert!(p
+                    .validate::<A>()
+                    .expect("[test_compound_octree_broken_proofs] failed to validate"));
 
                 modify_proof::<E, A, BaseTreeArity, SubTreeArity, TopTreeArity>(&mut p);
-                assert!(!p.validate::<A>().expect("failed to validate"));
+                assert!(!p
+                    .validate::<A>()
+                    .expect("[test_compound_octree_broken_proofs] failed to validate"));
             }
         }
         run_test::<Item, XOR128, U8, U4, U0>();
@@ -413,32 +447,36 @@ mod tests {
             let mt3 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let cmt1: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
                 MerkleTree::from_trees(vec![mt1, mt2, mt3])
-                    .expect("failed to build compound merkle tree");
+                    .expect("[test_compound_compound_quad_broken_proofs] failed to build compound merkle tree");
 
             let mt4 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt5 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt6 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let cmt2: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
                 MerkleTree::from_trees(vec![mt4, mt5, mt6])
-                    .expect("failed to build compound merkle tree");
+                    .expect("[test_compound_compound_quad_broken_proofs] failed to build compound merkle tree");
 
             let mt7 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt8 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt9 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let cmt3: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
                 MerkleTree::from_trees(vec![mt7, mt8, mt9])
-                    .expect("failed to build compound merkle tree");
+                    .expect("[test_compound_compound_quad_broken_proofs] failed to build compound merkle tree");
 
             let tree: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity, TopTreeArity> =
                 MerkleTree::from_sub_trees(vec![cmt1, cmt2, cmt3])
-                    .expect("Failed to build compound-compound tree");
+                    .expect("[test_compound_compound_quad_broken_proofs] Failed to build compound-compound tree");
 
             for i in 0..tree.leafs() {
-                let mut p = tree.gen_proof(i).unwrap();
-                assert!(p.validate::<A>().expect("failed to validate"));
+                let mut p = tree.gen_proof(i).expect("failed to generate Merkle proof");
+                assert!(p
+                    .validate::<A>()
+                    .expect("[test_compound_compound_quad_broken_proofs] failed to validate"));
 
                 modify_proof::<E, A, BaseTreeArity, SubTreeArity, TopTreeArity>(&mut p);
-                assert!(!p.validate::<A>().expect("failed to validate"));
+                assert!(!p
+                    .validate::<A>()
+                    .expect("[test_compound_compound_quad_broken_proofs] failed to validate"));
             }
         }
 
@@ -463,19 +501,23 @@ mod tests {
             let mt3 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let cmt1: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
                 MerkleTree::from_trees(vec![mt1, mt2, mt3])
-                    .expect("failed to build compound merkle tree");
+                    .expect("[test_compound_compound_single_quad_broken_proofs] failed to build compound merkle tree");
 
             let tree: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity, TopTreeArity> =
                 MerkleTree::from_sub_trees(vec![cmt1])
-                    .expect("Failed to build compound-compound tree");
+                    .expect("[test_compound_compound_single_quad_broken_proofs] Failed to build compound-compound tree");
 
             for i in 0..tree.leafs() {
-                let mut p = tree.gen_proof(i).unwrap();
-                assert!(p.validate::<A>().expect("failed to validate"));
+                let mut p = tree.gen_proof(i).expect("[test_compound_compound_single_quad_broken_proofs] failed to generate Merkle proof");
+                assert!(p.validate::<A>().expect(
+                    "[test_compound_compound_single_quad_broken_proofs] failed to validate"
+                ));
 
                 // TODO investigate why SubTree and TopTree are substituted (in origin test)
                 modify_proof::<E, A, BaseTreeArity, TopTreeArity, SubTreeArity>(&mut p);
-                assert!(!p.validate::<A>().expect("failed to validate"));
+                assert!(!p.validate::<A>().expect(
+                    "[test_compound_compound_single_quad_broken_proofs] failed to validate"
+                ));
             }
         }
         run_test::<Item, XOR128, U4, U3, U1>();
@@ -499,52 +541,63 @@ mod tests {
             let mt3 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt4 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let cmt1: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
-                MerkleTree::from_trees(vec![mt1, mt2, mt3, mt4])
-                    .expect("Failed to build compound tree");
+                MerkleTree::from_trees(vec![mt1, mt2, mt3, mt4]).expect(
+                    "[test_compound_compound_octree_broken_proofs] Failed to build compound tree",
+                );
 
             let mt5 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt6 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt7 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt8 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let cmt2: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
-                MerkleTree::from_trees(vec![mt5, mt6, mt7, mt8])
-                    .expect("Failed to build compound tree");
+                MerkleTree::from_trees(vec![mt5, mt6, mt7, mt8]).expect(
+                    "[test_compound_compound_octree_broken_proofs] Failed to build compound tree",
+                );
 
             let mt9 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt10 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt11 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt12 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let cmt3: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
-                MerkleTree::from_trees(vec![mt9, mt10, mt11, mt12])
-                    .expect("Failed to build compound tree");
+                MerkleTree::from_trees(vec![mt9, mt10, mt11, mt12]).expect(
+                    "[test_compound_compound_octree_broken_proofs] Failed to build compound tree",
+                );
 
             let mt13 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt14 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt15 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt16 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let cmt4: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
-                MerkleTree::from_trees(vec![mt13, mt14, mt15, mt16])
-                    .expect("Failed to build compound tree");
+                MerkleTree::from_trees(vec![mt13, mt14, mt15, mt16]).expect(
+                    "[test_compound_compound_octree_broken_proofs] Failed to build compound tree",
+                );
 
             let mt17 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt18 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt19 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let mt20 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let cmt5: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
-                MerkleTree::from_trees(vec![mt17, mt18, mt19, mt20])
-                    .expect("Failed to build compound tree");
+                MerkleTree::from_trees(vec![mt17, mt18, mt19, mt20]).expect(
+                    "[test_compound_compound_octree_broken_proofs] Failed to build compound tree",
+                );
 
             let tree: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity, TopTreeArity> =
                 MerkleTree::from_sub_trees(vec![cmt1, cmt2, cmt3, cmt4, cmt5])
-                    .expect("Failed to build compound-compound tree");
+                    .expect("[test_compound_compound_octree_broken_proofs] Failed to build compound-compound tree");
 
             for i in 0..tree.leafs() {
-                let mut p = tree.gen_proof(i).unwrap();
-                assert!(p.validate::<A>().expect("failed to validate"));
+                let mut p = tree.gen_proof(i).expect(
+                    "[test_compound_compound_octree_broken_proofs] failed to generate Merkle proof",
+                );
+                assert!(p
+                    .validate::<A>()
+                    .expect("[test_compound_compound_octree_broken_proofs] failed to validate"));
 
                 // TODO investigate why SubTree and TopTree are substituted (in origin test)
                 modify_proof::<E, A, BaseTreeArity, TopTreeArity, SubTreeArity>(&mut p);
-                assert!(!p.validate::<A>().expect("failed to validate"));
+                assert!(!p
+                    .validate::<A>()
+                    .expect("[test_compound_compound_octree_broken_proofs] failed to validate"));
             }
         }
         run_test::<Item, XOR128, U8, U4, U5>();
@@ -569,18 +622,22 @@ mod tests {
             let mt4 = get_vec_tree_from_slice::<E, A, BaseTreeArity>(leafs);
             let cmt1: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity> =
                 MerkleTree::from_trees(vec![mt1, mt2, mt3, mt4])
-                    .expect("Failed to build compound tree");
+                    .expect("[test_compound_compound_single_octree_broken_proofs] Failed to build compound tree");
 
             let tree: MerkleTree<E, A, VecStore<E>, BaseTreeArity, SubTreeArity, TopTreeArity> =
-                MerkleTree::from_sub_trees(vec![cmt1]).expect("Failed to build ccompound tree");
+                MerkleTree::from_sub_trees(vec![cmt1]).expect("[test_compound_compound_single_octree_broken_proofs] Failed to build ccompound tree");
 
             for i in 0..tree.leafs() {
-                let mut p = tree.gen_proof(i).unwrap();
-                assert!(p.validate::<A>().expect("failed to validate"));
+                let mut p = tree.gen_proof(i).expect("[test_compound_compound_single_octree_broken_proofs] failed to generate Merkle proof");
+                assert!(p.validate::<A>().expect(
+                    "[test_compound_compound_single_octree_broken_proofs] failed to validate"
+                ));
 
                 // TODO investigate why SubTree and TopTree are substituted (in origin test)
                 modify_proof::<E, A, BaseTreeArity, TopTreeArity, SubTreeArity>(&mut p);
-                assert!(!p.validate::<A>().expect("failed to validate"));
+                assert!(!p.validate::<A>().expect(
+                    "[test_compound_compound_single_octree_broken_proofs] failed to validate"
+                ));
             }
         }
 

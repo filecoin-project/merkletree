@@ -138,7 +138,8 @@ fn test_compound_compound_constructors() {
     fn run_test<E: Element + Copy, A: Algorithm<E>, S: Store<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves * 8 * 2;
-        let len = get_merkle_tree_len_generic::<U8, U8, U2>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<U8, U8, U2>(base_tree_leaves)
+            .expect("[test_compound_compound_constructors] couldn't compute Merkle Tree len");
 
         run_test_compound_compound_tree::<E, A, S, U8, U8, U2>(
             instantiate_cctree_from_sub_trees,
@@ -167,7 +168,8 @@ fn test_compound_compound_constructors() {
 
     let base_tree_leaves = 64;
     let expected_total_leaves = base_tree_leaves * 8 * 2;
-    let len = get_merkle_tree_len_generic::<U8, U8, U2>(base_tree_leaves).unwrap();
+    let len = get_merkle_tree_len_generic::<U8, U8, U2>(base_tree_leaves)
+        .expect("[test_compound_compound_constructors] couldn't compute Merkle Tree len");
 
     // this instantiator works only with DiskStore / MmapStore trees
     run_test_compound_compound_tree::<TestItemType, TestXOR128, DiskStore<TestItemType>, U8, U8, U2>(

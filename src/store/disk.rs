@@ -367,7 +367,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
                     // Read everything taking the lock once.
                     data_lock
                         .read()
-                        .unwrap()
+                        .expect("[process_layer] error occurred while thread blocking")
                         .read_range(chunk_index..chunk_index + chunk_size)?
                 };
 

@@ -237,8 +237,12 @@ pub fn test_disk_mmap_vec_tree_functionality<
     assert_eq!(tree.root(), expected_root);
 
     for index in 0..tree.leafs() {
-        let p = tree.gen_proof(index).unwrap();
-        assert!(p.validate::<A>().expect("failed to validate"));
+        let p = tree
+            .gen_proof(index)
+            .expect("[test_disk_mmap_vec_tree_functionality] couldn't generate Merkle Proof");
+        assert!(p
+            .validate::<A>()
+            .expect("[test_disk_mmap_vec_tree_functionality] failed to validate"));
     }
 }
 
@@ -267,8 +271,12 @@ pub fn test_levelcache_tree_functionality<
     assert_eq!(tree.root(), expected_root);
 
     for index in 0..tree.leafs() {
-        let p = tree.gen_cached_proof(index, rows_to_discard).unwrap();
-        assert!(p.validate::<A>().expect("failed to validate"));
+        let p = tree
+            .gen_cached_proof(index, rows_to_discard)
+            .expect("[test_levelcache_tree_functionality] couldn't generate cached Merkle Proof");
+        assert!(p
+            .validate::<A>()
+            .expect("[test_levelcache_tree_functionality] failed to validate"));
     }
 }
 

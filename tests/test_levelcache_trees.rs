@@ -364,14 +364,15 @@ fn test_base_levelcache_trees_iterable() {
     fn run_tests<E: Element + Copy, A: Algorithm<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves;
-        let len = get_merkle_tree_len_generic::<U8, U0, U0>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<U8, U0, U0>(base_tree_leaves)
+            .expect("[test_base_levelcache_trees_iterable] couldn't compute Merkle Tree len");
         let rows_to_discard = 0;
 
         let distinguisher = "lc_instantiate_new_with_config";
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_base_levelcache_trees_iterable] couldn't create tempd_dir");
         run_test_base_lc_tree::<E, A, U8>(
             lc_instantiate_new_with_config,
             base_tree_leaves,
@@ -386,7 +387,7 @@ fn test_base_levelcache_trees_iterable() {
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_base_levelcache_trees_iterable] couldn't create tempd_dir");
         run_test_base_lc_tree::<E, A, U8>(
             lc_instantiate_try_from_iter_with_config,
             base_tree_leaves,
@@ -401,7 +402,7 @@ fn test_base_levelcache_trees_iterable() {
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_base_levelcache_trees_iterable] couldn't create tempd_dir");
         run_test_base_lc_tree::<E, A, U8>(
             lc_instantiate_from_par_iter_with_config,
             base_tree_leaves,
@@ -428,14 +429,14 @@ fn test_base_levelcache_trees_iterable_hashable_and_serialization() {
     fn run_tests<E: Element + Copy, A: Algorithm<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves;
-        let len = get_merkle_tree_len_generic::<U8, U0, U0>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<U8, U0, U0>(base_tree_leaves).expect("[test_base_levelcache_trees_iterable_hashable_and_serialization] couldn't compute Merkle Tree len");
         let rows_to_discard = 0;
 
         let distinguisher = "lc_instantiate_from_data_with_config";
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_base_levelcache_trees_iterable_hashable_and_serialization] couldn't create temp_dir");
         run_test_base_lc_tree::<E, A, U8>(
             lc_instantiate_from_data_with_config,
             base_tree_leaves,
@@ -450,7 +451,7 @@ fn test_base_levelcache_trees_iterable_hashable_and_serialization() {
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_base_levelcache_trees_iterable_hashable_and_serialization] couldn't create temp dir");
         run_test_base_lc_tree::<E, A, U8>(
             lc_instantiate_from_byte_slice_with_config,
             base_tree_leaves,
@@ -563,13 +564,14 @@ fn test_compound_levelcache_trees() {
     fn run_tests<E: Element + Copy, A: Algorithm<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves * 8;
-        let len = get_merkle_tree_len_generic::<U8, U8, U0>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<U8, U8, U0>(base_tree_leaves)
+            .expect("[test_compound_levelcache_trees] couldn't compute Merkle Tree len");
 
         let distinguisher = "instantiate_cctree_from_sub_tree_store_configs_and_replica";
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_compound_levelcache_trees] couldn't create temp_dir");
         let rows_to_discard = 0;
         let tree = lc_instantiate_ctree_from_store_configs_and_replica::<E, A, U8, U8>(
             base_tree_leaves,
@@ -690,13 +692,14 @@ fn test_compound_compound_levelcache_trees() {
     fn run_tests<E: Element + Copy, A: Algorithm<E>>(root: E) {
         let base_tree_leaves = 64;
         let expected_total_leaves = base_tree_leaves * 8 * 2;
-        let len = get_merkle_tree_len_generic::<U8, U8, U2>(base_tree_leaves).unwrap();
+        let len = get_merkle_tree_len_generic::<U8, U8, U2>(base_tree_leaves)
+            .expect("[test_compound_compound_levelcache_trees] couldn't compute Merkle Tree len");
 
         let distinguisher = "instantiate_cctree_from_sub_tree_store_configs_and_replica";
         let temp_dir = tempfile::Builder::new()
             .prefix(distinguisher)
             .tempdir()
-            .unwrap();
+            .expect("[test_compound_compound_levelcache_trees] couldn't create temp_dir");
         let rows_to_discard = 0;
         let tree = lc_instantiate_cctree_from_sub_tree_store_configs_and_replica::<E, A, U8, U8, U2>(
             base_tree_leaves,

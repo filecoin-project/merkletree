@@ -69,7 +69,8 @@ impl<T: Eq + Clone + AsRef<[u8]>, BaseTreeArity: Unsigned> Proof<T, BaseTreeArit
     /// Return sub tree root
     pub fn sub_tree_root(&self) -> T {
         assert!(self.sub_tree_layer_nodes > 0 && self.sub_tree_proof.is_some());
-        self.sub_tree_proof.as_ref().unwrap().root() // safe
+        // unwrap is safe as we checked sub_tree_proof to be initialised
+        self.sub_tree_proof.as_ref().unwrap().root()
     }
 
     /// Return tree root
@@ -271,16 +272,19 @@ mod tests {
         let mut tmp = vec![0u8; E::byte_len()];
 
         if TopTreeArity::to_usize() > 0 || SubTreeArity::to_usize() > 0 {
-            let i = random::<usize>() % proof.sub_tree_proof.as_ref().unwrap().lemma().len(); // safe
+            // unwrap is safe as we checked sub_tree_proof to be initialised
+            let i = random::<usize>() % proof.sub_tree_proof.as_ref().unwrap().lemma().len();
             let j = random::<usize>();
 
             j.hash(&mut hasher_alg);
 
             // Break random sub-tree proof element
-            proof.sub_tree_proof.as_ref().unwrap().lemma()[i].copy_to_slice(&mut tmp); // safe
+
+            // unwrap is safe as we checked sub_tree_proof to be initialised
+            proof.sub_tree_proof.as_ref().unwrap().lemma()[i].copy_to_slice(&mut tmp);
             tmp.hash(&mut hasher_alg);
+            // unwrap is safe as we checked sub_tree_proof to be initialised
             proof.sub_tree_proof.as_mut().unwrap().lemma_mut()[i] = hasher_alg.hash();
-        // safe
         } else {
             let i = random::<usize>() % proof.lemma.len();
             let k = random::<usize>();

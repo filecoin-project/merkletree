@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::ops;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use memmap2::MmapMut;
 
 use crate::merkle::Element;
@@ -107,7 +107,8 @@ impl<E: Element> Store<E> for MmapStore<E> {
             self.reinit()?;
         }
 
-        self.map.as_mut().unwrap()[start..end].copy_from_slice(el.as_ref()); // safe
+        //unwrap is safe as we checked map to be initialised
+        self.map.as_mut().unwrap()[start..end].copy_from_slice(el.as_ref());
         self.len = std::cmp::max(self.len, index + 1);
 
         Ok(())
@@ -127,7 +128,8 @@ impl<E: Element> Store<E> for MmapStore<E> {
             self.reinit()?;
         }
 
-        self.map.as_mut().unwrap()[map_start..map_end].copy_from_slice(buf); // safe
+        // unwrap is safe as we checked map to be initialised
+        self.map.as_mut().unwrap()[map_start..map_end].copy_from_slice(buf);
         self.len = std::cmp::max(self.len, start + (buf.len() / E::byte_len()));
 
         Ok(())
@@ -158,7 +160,8 @@ impl<E: Element> Store<E> for MmapStore<E> {
 
             let len = data.len();
 
-            store.map.as_mut().unwrap()[0..len].copy_from_slice(data); // safe
+            // unwrap is safe as we checked map to be initialised
+            store.map.as_mut().unwrap()[0..len].copy_from_slice(data);
             store.len = len / E::byte_len();
         }
 
@@ -176,15 +179,14 @@ impl<E: Element> Store<E> for MmapStore<E> {
         ensure!(store.map.is_some(), "Internal map needs to be initialized");
 
         let len = data.len();
-        store.map.as_mut().unwrap()[0..len].copy_from_slice(data); // safe
+        // unwrap is safe as we checked map to be initialised
+        store.map.as_mut().unwrap()[0..len].copy_from_slice(data);
         store.len = len / E::byte_len();
 
         Ok(store)
     }
 
     fn read_at(&self, index: usize) -> Result<E> {
-        ensure!(self.map.is_some(), "Internal map needs to be initialized");
-
         let start = index * E::byte_len();
         let end = start + E::byte_len();
         let len = self.len * E::byte_len();
@@ -192,12 +194,14 @@ impl<E: Element> Store<E> for MmapStore<E> {
         ensure!(start < len, "start out of range {} >= {}", start, len);
         ensure!(end <= len, "end out of range {} > {}", end, len);
 
-        Ok(E::from_slice(&self.map.as_ref().unwrap()[start..end])) // safe
+        let data = self
+            .map
+            .as_ref()
+            .context("Internal map needs to be initialized")?;
+        Ok(E::from_slice(&data[start..end]))
     }
 
     fn read_into(&self, index: usize, buf: &mut [u8]) -> Result<()> {
-        ensure!(self.map.is_some(), "Internal map needs to be initialized");
-
         let start = index * E::byte_len();
         let end = start + E::byte_len();
         let len = self.len * E::byte_len();
@@ -205,7 +209,11 @@ impl<E: Element> Store<E> for MmapStore<E> {
         ensure!(start < len, "start out of range {} >= {}", start, len);
         ensure!(end <= len, "end out of range {} > {}", end, len);
 
-        buf.copy_from_slice(&self.map.as_ref().unwrap()[start..end]); // safe
+        let data = self
+            .map
+            .as_ref()
+            .context("Internal map needs to be initialized")?;
+        buf.copy_from_slice(&data[start..end]);
 
         Ok(())
     }
@@ -215,8 +223,6 @@ impl<E: Element> Store<E> for MmapStore<E> {
     }
 
     fn read_range(&self, r: ops::Range<usize>) -> Result<Vec<E>> {
-        ensure!(self.map.is_some(), "Internal map needs to be initialized");
-
         let start = r.start * E::byte_len();
         let end = r.end * E::byte_len();
         let len = self.len * E::byte_len();
@@ -224,7 +230,11 @@ impl<E: Element> Store<E> for MmapStore<E> {
         ensure!(start < len, "start out of range {} >= {}", start, len);
         ensure!(end <= len, "end out of range {} > {}", end, len);
 
-        Ok(self.map.as_ref().unwrap()[start..end] // safe
+        let data = self
+            .map
+            .as_ref()
+            .context("Internal map needs to be initialized")?;
+        Ok(data[start..end]
             .chunks(E::byte_len())
             .map(E::from_slice)
             .collect())
@@ -273,7 +283,8 @@ impl<E: Element> Store<E> for MmapStore<E> {
         }
 
         ensure!(
-            (l + 1) * E::byte_len() <= self.map.as_ref().unwrap().len(), // safe
+            // unwrap is safe as we checked map to be initialised
+            (l + 1) * E::byte_len() <= self.map.as_ref().unwrap().len(),
             "not enough space"
         );
 

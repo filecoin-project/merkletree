@@ -870,8 +870,10 @@ impl<
 
         // Generate the sub tree proof at this tree level.
         let sub_tree_proof = if top_layer {
-            ensure!(self.data.sub_trees().is_some(), "sub trees required");
-            let sub_trees = self.data.sub_trees().unwrap(); // safe
+            let sub_trees = self
+                .data
+                .sub_trees()
+                .context("sub trees are required to be initialised")?;
             ensure!(arity == sub_trees.len(), "Top layer tree shape mis-match");
 
             let tree = &sub_trees[tree_index];
@@ -879,8 +881,10 @@ impl<
 
             tree.gen_proof(leaf_index)
         } else {
-            ensure!(self.data.base_trees().is_some(), "base trees required");
-            let base_trees = self.data.base_trees().unwrap(); // safe
+            let base_trees = self
+                .data
+                .base_trees()
+                .context("base trees are required to be initialised")?;
             ensure!(arity == base_trees.len(), "Sub tree layer shape mis-match");
 
             let tree = &base_trees[tree_index];
@@ -896,14 +900,16 @@ impl<
         for i in 0..arity {
             if i != tree_index {
                 lemma.push(if top_layer {
-                    ensure!(self.data.sub_trees().is_some(), "sub trees required");
-                    let sub_trees = self.data.sub_trees().unwrap(); // safe
-
+                    let sub_trees = self
+                        .data
+                        .sub_trees()
+                        .context("sub trees are required to be initialised")?;
                     sub_trees[i].root()
                 } else {
-                    ensure!(self.data.base_trees().is_some(), "base trees required");
-                    let base_trees = self.data.base_trees().unwrap(); // safe
-
+                    let base_trees = self
+                        .data
+                        .base_trees()
+                        .context("base trees are required to be initialised")?;
                     base_trees[i].root()
                 });
             }
@@ -1007,8 +1013,10 @@ impl<
         ); // i in [0 .. self.leafs)
 
         // Locate the sub-tree the leaf is contained in.
-        ensure!(self.data.sub_trees().is_some(), "sub trees required");
-        let trees = &self.data.sub_trees().unwrap(); // safe
+        let trees = &self
+            .data
+            .sub_trees()
+            .context("sub trees are required to be initialised")?;
         let tree_index = i / (self.leafs / Arity::to_usize());
         let tree = &trees[tree_index];
         let tree_leafs = tree.leafs();
@@ -1055,8 +1063,10 @@ impl<
         ); // i in [0 .. self.leafs)
 
         // Locate the sub-tree the leaf is contained in.
-        ensure!(self.data.base_trees().is_some(), "base trees required");
-        let trees = &self.data.base_trees().unwrap(); // safe
+        let trees = &self
+            .data
+            .base_trees()
+            .context("base trees are required to be initialised")?;
         let tree_index = i / (self.leafs / Arity::to_usize());
         let tree = &trees[tree_index];
         let tree_leafs = tree.leafs();
@@ -1164,9 +1174,11 @@ impl<
                 // Copy the proper segment of the base data into memory and
                 // initialize a VecStore to back a new, smaller MT.
                 let mut data_copy = vec![0; segment_width * E::byte_len()];
-                ensure!(self.data.store().is_some(), "store data required");
-
-                self.data.store().unwrap().read_range_into(
+                let data_store = self
+                    .data
+                    .store()
+                    .context("data store is required to be initialised")?;
+                data_store.read_range_into(
                     // safe
                     segment_start,
                     segment_end,
@@ -1359,19 +1371,20 @@ impl<
     #[inline]
     pub fn compact(&mut self, config: StoreConfig, store_version: u32) -> Result<bool> {
         let branches = BaseTreeArity::to_usize();
-        ensure!(self.data.store_mut().is_some(), "store data required");
-
-        self.data
+        let data = self
+            .data
             .store_mut()
-            .unwrap() // safe
-            .compact(branches, config, store_version)
+            .context("data store is required to be initialised")?;
+        data.compact(branches, config, store_version)
     }
 
     #[inline]
     pub fn reinit(&mut self) -> Result<()> {
-        ensure!(self.data.store_mut().is_some(), "store data required");
-
-        self.data.store_mut().unwrap().reinit() // safe
+        let data = self
+            .data
+            .store_mut()
+            .context("data store is required to be initialised")?;
+        data.reinit()
     }
 
     /// Removes the backing store for this merkle tree.
@@ -1455,23 +1468,29 @@ impl<
 
     pub fn read_range(&self, start: usize, end: usize) -> Result<Vec<E>> {
         ensure!(start < end, "start must be less than end");
-        ensure!(self.data.store().is_some(), "store data required");
-
-        self.data.store().unwrap().read_range(start..end) // safe
+        let data_store = self
+            .data
+            .store()
+            .context("data store is required to be initialised")?;
+        data_store.read_range(start..end)
     }
 
     pub fn read_range_into(&self, start: usize, end: usize, buf: &mut [u8]) -> Result<()> {
         ensure!(start < end, "start must be less than end");
-        ensure!(self.data.store().is_some(), "store data required");
-
-        self.data.store().unwrap().read_range_into(start, end, buf) // safe
+        let data_store = self
+            .data
+            .store()
+            .context("data store is required to be initialised")?;
+        data_store.read_range_into(start, end, buf)
     }
 
     /// Reads into a pre-allocated slice (for optimization purposes).
     pub fn read_into(&self, pos: usize, buf: &mut [u8]) -> Result<()> {
-        ensure!(self.data.store().is_some(), "store data required");
-
-        self.data.store().unwrap().read_into(pos, buf) // safe
+        let data_store = self
+            .data
+            .store()
+            .context("data store is required to be initialised")?;
+        data_store.read_into(pos, buf)
     }
 
     /// Build the tree given a slice of all leafs, in bytes form.

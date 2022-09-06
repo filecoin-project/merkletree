@@ -497,10 +497,6 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         );
         ensure!(Store::len(self) == leafs, "Inconsistent data");
         ensure!(leafs % 2 == 0, "Leafs must be a power of two");
-        ensure!(
-            config.is_some(),
-            "LevelCacheStore build requires a valid config"
-        );
 
         // Process one `level` at a time of `width` nodes. Each level has half the nodes
         // as the previous one; the first level, completely stored in `data`, has `leafs`
@@ -510,7 +506,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         let mut width = leafs;
         let mut level_node_index = 0;
 
-        let config = config.unwrap(); // safe
+        let config = config.context("LevelCacheStore build requires a valid config")?;
         let shift = log2_pow2(branches);
 
         // Both in terms of elements, not bytes.
@@ -692,7 +688,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         if start < self.data_width * self.elem_len && self.reader.is_some() {
             self.reader
                 .as_ref()
-                .unwrap() // safe
+                .unwrap() // unwrap is safe as we checked reader to be initialised
                 .read(start, end, &mut read_data)
                 .with_context(|| {
                     format!(
@@ -794,7 +790,7 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         if start < self.data_width * self.elem_len && self.reader.is_some() {
             self.reader
                 .as_ref()
-                .unwrap() // safe
+                .unwrap() // unwrap is safe as we checked reader to be initialised
                 .read(start, end, buf)
                 .with_context(|| {
                     format!(

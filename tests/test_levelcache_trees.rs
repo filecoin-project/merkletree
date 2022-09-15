@@ -23,7 +23,7 @@
 /// those items and dumping data to filesystem
 pub mod common;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use merkletree::hash::Algorithm;
 use merkletree::merkle::{
@@ -597,8 +597,7 @@ fn test_compound_levelcache_trees() {
     run_tests::<TestItemType, TestSha256Hasher>(root_sha256);
 }
 
-/// Compound-compound LevelCacheStore tree can be instantiated via specific 'from_sub_tree_store_configs_and_replica' constructor
-fn lc_instantiate_cctree_from_sub_tree_store_configs_and_replica<
+fn prepare_storage_for_lc_cctree<
     E: Element,
     A: Algorithm<E>,
     BaseTreeArity: Unsigned,
@@ -608,11 +607,10 @@ fn lc_instantiate_cctree_from_sub_tree_store_configs_and_replica<
     base_tree_leaves: usize,
     temp_dir_path: &Path,
     rows_to_discard: Option<usize>,
-) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity, SubTreeArity, TopTreeArity>
-{
+) -> (Vec<StoreConfig>, PathBuf, Vec<usize>) {
     let replica_path = StoreConfig::data_path(temp_dir_path, "replica_path");
     let mut replica_file = std::fs::File::create(&replica_path)
-        .expect("failed to create replica file [lc_instantiate_cctree_from_sub_tree_store_configs_and_replica]");
+        .expect("failed to create replica file [prepare_storage_for_lc_cctree]");
 
     let sub_tree_arity = SubTreeArity::to_usize();
     let top_tree_arity = TopTreeArity::to_usize();
@@ -628,21 +626,15 @@ fn lc_instantiate_cctree_from_sub_tree_store_configs_and_replica<
                     // prepare replica file content
                     let config = StoreConfig::new(
                         temp_dir_path,
-                        format!(
-                            "config_id{}{}",
-                            i,
-                            j
-                        ),
-                        rows_to_discard.expect(
-                            "can't get rows_to_discard [lc_instantiate_cctree_from_sub_tree_store_configs_and_replica]",
-                        ),
+                        format!("config_id{}{}", i, j),
+                        rows_to_discard
+                            .expect("can't get rows_to_discard [prepare_storage_for_lc_cctree]"),
                     );
                     // instantiation of this temp tree is required for binding config to actual file on disk for subsequent dumping the data to replica
-                    let tree =
-                        instantiate_new_with_config::<E, A, DiskStore<E>, BaseTreeArity>(
-                            base_tree_leaves,
-                            Some(config.clone()),
-                        );
+                    let tree = instantiate_new_with_config::<E, A, DiskStore<E>, BaseTreeArity>(
+                        base_tree_leaves,
+                        Some(config.clone()),
+                    );
                     dump_tree_data_to_replica::<E, BaseTreeArity>(
                         tree.leafs(),
                         tree.len(),
@@ -653,11 +645,7 @@ fn lc_instantiate_cctree_from_sub_tree_store_configs_and_replica<
                     // generate valid configs and bind them each to actual data of the tree
                     let lc_config = StoreConfig::from_config(
                         &config,
-                        format!(
-                            "lc_config_id{}{}",
-                            i,
-                            j
-                        ),
+                        format!("lc_config_id{}{}", i, j),
                         Some(tree.len()),
                     );
                     let mut tree = instantiate_new_with_config::<
@@ -666,14 +654,74 @@ fn lc_instantiate_cctree_from_sub_tree_store_configs_and_replica<
                         LevelCacheStore<E, std::fs::File>,
                         BaseTreeArity,
                     >(base_tree_leaves, Some(lc_config.clone()));
-                    tree.set_external_reader_path(&replica_path).expect(
-                        "can't set external reader path [lc_instantiate_cctree_from_sub_tree_store_configs_and_replica]",
-                    );
+                    tree.set_external_reader_path(&replica_path)
+                        .expect("can't set external reader path [prepare_storage_for_lc_cctree]");
                     lc_config
                 })
                 .collect::<Vec<StoreConfig>>()
         })
         .collect::<Vec<StoreConfig>>();
+
+    (configs, replica_path, offsets)
+}
+
+/// Compound-compound LevelCacheStore tree can be instantiated via specific 'from_sub_tree_store_configs_and_replica' constructor
+fn lc_instantiate_cctree_from_sub_tree_store_configs_and_replica<
+    E: Element,
+    A: Algorithm<E>,
+    BaseTreeArity: Unsigned,
+    SubTreeArity: Unsigned,
+    TopTreeArity: Unsigned,
+>(
+    base_tree_leaves: usize,
+    temp_dir_path: &Path,
+    rows_to_discard: Option<usize>,
+) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity, SubTreeArity, TopTreeArity>
+{
+    let (configs, replica_path, offsets) =
+        prepare_storage_for_lc_cctree::<E, A, BaseTreeArity, SubTreeArity, TopTreeArity>(
+            base_tree_leaves,
+            temp_dir_path,
+            rows_to_discard,
+        );
+
+    MerkleTree::from_sub_tree_store_configs_and_replica(
+        base_tree_leaves,
+        &configs,
+        &ReplicaConfig::new(&replica_path, offsets),
+    )
+        .expect(
+            "failed to instantiate compound-compound tree [lc_instantiate_cctree_from_sub_tree_store_configs_and_replica]",
+        )
+}
+
+fn lc_instantiate_cctree_from_sub_tree_store_configs_and_replica_readonly_storage<
+    E: Element,
+    A: Algorithm<E>,
+    BaseTreeArity: Unsigned,
+    SubTreeArity: Unsigned,
+    TopTreeArity: Unsigned,
+>(
+    base_tree_leaves: usize,
+    temp_dir_path: &Path,
+    rows_to_discard: Option<usize>,
+) -> MerkleTree<E, A, LevelCacheStore<E, std::fs::File>, BaseTreeArity, SubTreeArity, TopTreeArity>
+{
+    let (configs, replica_path, offsets) =
+        prepare_storage_for_lc_cctree::<E, A, BaseTreeArity, SubTreeArity, TopTreeArity>(
+            base_tree_leaves,
+            temp_dir_path,
+            rows_to_discard,
+        );
+
+    for entry in walkdir::WalkDir::new(temp_dir_path) {
+        let entry = entry.expect("couldn't get file");
+        let metadata = entry.metadata().expect("couldn't get metadata");
+        let mut permissions = metadata.permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(entry.path(), permissions)
+            .expect("couldn't apply read-only permissions");
+    }
 
     MerkleTree::from_sub_tree_store_configs_and_replica(
         base_tree_leaves,
@@ -706,6 +754,49 @@ fn test_compound_compound_levelcache_trees() {
             temp_dir.path(),
             Some(rows_to_discard),
         );
+
+        test_levelcache_tree_functionality::<E, A, U8, U8, U2>(
+            tree,
+            Some(rows_to_discard),
+            expected_total_leaves,
+            len,
+            root,
+        );
+    }
+
+    let root_xor128 = TestItem::from_slice(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    run_tests::<TestItemType, TestXOR128>(root_xor128);
+
+    let root_sha256 = TestItem::from_slice(&[
+        52, 152, 123, 224, 174, 42, 152, 12, 199, 4, 105, 245, 176, 59, 230, 86,
+    ]);
+    run_tests::<TestItemType, TestSha256Hasher>(root_sha256);
+}
+
+#[test]
+fn test_levelcache_trees_readonly_storage() {
+    env_logger::init();
+
+    fn run_tests<E: Element + Copy, A: Algorithm<E>>(root: E) {
+        let base_tree_leaves = 64;
+        let expected_total_leaves = base_tree_leaves * 8 * 2;
+        let len = get_merkle_tree_len_generic::<U8, U8, U2>(base_tree_leaves)
+            .expect("[test_levelcache_trees_readonly_storage] couldn't compute Merkle Tree len");
+
+        let distinguisher =
+            "lc_instantiate_cctree_from_sub_tree_store_configs_and_replica_readonly_storage";
+        let temp_dir = tempfile::Builder::new()
+            .prefix(distinguisher)
+            .tempdir()
+            .expect("[test_levelcache_trees_readonly_storage] couldn't create temp_dir");
+        let rows_to_discard = 0;
+        let tree = lc_instantiate_cctree_from_sub_tree_store_configs_and_replica_readonly_storage::<
+            E,
+            A,
+            U8,
+            U8,
+            U2,
+        >(base_tree_leaves, temp_dir.path(), Some(rows_to_discard));
 
         test_levelcache_tree_functionality::<E, A, U8, U8, U2>(
             tree,

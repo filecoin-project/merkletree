@@ -212,6 +212,7 @@ pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
 
     fn new_from_slice(size: usize, data: &[u8]) -> Result<Self>;
 
+    /// This constructor is used for instantiating stores ONLY from existing (potentially read-only) files
     fn new_from_disk(size: usize, branches: usize, config: &StoreConfig) -> Result<Self>;
 
     fn write_at(&mut self, el: E, index: usize) -> Result<()>;

@@ -4,6 +4,7 @@ use std::ops;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use log::error;
 use memmap2::MmapMut;
 
 use crate::merkle::Element;
@@ -76,8 +77,19 @@ impl<E: Element> Store<E> for MmapStore<E> {
     #[allow(unsafe_code)]
     fn new_from_disk(size: usize, _branches: usize, config: &StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
+        ensure!(Path::new(&data_path).exists(), "[MmapStore] new_from_disk constructor can be used only for instantiating already existing storages");
 
-        let file = OpenOptions::new().write(true).read(true).open(&data_path)?;
+        // MmapStore expects only read/write file
+        let file = match OpenOptions::new().write(true).read(true).open(&data_path) {
+            Ok(file) => file,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    error!("MmapStore doesn't support read-only storages");
+                }
+                panic!("{}", e)
+            }
+        };
+
         let metadata = file.metadata()?;
         let store_size = metadata.len() as usize;
 

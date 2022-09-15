@@ -68,7 +68,7 @@ fn instantiate_cctree_from_sub_tree_store_configs<
 >(
     base_tree_leaves: usize,
 ) -> MerkleTree<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity> {
-    let distinguisher = "instantiate_ctree_from_store_configs";
+    let distinguisher = "instantiate_cctree_from_sub_tree_store_configs";
     let temp_dir = tempfile::Builder::new()
         .prefix(distinguisher)
         .tempdir()
@@ -102,6 +102,62 @@ fn instantiate_cctree_from_sub_tree_store_configs<
 
     MerkleTree::from_sub_tree_store_configs(base_tree_leaves, &configs)
         .expect("failed to instantiate compound-compound tree [instantiate_cctree_from_sub_tree_store_configs]")
+}
+
+fn instantiate_cctree_from_sub_tree_readonly_store_configs<
+    E: Element,
+    A: Algorithm<E>,
+    S: Store<E>,
+    BaseTreeArity: Unsigned,
+    SubTreeArity: Unsigned,
+    TopTreeArity: Unsigned,
+>(
+    base_tree_leaves: usize,
+) -> MerkleTree<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity> {
+    let distinguisher = "instantiate_cctree_from_sub_tree_readonly_store_configs";
+    let temp_dir = tempfile::Builder::new()
+        .prefix(distinguisher)
+        .tempdir()
+        .expect("can't create temp dir [instantiate_cctree_from_sub_tree_readonly_store_configs]");
+
+    // compute len for base tree as we are going to instantiate compound tree from set of base trees
+    let len = get_merkle_tree_len_generic::<BaseTreeArity, U0, U0>(base_tree_leaves)
+        .expect("can't get tree len [instantiate_cctree_from_sub_tree_readonly_store_configs]");
+
+    let configs = (0..TopTreeArity::to_usize())
+        .flat_map(|j| {
+            (0..SubTreeArity::to_usize())
+                .map(|i| {
+                    let replica = format!(
+                        "{}-{}-{}-{}-{}-replica",
+                        distinguisher, i, j, base_tree_leaves, len,
+                    );
+
+                    // we attempt to discard all intermediate layers, except bottom one (set of leaves) and top-level root of base tree
+                    let config = StoreConfig::new(temp_dir.path(), replica, 0);
+                    // we need to instantiate a tree in order to dump tree data into Disk-based storages and bind them to configs
+                    instantiate_new_with_config::<E, A, S, BaseTreeArity>(
+                        base_tree_leaves,
+                        Some(config.clone()),
+                    );
+                    config
+                })
+                .collect::<Vec<StoreConfig>>()
+        })
+        .collect::<Vec<StoreConfig>>();
+
+    // once we have our sub trees instantiated and storages are now filled with data, let's make them read-only
+    for config in configs.clone() {
+        let data_path = StoreConfig::data_path(&config.path, &config.id);
+        let metadata = data_path.metadata().expect("can't get metadata");
+        let mut permissions = metadata.permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&data_path, permissions).expect("couldn't apply permissions");
+    }
+
+    let tree = MerkleTree::from_sub_tree_store_configs(base_tree_leaves, &configs)
+        .expect("failed to instantiate compound-compound tree [instantiate_cctree_from_sub_tree_readonly_store_configs]");
+    tree
 }
 
 /// Test executor
@@ -213,6 +269,34 @@ fn test_compound_compound_constructors() {
         U2,
     >(
         instantiate_cctree_from_sub_tree_store_configs,
+        base_tree_leaves,
+        expected_total_leaves,
+        len,
+        root_sha256,
+    );
+}
+
+#[test]
+fn test_with_readonly_disk_storages() {
+    env_logger::init();
+
+    let base_tree_leaves = 64;
+    let expected_total_leaves = base_tree_leaves * 8 * 2;
+    let len = get_merkle_tree_len_generic::<U8, U8, U2>(base_tree_leaves)
+        .expect("[test_compound_compound_constructors] couldn't compute Merkle Tree len");
+    let root_sha256 = TestItem::from_slice(&[
+        52, 152, 123, 224, 174, 42, 152, 12, 199, 4, 105, 245, 176, 59, 230, 86,
+    ]);
+
+    run_test_compound_compound_tree::<
+        TestItemType,
+        TestSha256Hasher,
+        DiskStore<TestItemType>,
+        U8,
+        U8,
+        U2,
+    >(
+        instantiate_cctree_from_sub_tree_readonly_store_configs,
         base_tree_leaves,
         expected_total_leaves,
         len,

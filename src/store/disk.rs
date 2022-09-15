@@ -7,6 +7,7 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result};
+use log::warn;
 use memmap2::MmapOptions;
 use positioned_io::{ReadAt, WriteAt};
 use rayon::iter::*;
@@ -129,7 +130,23 @@ impl<E: Element> Store<E> for DiskStore<E> {
     fn new_from_disk(size: usize, _branches: usize, config: &StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
-        let file = OpenOptions::new().write(true).read(true).open(data_path)?;
+        ensure!(Path::new(&data_path).exists(), "[DiskStore] new_from_disk constructor can be used only for instantiating already existing storages");
+
+        let file = match OpenOptions::new().write(true).read(true).open(&data_path) {
+            Ok(file) => file,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    warn!(
+                        "[DiskStore] Permission denied occurred. Try to open storage as read-only"
+                    );
+                }
+                OpenOptions::new()
+                    .write(false)
+                    .read(true)
+                    .open(&data_path)?
+            }
+        };
+
         let metadata = file.metadata()?;
         let store_size = metadata.len() as usize;
 

@@ -16,6 +16,7 @@ documentation = "https://docs.rs/merkletree"
 keywords = ["merkle", "merkle-tree"]
 categories = ["data-structures", "cryptography"]
 edition = "2018"
+rust-version = "1.60"
 
 [package.metadata.release]
 pre-release-commit-message = "chore(release): release {{version}}"

@@ -609,7 +609,7 @@ impl<
             // Total number of leafs in the compound tree is the combined leafs total of all subtrees.
             let leafs = trees.iter().fold(0, |leafs, mt| leafs + mt.leafs());
             // Total length of the compound tree is the combined length of all subtrees plus the root.
-            let len = trees.iter().fold(0, |len, mt| len + mt.len()) + 1;
+            let len = trees[0].len() * trees.len() + 1;
             // Total row_count of the compound tree is the row_count of any of the sub-trees to top-layer plus root.
             let row_count = trees[0].row_count() + 1;
             // Calculate the compound root by hashing the top layer roots together.

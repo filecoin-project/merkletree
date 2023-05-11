@@ -129,43 +129,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
 
     fn new_from_disk(size: usize, _branches: usize, config: &StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
-
-        ensure!(Path::new(&data_path).exists(), "[DiskStore] new_from_disk constructor can be used only for instantiating already existing storages");
-
-        let file = match OpenOptions::new().write(true).read(true).open(&data_path) {
-            Ok(file) => file,
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::PermissionDenied {
-                    warn!(
-                        "[DiskStore] Permission denied occurred. Try to open storage as read-only"
-                    );
-                }
-                OpenOptions::new()
-                    .write(false)
-                    .read(true)
-                    .open(&data_path)?
-            }
-        };
-
-        let metadata = file.metadata()?;
-        let store_size = metadata.len() as usize;
-
-        // Sanity check.
-        ensure!(
-            store_size == size * E::byte_len(),
-            "Invalid formatted file provided. Expected {} bytes, found {} bytes",
-            size * E::byte_len(),
-            store_size
-        );
-
-        Ok(DiskStore {
-            len: size,
-            elem_len: E::byte_len(),
-            _e: Default::default(),
-            file,
-            loaded_from_disk: true,
-            store_size,
-        })
+        Self::new_from_disk_with_path(size, &data_path)
     }
 
     fn write_at(&mut self, el: E, index: usize) -> Result<()> {
@@ -476,6 +440,45 @@ impl<E: Element> Store<E> for DiskStore<E> {
 }
 
 impl<E: Element> DiskStore<E> {
+    pub fn new_from_disk_with_path<P: AsRef<Path>>(size: usize, data_path: P) -> Result<Self> {
+        ensure!(data_path.as_ref().exists(), "[DiskStore] new_from_disk constructor can be used only for instantiating already existing storages");
+
+        let file = match OpenOptions::new().write(true).read(true).open(&data_path) {
+            Ok(file) => file,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    warn!(
+                        "[DiskStore] Permission denied occurred. Try to open storage as read-only"
+                    );
+                }
+                OpenOptions::new()
+                    .write(false)
+                    .read(true)
+                    .open(&data_path)?
+            }
+        };
+
+        let metadata = file.metadata()?;
+        let store_size = metadata.len() as usize;
+
+        // Sanity check.
+        ensure!(
+            store_size == size * E::byte_len(),
+            "Invalid formatted file provided. Expected {} bytes, found {} bytes",
+            size * E::byte_len(),
+            store_size
+        );
+
+        Ok(DiskStore {
+            len: size,
+            elem_len: E::byte_len(),
+            _e: Default::default(),
+            file,
+            loaded_from_disk: true,
+            store_size,
+        })
+    }
+
     fn set_len(&mut self, len: usize) {
         self.len = len;
     }

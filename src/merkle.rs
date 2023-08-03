@@ -2018,7 +2018,7 @@ pub fn populate_data<
     I: IntoIterator<Item = Result<E>>,
 >(
     data: &mut S,
-    iter: <I as std::iter::IntoIterator>::IntoIter,
+    iter: I::IntoIter,
 ) -> Result<()> {
     if !data.is_empty() {
         return Ok(());

@@ -4,14 +4,14 @@ use std::hash::Hasher;
 
 /// A hashable type.
 ///
-/// Types implementing `Hashable` are able to be [`hash`]ed with an instance of
+/// Types implementing `Hashable` are able to be [`Hashable::hash`]ed with an instance of
 /// [`Hasher`].
 ///
 /// ## Implementing `Hashable`
 ///
 /// You can derive `Hashable` with `#[derive(Hashable)]` if all fields implement `Hashable`.
 /// The resulting hash will be the combination of the values from calling
-/// [`hash`] on each field.
+/// [`Hashable::hash`] on each field.
 ///
 /// ```text
 /// #[macro_use]

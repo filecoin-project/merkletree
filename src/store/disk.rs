@@ -129,7 +129,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
 
     fn new_from_disk(size: usize, _branches: usize, config: &StoreConfig) -> Result<Self> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
-        Self::new_from_disk_with_path(size, &data_path)
+        Self::new_from_disk_with_path(size, data_path)
     }
 
     fn write_at(&mut self, el: E, index: usize) -> Result<()> {
@@ -494,7 +494,7 @@ impl<E: Element> DiskStore<E> {
     ) -> Result<bool> {
         let data_path = StoreConfig::data_path(&config.path, &config.id);
 
-        let file = File::open(&data_path)?;
+        let file = File::open(data_path)?;
         let metadata = file.metadata()?;
         let store_size = metadata.len() as usize;
 

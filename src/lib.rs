@@ -3,7 +3,7 @@
 //! Merkle tree (MT) implemented as a full (power of 2) arity tree allocated as a vec
 //! of statically sized hashes to give hashes more locality (although disk based backings
 //! are supported, as a partial tree disk based backings).  MT is specialized
-//! to the extent of arity, hashing algorithm and hash item. [`Hashable`] trait is
+//! to the extent of arity, hashing algorithm and hash item. [`crate::hash::Hashable`] trait is
 //! compatible to the `std::hash::Hasher` and supports custom hash algorithms.
 //! Implementation does not depend on any external crypto libraries, and tries
 //! to be as performant as possible (CPU support only; GPU hashing currently unsupported).
@@ -34,11 +34,11 @@
 //!
 //! `Object : Hashable<H> -> Hasher + Algorithm <- Merkle Tree`
 //!
-//! Custom [`merkle::hash::Hashable`] trait allows implementations differ
-//! from [`std::collection`] related hashes, different implementations for
+//! Custom [`crate::hash::Hashable`] trait allows implementations differ
+//! from [`std::collections`] related hashes, different implementations for
 //! different hashing algorithms / schemas and conforms object-safety trait rules.
 //!
-//! [`Algorithm`] complements [`Hasher`] to be reusable and follows the idea
+//! [`crate::hash::Algorithm`] complements [`std::hash::Hasher`] to be reusable and follows the idea
 //! that the result hash is a mapping of the data stream.
 //!
 //! [`Algorithm.hash`] had to change its signature to be `&mut self` (`&self`) because
@@ -48,8 +48,8 @@
 //! on finalization, or `Cell`-ing via unsafe.
 //!
 //! Turning back to having [`Algorithm.write(&mut self, &[u8])`] instead of
-//! `write(T)` allows to relax [`Algorithm`] trait [`Hasher`] constraint, even tho
-//! works together well still.
+//! `write(T)` allows to relax [`crate::hash::Algorithm`] trait [`std::hash::Hasher`] constraint,
+//! even tho works together well still.
 //!
 //! # Interface
 //!
@@ -86,7 +86,7 @@ extern crate anyhow;
 /// Hash infrastructure for items in Merkle tree.
 pub mod hash;
 
-/// Common implementations for [`Hashable`].
+/// Common implementations for [`crate::hash::Hashable`].
 mod hash_impl;
 
 /// Store implementations.

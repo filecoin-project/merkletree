@@ -18,7 +18,8 @@ env:
 
 jobs:
   check_clippy:
-    runs-on: ubuntu-24.04
+#    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     name: Clippy
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +27,7 @@ jobs:
         run: cargo clippy --workspace --all-features -- -D warnings
 
   check_fmt:
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     name: Checking fmt
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +35,7 @@ jobs:
         run: cargo fmt --all -- --check
 
   rustdoc:
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     name: Rustdoc
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +43,7 @@ jobs:
         run: cargo rustdoc --all-features -- -D warnings
 
   build:
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     name: Release build
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +51,7 @@ jobs:
         run: cargo build --release
 
   benches:
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     name: Run benchmarks
     steps:
       - uses: actions/checkout@v4
@@ -58,7 +59,7 @@ jobs:
         run: cargo bench --all-targets
 
   test:
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     name: Run cargo test
     strategy:
       matrix:

@@ -43,7 +43,7 @@ impl<H: Hasher, const N: usize> Hashable<H> for [u8; N] {
 
     #[allow(trivial_casts, unsafe_code)]
     fn hash_slice(data: &[[u8; N]], state: &mut H) {
-        let newlen = data.len() * mem::size_of::<[u8; N]>();
+        let newlen = mem::size_of_val(data);
         let ptr = data.as_ptr() as *const u8;
         state.write(unsafe { slice::from_raw_parts(ptr, newlen) })
     }

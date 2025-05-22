@@ -1629,7 +1629,7 @@ impl<
 
         let mut data = S::new(size).expect("failed to create data store");
 
-        populate_data_par::<E, A, S, BaseTreeArity, _>(&mut data, iter)?;
+        populate_data_par::<E, A, S, _>(&mut data, iter)?;
         let root = S::build::<A, BaseTreeArity>(&mut data, leafs, row_count, None)?;
 
         Ok(MerkleTree {
@@ -1689,7 +1689,7 @@ impl<
             });
         }
 
-        populate_data_par::<E, A, S, BaseTreeArity, _>(&mut data, iter)?;
+        populate_data_par::<E, A, S, _>(&mut data, iter)?;
         let root = S::build::<A, BaseTreeArity>(&mut data, leafs, row_count, Some(config))?;
 
         Ok(MerkleTree {
@@ -2049,12 +2049,11 @@ pub fn populate_data<
     Ok(())
 }
 
-fn populate_data_par<E, A, S, BaseTreeArity, I>(data: &mut S, iter: I) -> Result<()>
+fn populate_data_par<E, A, S, I>(data: &mut S, iter: I) -> Result<()>
 where
     E: Element,
     A: Algorithm<E>,
     S: Store<E>,
-    BaseTreeArity: Unsigned,
     I: ParallelIterator<Item = E> + IndexedParallelIterator,
 {
     if !data.is_empty() {

@@ -12,8 +12,7 @@ env:
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: 1
   # Faster crates.io index checkout.
-  # Enable once the MSRV is >= 1.68
-  #CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
   RUST_LOG: debug
 
 jobs:

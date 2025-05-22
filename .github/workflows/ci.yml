@@ -23,7 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run cargo clippy
-        run: cargo clippy --workspace --all-features -- -D warnings
+        run: |
+          rustup component add clippy
+          cargo clippy --workspace --all-features -- -D warnings
 
   check_fmt:
     runs-on: ubuntu-24.04
@@ -31,7 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run cargo fmt
-        run: cargo fmt --all -- --check
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all -- --check
 
   rustdoc:
     runs-on: ubuntu-24.04

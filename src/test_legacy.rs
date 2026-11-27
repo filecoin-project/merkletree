@@ -977,7 +977,7 @@ fn test_parallel_iter_disk_1() {
     assert_eq!(p.len(), 128);
 
     let collected: Vec<[u8; 16]> = p.clone().into_iter().collect();
-    for (a, b) in collected.iter().zip(data.chunks_exact(16)) {
+    for (a, b) in collected.iter().zip(data.as_chunks::<16>().0.iter()) {
         assert_eq!(a, b);
     }
 
@@ -1020,12 +1020,12 @@ fn test_parallel_iter_disk_1() {
 
     let (a, b) = p.clone().split_at(10);
 
-    for (a, b) in a.into_iter().zip(data.chunks_exact(16).take(10)) {
-        assert_eq!(a, b);
+    for (a, b) in a.into_iter().zip(data.as_chunks::<16>().0.iter().take(10)) {
+        assert_eq!(&a, b);
     }
 
-    for (a, b) in b.into_iter().zip(data.chunks_exact(16).skip(10)) {
-        assert_eq!(a, b);
+    for (a, b) in b.into_iter().zip(data.as_chunks::<16>().0.iter().skip(10)) {
+        assert_eq!(&a, b);
     }
 
     let mut disk_iter = p.into_iter();
@@ -1059,7 +1059,7 @@ fn test_parallel_iter_disk_2() {
         assert_eq!(Store::len(&par_iter), size);
 
         let collected: Vec<[u8; 16]> = par_iter.collect();
-        for (a, b) in collected.iter().zip(data.chunks_exact(16)) {
+        for (a, b) in collected.iter().zip(data.as_chunks::<16>().0.iter()) {
             assert_eq!(a, b);
         }
     }

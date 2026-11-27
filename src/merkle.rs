@@ -1498,7 +1498,7 @@ impl<
     /// Build the tree given a slice of all leafs, in bytes form.
     pub fn from_byte_slice_with_config(leafs: &[u8], config: StoreConfig) -> Result<Self> {
         ensure!(
-            leafs.len() % E::byte_len() == 0,
+            leafs.len().is_multiple_of(E::byte_len()),
             "{} ist not a multiple of {}",
             leafs.len(),
             E::byte_len()
@@ -1540,7 +1540,7 @@ impl<
     /// Build the tree given a slice of all leafs, in bytes form.
     pub fn from_byte_slice(leafs: &[u8]) -> Result<Self> {
         ensure!(
-            leafs.len() % E::byte_len() == 0,
+            leafs.len().is_multiple_of(E::byte_len()),
             "{} is not a multiple of {}",
             leafs.len(),
             E::byte_len()

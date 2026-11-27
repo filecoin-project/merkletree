@@ -128,7 +128,7 @@ impl<E: Element> Store<E> for MmapStore<E> {
 
     fn copy_from_slice(&mut self, buf: &[u8], start: usize) -> Result<()> {
         ensure!(
-            buf.len() % E::byte_len() == 0,
+            buf.len().is_multiple_of(E::byte_len()),
             "buf size must be a multiple of {}",
             E::byte_len()
         );
@@ -154,7 +154,7 @@ impl<E: Element> Store<E> for MmapStore<E> {
         config: StoreConfig,
     ) -> Result<Self> {
         ensure!(
-            data.len() % E::byte_len() == 0,
+            data.len().is_multiple_of(E::byte_len()),
             "data size must be a multiple of {}",
             E::byte_len()
         );
@@ -182,7 +182,7 @@ impl<E: Element> Store<E> for MmapStore<E> {
 
     fn new_from_slice(size: usize, data: &[u8]) -> Result<Self> {
         ensure!(
-            data.len() % E::byte_len() == 0,
+            data.len().is_multiple_of(E::byte_len()),
             "data size must be a multiple of {}",
             E::byte_len()
         );

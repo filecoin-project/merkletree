@@ -41,7 +41,7 @@ impl<E: Element> Store<E> for VecStore<E> {
     // production (`VecStore` is mainly for testing and backwards compatibility).
     fn copy_from_slice(&mut self, buf: &[u8], start: usize) -> Result<()> {
         ensure!(
-            buf.len() % E::byte_len() == 0,
+            buf.len().is_multiple_of(E::byte_len()),
             "buf size must be a multiple of {}",
             E::byte_len()
         );

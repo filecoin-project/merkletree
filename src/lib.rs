@@ -41,13 +41,13 @@
 //! [`crate::hash::Algorithm`] complements [`std::hash::Hasher`] to be reusable and follows the idea
 //! that the result hash is a mapping of the data stream.
 //!
-//! [`Algorithm.hash`] had to change its signature to be `&mut self` (`&self`) because
+//! [`Algorithm::hash`](crate::hash::Algorithm::hash) had to change its signature to be `&mut self` (`&self`) because
 //! most of the cryptographic digest algorithms breaks current state on finalization
 //! into unusable. `ring` libra tho contains interfaces incompatible to
 //! `start-update-finish-reset` lifecycle. It requires either `cloning()` its state
 //! on finalization, or `Cell`-ing via unsafe.
 //!
-//! Turning back to having [`Algorithm.write(&mut self, &[u8])`] instead of
+//! Turning back to having `Algorithm::write(&mut self, &[u8])` instead of
 //! `write(T)` allows to relax [`crate::hash::Algorithm`] trait [`std::hash::Hasher`] constraint,
 //! even tho works together well still.
 //!
@@ -62,9 +62,9 @@
 //!
 //! # Examples
 //!
-//! [`test_common.rs`]: custom hash example xor128, misc shared utils
-//! [`test_xor128.rs`]: most comprehensive tests for library features
-//! [`proof.rs`]: contains impl and tests for proofs across pow2 arity trees
+//! - `tests/common.rs`: custom hash example xor128, misc shared utils
+//! - `src/test_legacy.rs`: most comprehensive tests for library features
+//! - `src/proof.rs`: contains impl and tests for proofs across pow2 arity trees
 //!
 
 // missing_docs,
@@ -78,7 +78,6 @@
     unstable_features,
     unused_import_braces
 )]
-#![cfg_attr(feature = "nightly", allow(unstable_features))]
 
 #[macro_use]
 extern crate anyhow;
@@ -100,6 +99,3 @@ pub mod merkle;
 
 /// Tests XOR128.
 mod test_legacy;
-
-#[macro_use]
-extern crate arrayref;

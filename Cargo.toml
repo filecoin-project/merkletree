@@ -16,15 +16,18 @@ documentation = "https://docs.rs/merkletree"
 keywords = ["merkle", "merkle-tree"]
 categories = ["data-structures", "cryptography"]
 edition = "2018"
-rust-version = "1.66"
+rust-version = "1.85"
+resolver = "3"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin_include)"] }
 
 [package.metadata.release]
 pre-release-commit-message = "chore(release): release {{version}}"
 
 [dependencies]
 rayon = "1.0.0"
-memmap2 = "0.5.7"
-arrayref = "0.3.5"
+memmap2 = "0.9"
 tempfile = "3.3"
 positioned-io = "0.3"
 log = "0.4.7"
@@ -34,11 +37,11 @@ typenum = "1.11.2"
 
 [dev-dependencies]
 byteorder = "1.3.1"
-env_logger = "0.7.1"
+env_logger = "0.11"
 sha2 = "0.10.2"
-tempfile = "3.3"
-rand = "0.7.3"
-criterion = "0.3"
+tempfile = "3.20"
+rand = "0.10"
+criterion = "0.7"
 walkdir = "2.3.2"
 
 [[bench]]

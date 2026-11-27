@@ -155,10 +155,12 @@ fn instantiate_cctree_from_sub_tree_readonly_store_configs<
         std::fs::set_permissions(&data_path, permissions).expect("couldn't apply permissions");
     }
 
-    let tree = MerkleTree::from_sub_tree_store_configs(base_tree_leaves, &configs)
-        .expect("failed to instantiate compound-compound tree [instantiate_cctree_from_sub_tree_readonly_store_configs]");
-    tree
+    MerkleTree::from_sub_tree_store_configs(base_tree_leaves, &configs)
+        .expect("failed to instantiate compound-compound tree [instantiate_cctree_from_sub_tree_readonly_store_configs]")
 }
+
+type CompoundCompoundConstructor<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity> =
+    fn(usize) -> MerkleTree<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity>;
 
 /// Test executor
 fn run_test_compound_compound_tree<
@@ -169,7 +171,7 @@ fn run_test_compound_compound_tree<
     SubTreeArity: Unsigned,
     TopTreeArity: Unsigned,
 >(
-    constructor: fn(usize) -> MerkleTree<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity>,
+    constructor: CompoundCompoundConstructor<E, A, S, BaseTreeArity, SubTreeArity, TopTreeArity>,
     base_tree_leaves: usize,
     expected_leaves: usize,
     expected_len: usize,

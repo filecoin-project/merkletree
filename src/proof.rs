@@ -166,9 +166,8 @@ impl<T: Eq + Clone + AsRef<[u8]>, BaseTreeArity: Unsigned> Proof<T, BaseTreeArit
         let branches = BaseTreeArity::to_usize();
         let mut a = A::default();
         let mut h = self.item();
-        let mut path_index = 1;
 
-        for i in (1..size - 1).step_by(branches - 1) {
+        for (path_index, i) in (1..).zip((1..size - 1).step_by(branches - 1)) {
             a.reset();
             h = {
                 let mut nodes: Vec<T> = Vec::with_capacity(branches);
@@ -186,7 +185,6 @@ impl<T: Eq + Clone + AsRef<[u8]>, BaseTreeArity: Unsigned> Proof<T, BaseTreeArit
                     return Ok(false);
                 }
 
-                path_index += 1;
                 a.multi_node(&nodes, i - 1)
             };
         }
@@ -254,7 +252,7 @@ mod tests {
     >(
         proof: &mut Proof<E, BaseTreeArity>,
     ) {
-        use rand::prelude::*;
+        use rand::{random, random_range};
 
         if TopTreeArity::to_usize() > 0 {
             assert!(proof.sub_tree_proof.is_some());
@@ -273,8 +271,8 @@ mod tests {
 
         if TopTreeArity::to_usize() > 0 || SubTreeArity::to_usize() > 0 {
             // unwrap is safe as we checked sub_tree_proof to be initialised
-            let i = random::<usize>() % proof.sub_tree_proof.as_ref().unwrap().lemma().len();
-            let j = random::<usize>();
+            let i = random_range(0..proof.sub_tree_proof.as_ref().unwrap().lemma().len());
+            let j = random::<u64>();
 
             j.hash(&mut hasher_alg);
 
@@ -286,8 +284,8 @@ mod tests {
             // unwrap is safe as we checked sub_tree_proof to be initialised
             proof.sub_tree_proof.as_mut().unwrap().lemma_mut()[i] = hasher_alg.hash();
         } else {
-            let i = random::<usize>() % proof.lemma.len();
-            let k = random::<usize>();
+            let i = random_range(0..proof.lemma.len());
+            let k = random::<u64>();
 
             k.hash(&mut hasher_alg);
 

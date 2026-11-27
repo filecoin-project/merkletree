@@ -148,9 +148,12 @@ fn instantiate_from_tree_slice_with_config<
     .expect("failed to instantiate tree [from_tree_slice_with_config]")
 }
 
+type BaseConstructor<E, A, S, BaseTreeArity> =
+    fn(usize, Option<StoreConfig>) -> MerkleTree<E, A, S, BaseTreeArity>;
+
 /// Test executor
 fn run_test_base_tree<E: Element, A: Algorithm<E>, S: Store<E>, BaseTreeArity: Unsigned>(
-    constructor: fn(usize, Option<StoreConfig>) -> MerkleTree<E, A, S, BaseTreeArity>,
+    constructor: BaseConstructor<E, A, S, BaseTreeArity>,
     leaves_in_tree: usize,
     config: Option<StoreConfig>,
     expected_leaves: usize,
@@ -229,7 +232,7 @@ fn test_iterable() {
             instantiate_new_with_config,
             base_tree_leaves,
             Some(StoreConfig::new(
-                temp_dir.into_path(),
+                temp_dir.keep(),
                 String::from(distinguisher),
                 0,
             )),
@@ -247,7 +250,7 @@ fn test_iterable() {
             instantiate_try_from_iter_with_config,
             base_tree_leaves,
             Some(StoreConfig::new(
-                temp_dir.into_path(),
+                temp_dir.keep(),
                 String::from(distinguisher),
                 0,
             )),
@@ -265,7 +268,7 @@ fn test_iterable() {
             instantiate_from_par_iter_with_config,
             base_tree_leaves,
             Some(StoreConfig::new(
-                temp_dir.into_path(),
+                temp_dir.keep(),
                 String::from(distinguisher),
                 0,
             )),
@@ -317,7 +320,7 @@ fn test_iterable_hashable_and_serialization() {
             instantiate_from_data_with_config,
             base_tree_leaves,
             Some(StoreConfig::new(
-                temp_dir.into_path(),
+                temp_dir.keep(),
                 String::from(distinguisher),
                 0,
             )),
@@ -362,7 +365,7 @@ fn test_iterable_hashable_and_serialization() {
             instantiate_from_byte_slice_with_config,
             base_tree_leaves,
             Some(StoreConfig::new(
-                temp_dir.into_path(),
+                temp_dir.keep(),
                 String::from(distinguisher),
                 0,
             )),
@@ -380,7 +383,7 @@ fn test_iterable_hashable_and_serialization() {
             instantiate_from_tree_slice_with_config,
             base_tree_leaves,
             Some(StoreConfig::new(
-                temp_dir.into_path(),
+                temp_dir.keep(),
                 String::from(distinguisher),
                 0,
             )),
@@ -412,7 +415,7 @@ fn test_iterable_hashable_and_serialization() {
 /// exist - https://stackoverflow.com/questions/60138397/how-to-test-for-type-equality-in-rust)
 /// we just compare partial strings from formatted storages
 fn run_base_tree_storage_test<E: Element, A: Algorithm<E>, S: Store<E>, BaseTreeArity: Unsigned>(
-    constructor: fn(usize, Option<StoreConfig>) -> MerkleTree<E, A, S, BaseTreeArity>,
+    constructor: BaseConstructor<E, A, S, BaseTreeArity>,
     leaves_in_tree: usize,
     config: Option<StoreConfig>,
     expected_storage: S,
@@ -453,7 +456,7 @@ fn test_storage_types() {
         instantiate_new_with_config,
         base_tree_leaves,
         Some(StoreConfig::new(
-            temp_dir.into_path(),
+            temp_dir.keep(),
             String::from(distinguisher),
             StoreConfig::default_rows_to_discard(expected_total_leaves, branches),
         )),
@@ -471,7 +474,7 @@ fn test_storage_types() {
         instantiate_new_with_config,
         base_tree_leaves,
         Some(StoreConfig::new(
-            temp_dir.into_path(),
+            temp_dir.keep(),
             String::from(distinguisher),
             StoreConfig::default_rows_to_discard(expected_total_leaves, branches),
         )),
@@ -489,7 +492,7 @@ fn test_storage_types() {
         instantiate_new_with_config,
         base_tree_leaves,
         Some(StoreConfig::new(
-            temp_dir.into_path(),
+            temp_dir.keep(),
             String::from(distinguisher),
             StoreConfig::default_rows_to_discard(expected_total_leaves, branches),
         )),

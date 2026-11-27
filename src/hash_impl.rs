@@ -1,5 +1,4 @@
 use std::hash::Hasher;
-use std::mem;
 use std::slice;
 
 use crate::hash::Hashable;
@@ -13,7 +12,7 @@ macro_rules! impl_write {
 
             #[allow(trivial_casts, unsafe_code)]
             fn hash_slice(data: &[$ty], state: &mut H) {
-                let newlen = data.len() * mem::size_of::<$ty>();
+                let newlen = data.len() * size_of::<$ty>();
                 let ptr = data.as_ptr() as *const u8;
                 state.write(unsafe { slice::from_raw_parts(ptr, newlen) })
             }
@@ -43,7 +42,7 @@ impl<H: Hasher, const N: usize> Hashable<H> for [u8; N] {
 
     #[allow(trivial_casts, unsafe_code)]
     fn hash_slice(data: &[[u8; N]], state: &mut H) {
-        let newlen = mem::size_of_val(data);
+        let newlen = size_of_val(data);
         let ptr = data.as_ptr() as *const u8;
         state.write(unsafe { slice::from_raw_parts(ptr, newlen) })
     }
@@ -127,13 +126,13 @@ impl<H: Hasher, T: Hashable<H>> Hashable<H> for [T] {
     }
 }
 
-impl<'a, H: Hasher, T: ?Sized + Hashable<H>> Hashable<H> for &'a T {
+impl<H: Hasher, T: ?Sized + Hashable<H>> Hashable<H> for &T {
     fn hash(&self, state: &mut H) {
         (**self).hash(state);
     }
 }
 
-impl<'a, H: Hasher, T: ?Sized + Hashable<H>> Hashable<H> for &'a mut T {
+impl<H: Hasher, T: ?Sized + Hashable<H>> Hashable<H> for &mut T {
     fn hash(&self, state: &mut H) {
         (**self).hash(state);
     }
@@ -142,7 +141,7 @@ impl<'a, H: Hasher, T: ?Sized + Hashable<H>> Hashable<H> for &'a mut T {
 impl<H: Hasher, T: ?Sized> Hashable<H> for *const T {
     #[allow(trivial_casts, unsafe_code)]
     fn hash(&self, state: &mut H) {
-        if mem::size_of::<Self>() == mem::size_of::<usize>() {
+        if size_of::<Self>() == size_of::<usize>() {
             // Thin pointer
             state.write_usize(*self as *const () as usize);
         } else {
@@ -157,7 +156,7 @@ impl<H: Hasher, T: ?Sized> Hashable<H> for *const T {
 impl<H: Hasher, T: ?Sized> Hashable<H> for *mut T {
     #[allow(trivial_casts, unsafe_code)]
     fn hash(&self, state: &mut H) {
-        if mem::size_of::<Self>() == mem::size_of::<usize>() {
+        if size_of::<Self>() == size_of::<usize>() {
             // Thin pointer
             state.write_usize(*self as *const () as usize);
         } else {

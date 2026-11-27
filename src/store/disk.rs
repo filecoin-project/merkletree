@@ -290,7 +290,7 @@ impl<E: Element> Store<E> for DiskStore<E> {
 
     fn delete(config: StoreConfig) -> Result<()> {
         let path = StoreConfig::data_path(&config.path, &config.id);
-        remove_file(&path).with_context(|| format!("Failed to delete {:?}", &path))
+        remove_file(&path).with_context(|| format!("Failed to delete {:?}", path))
     }
 
     fn is_empty(&self) -> bool {

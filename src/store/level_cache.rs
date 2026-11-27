@@ -427,7 +427,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
 
     fn delete(config: StoreConfig) -> Result<()> {
         let path = StoreConfig::data_path(&config.path, &config.id);
-        remove_file(&path).with_context(|| format!("Failed to delete {:?}", &path))
+        remove_file(&path).with_context(|| format!("Failed to delete {:?}", path))
     }
 
     fn is_empty(&self) -> bool {
@@ -714,18 +714,18 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         );
 
         // If an external reader was specified for the base layer, use it.
-        if start < self.data_width * self.elem_len && self.reader.is_some() {
-            self.reader
-                .as_ref()
-                .unwrap() // unwrap is safe as we checked reader to be initialised
-                .read(start, end, &mut read_data)
-                .with_context(|| {
-                    format!(
-                        "failed to read {} bytes from file at offset {}",
-                        end - start,
-                        start
-                    )
-                })?;
+        if let Some(reader) = self
+            .reader
+            .as_ref()
+            .filter(|_| start < self.data_width * self.elem_len)
+        {
+            reader.read(start, end, &mut read_data).with_context(|| {
+                format!(
+                    "failed to read {} bytes from file at offset {}",
+                    end - start,
+                    start
+                )
+            })?;
 
             return Ok(read_data);
         }
@@ -816,18 +816,18 @@ impl<E: Element, R: Read + Send + Sync> LevelCacheStore<E, R> {
         );
 
         // If an external reader was specified for the base layer, use it.
-        if start < self.data_width * self.elem_len && self.reader.is_some() {
-            self.reader
-                .as_ref()
-                .unwrap() // unwrap is safe as we checked reader to be initialised
-                .read(start, end, buf)
-                .with_context(|| {
-                    format!(
-                        "failed to read {} bytes from file at offset {}",
-                        end - start,
-                        start
-                    )
-                })?;
+        if let Some(reader) = self
+            .reader
+            .as_ref()
+            .filter(|_| start < self.data_width * self.elem_len)
+        {
+            reader.read(start, end, buf).with_context(|| {
+                format!(
+                    "failed to read {} bytes from file at offset {}",
+                    end - start,
+                    start
+                )
+            })?;
         } else {
             // Adjust read index if in the cached ranged to be shifted
             // over since the data stored is compacted.

@@ -263,7 +263,7 @@ pub trait Store<E: Element>: fmt::Debug + Send + Sync + Sized {
         leafs: usize,
         row_count: usize,
     ) -> Result<E> {
-        ensure!(leafs % 2 == 0, "Leafs must be a power of two");
+        ensure!(leafs.is_multiple_of(2), "Leafs must be a power of two");
 
         let mut level: usize = 0;
         let mut width = leafs;
@@ -322,7 +322,10 @@ pub trait Store<E: Element>: fmt::Debug + Send + Sync + Sized {
         // Process `BUILD_CHUNK_NODES` nodes in each thread at a time to reduce contention,
         // optimized for big sector sizes (small ones will just have one thread doing all
         // the work).
-        ensure!(BUILD_CHUNK_NODES % branches == 0, "Invalid chunk size");
+        ensure!(
+            BUILD_CHUNK_NODES.is_multiple_of(branches),
+            "Invalid chunk size"
+        );
         Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
             .par_iter()
             .try_for_each(|&chunk_index| -> Result<()> {
@@ -378,7 +381,7 @@ pub trait Store<E: Element>: fmt::Debug + Send + Sync + Sized {
             "branches MUST be a power of 2"
         );
         ensure!(Store::len(self) == leafs, "Inconsistent data");
-        ensure!(leafs % 2 == 0, "Leafs must be a power of two");
+        ensure!(leafs.is_multiple_of(2), "Leafs must be a power of two");
 
         if leafs <= SMALL_TREE_BUILD {
             return self.build_small_tree::<A, U>(leafs, row_count);

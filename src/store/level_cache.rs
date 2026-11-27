@@ -223,7 +223,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         config: StoreConfig,
     ) -> Result<Self> {
         ensure!(
-            data.len() % E::byte_len() == 0,
+            data.len().is_multiple_of(E::byte_len()),
             "data size must be a multiple of {}",
             E::byte_len()
         );
@@ -244,7 +244,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
 
     fn new_from_slice(size: usize, data: &[u8]) -> Result<Self> {
         ensure!(
-            data.len() % E::byte_len() == 0,
+            data.len().is_multiple_of(E::byte_len()),
             "data size must be a multiple of {}",
             E::byte_len()
         );
@@ -334,7 +334,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
 
     fn copy_from_slice(&mut self, buf: &[u8], start: usize) -> Result<()> {
         ensure!(
-            buf.len() % self.elem_len == 0,
+            buf.len().is_multiple_of(self.elem_len),
             "buf size must be a multiple of {}",
             self.elem_len
         );
@@ -474,7 +474,10 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
         let shift = log2_pow2(branches);
         let write_chunk_width = (BUILD_CHUNK_NODES >> shift) * E::byte_len();
 
-        ensure!(BUILD_CHUNK_NODES % branches == 0, "Invalid chunk size");
+        ensure!(
+            BUILD_CHUNK_NODES.is_multiple_of(branches),
+            "Invalid chunk size"
+        );
         Vec::from_iter((read_start..read_start + width).step_by(BUILD_CHUNK_NODES))
             .into_par_iter()
             .zip(mmap.par_chunks_mut(write_chunk_width))
@@ -525,7 +528,7 @@ impl<E: Element, R: Read + Send + Sync> Store<E> for LevelCacheStore<E, R> {
             "branches MUST be a power of 2"
         );
         ensure!(Store::len(self) == leafs, "Inconsistent data");
-        ensure!(leafs % 2 == 0, "Leafs must be a power of two");
+        ensure!(leafs.is_multiple_of(2), "Leafs must be a power of two");
 
         // Process one `level` at a time of `width` nodes. Each level has half the nodes
         // as the previous one; the first level, completely stored in `data`, has `leafs`

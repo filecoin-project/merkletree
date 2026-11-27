@@ -41,7 +41,7 @@ env_logger = "0.11"
 sha2 = "0.10.2"
 tempfile = "3.20"
 rand = "0.10"
-criterion = "0.7"
+criterion = "0.8"
 walkdir = "2.3.2"
 
 [[bench]]

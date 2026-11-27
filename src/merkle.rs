@@ -1826,7 +1826,9 @@ impl Element for [u8; 32] {
         if bytes.len() != 32 {
             panic!("invalid length {}, expected 32", bytes.len());
         }
-        *array_ref!(bytes, 0, 32)
+        let mut out = [0u8; 32];
+        out.copy_from_slice(bytes);
+        out
     }
 
     fn copy_to_slice(&self, bytes: &mut [u8]) {

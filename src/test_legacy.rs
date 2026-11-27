@@ -7,10 +7,10 @@ use std::fmt::{Debug, Formatter};
 use std::fs::OpenOptions;
 use std::hash::Hasher;
 use std::io::Write as ioWrite;
-use std::mem;
 use std::num::ParseIntError;
 use std::os::unix::prelude::FileExt;
 use std::path::Path;
+use std::ptr;
 use std::slice;
 
 use byteorder::{ByteOrder, NativeEndian};
@@ -681,7 +681,7 @@ fn test_level_cache_tree_v2() {
 
     // Construct and store an MT using a named DiskStore.
     let config = StoreConfig::new(
-        &temp_path,
+        temp_path,
         String::from("test-cache-v2"),
         StoreConfig::default_rows_to_discard(count, BINARY_ARITY),
     );
@@ -807,7 +807,7 @@ fn test_various_trees_with_partial_cache_v2_only() {
 
             // Construct and store an MT using a named DiskStore.
             let config = StoreConfig::new(
-                &temp_path,
+                temp_path,
                 format!("test-partial-cache-{}", i),
                 std::cmp::min(i, StoreConfig::default_rows_to_discard(count, BINARY_ARITY)),
             );
@@ -1220,7 +1220,7 @@ impl Element for Item2 {
 impl AsRef<[u8]> for Item2 {
     #[allow(unsafe_code)]
     fn as_ref(&self) -> &[u8] {
-        unsafe { slice::from_raw_parts(mem::transmute(&self.0), 8) }
+        unsafe { slice::from_raw_parts(ptr::from_ref(&self.0).cast(), 8) }
     }
 }
 
@@ -1248,20 +1248,20 @@ impl<A: Algorithm<Item2>> Hashable<A> for Item2 {
     }
 }
 
-#[test]
-fn test_simple_tree() {
-    impl Algorithm<Item2> for DefaultHasher {
-        #[inline]
-        fn hash(&mut self) -> Item2 {
-            Item2(self.finish())
-        }
-
-        #[inline]
-        fn reset(&mut self) {
-            *self = DefaultHasher::default()
-        }
+impl Algorithm<Item2> for DefaultHasher {
+    #[inline]
+    fn hash(&mut self) -> Item2 {
+        Item2(self.finish())
     }
 
+    #[inline]
+    fn reset(&mut self) {
+        *self = DefaultHasher::default()
+    }
+}
+
+#[test]
+fn test_simple_tree() {
     let answer: Vec<Vec<u64>> = vec![
         vec![
             18161131233134742049,

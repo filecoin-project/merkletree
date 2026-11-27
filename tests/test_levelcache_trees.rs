@@ -13,8 +13,10 @@
 /// - from_data_with_config
 /// - from_byte_slice_with_config
 /// - from_tree_slice_with_config
+///
 /// [compound trees]
 /// - from_store_configs_and_replica
+///
 /// [compound-compound trees]
 /// - from_sub_tree_store_configs_and_replica
 ///

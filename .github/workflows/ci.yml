@@ -1,72 +1,83 @@
 name: CI
 
-on: [pull_request, push]
+on:
+  pull_request:
+  push:
+    branches:
+      - master
 
-# Cancel a job if there's a new on on the same branch started.
-# Based on https://stackoverflow.com/questions/58895283/stop-already-running-workflow-job-in-github-actions/67223051#67223051
 concurrency:
-  group: ${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
+  RUSTFLAGS: "-Dwarnings"
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: 1
-  # Faster crates.io index checkout.
-  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
   RUST_LOG: debug
 
 jobs:
-  check_clippy:
-    runs-on: ubuntu-24.04
-    name: Clippy
+  set-msrv:
+    runs-on: ubuntu-latest
+    outputs:
+      msrv: ${{ steps.msrv.outputs.msrv }}
+      pinned: ${{ steps.msrv.outputs.pinned }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Run cargo clippy
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: msrv
         run: |
-          rustup component add clippy
-          cargo clippy --workspace --all-features -- -D warnings
-
-  check_fmt:
-    runs-on: ubuntu-24.04
-    name: Checking fmt
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run cargo fmt
-        run: |
-          rustup component add rustfmt
-          cargo fmt --all -- --check
-
-  rustdoc:
-    runs-on: ubuntu-24.04
-    name: Rustdoc
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run rustdoc
-        run: cargo rustdoc --all-features -- -D warnings
-
-  build:
-    runs-on: ubuntu-24.04
-    name: Release build
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run cargo release build
-        run: cargo build --release
-
-  benches:
-    runs-on: ubuntu-24.04
-    name: Run benchmarks
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run benchmarks
-        run: cargo bench --all-targets
+          echo "msrv=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].rust_version')" | tee --append "$GITHUB_OUTPUT"
+          echo "pinned=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" | tee --append "$GITHUB_OUTPUT"
 
   test:
-    runs-on: ubuntu-24.04
-    name: Run cargo test
+    needs: set-msrv
+    name: Test (${{ matrix.toolchain }})
     strategy:
       matrix:
-        cargo-args: ['--workspace --release', '--release -- --ignored']
+        toolchain:
+          - ${{ needs.set-msrv.outputs.msrv }}
+          - ${{ needs.set-msrv.outputs.pinned }}
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Test
-        run: cargo test ${{ matrix.cargo-args }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install ${{ matrix.toolchain }} --profile minimal --no-self-update
+          rustup override set ${{ matrix.toolchain }}
+      - run: cargo test --workspace --release
+
+  test_ignored:
+    name: Test ignored
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cargo test --workspace --release -- --ignored
+
+  clippy_check:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cargo clippy --workspace --all-targets --all-features
+
+  check_fmt_and_docs:
+    name: Checking fmt and docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: Docs
+        env:
+          RUSTDOCFLAGS: "-Dwarnings"
+        run: cargo doc --no-deps --all-features
+
+  bench:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cargo bench --all-targets

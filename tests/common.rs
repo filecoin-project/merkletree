@@ -10,40 +10,40 @@ use merkletree::hash::{Algorithm, Hashable};
 use merkletree::merkle::{Element, MerkleTree};
 use merkletree::store::{DiskStore, LevelCacheStore, Store, StoreConfig};
 
-/// This is the common utilities that we use for integration tests
-///
-/// In order to check that particular merkle tree will work as expected we need following stuff:
-///
-/// - actual logic of test, that will evaluate if implemented functionality works as expected;
-/// - implementation of Element, that we will use as elements of the tree while testing;
-/// - implementations of Hasher and Algorithm, that we will use for computing leafs, nodes, root
-/// and inclusion proofs while testing;
-/// - generator of some arbitrary dataset, that can be used as a source of data for building a tree over it;
-///
-/// Implementation of MerkleTree abstraction is rather dense. Trees can be instantiated via 23 different
-/// constructors (each constructor is part of public API), while tree can have various type (base, compound,
-/// compound-compound), while each type can have arbitrary arity; additionally tree can be backed by 4 different
-/// storages, each with own specifics.
-///
-/// Having that in mind, and considering that writing tests for all possible combination of parameters can lead to
-/// huge amount of code that we need to support, we provide integration tests that cover following cases:
-///
-/// - testing instantiation of tree via all constructors that are part of public API;
-/// - ensuring that each tree has expected amount of leaves, expected length and expected root;
-/// - ensuring that inclusion proof can be successfully created and verified for each tree leaf;
-///
-/// What is not covered / evaluated:
-///
-/// - checking that arities' tests work for each base / compound / compound-compound constructor;
-/// - checking that arities' tests work for Disk / Mmap / LevelCache storages;
-/// - instantiation of compound tree using each base constructor;
-/// - instantiation of compound-compound tree using each base and each compound constructor;
-/// - instantiation of DiskStore and MmapStore compound trees;
-/// - instantiation of DiskStore and MmapStore compound-compound trees;
-/// - instantiation of compound tree using 'from_store_configs' with custom configurations
-/// - instantiation of compound-compound tree using 'from_sub_tree_store_configs' with custom configurations
-/// - instantiation of LevelCacheStore base tree using 'from_tree_slice_with_config' constructor
-/// - instantiation of LevelCacheStore compound trees using "regular" compound constructors ('from_slices_with_configs', 'from_store_configs');
+// This is the common utilities that we use for integration tests
+//
+// In order to check that particular merkle tree will work as expected we need following stuff:
+//
+// - actual logic of test, that will evaluate if implemented functionality works as expected;
+// - implementation of Element, that we will use as elements of the tree while testing;
+// - implementations of Hasher and Algorithm, that we will use for computing leafs, nodes, root
+// and inclusion proofs while testing;
+// - generator of some arbitrary dataset, that can be used as a source of data for building a tree over it;
+//
+// Implementation of MerkleTree abstraction is rather dense. Trees can be instantiated via 23 different
+// constructors (each constructor is part of public API), while tree can have various type (base, compound,
+// compound-compound), while each type can have arbitrary arity; additionally tree can be backed by 4 different
+// storages, each with own specifics.
+//
+// Having that in mind, and considering that writing tests for all possible combination of parameters can lead to
+// huge amount of code that we need to support, we provide integration tests that cover following cases:
+//
+// - testing instantiation of tree via all constructors that are part of public API;
+// - ensuring that each tree has expected amount of leaves, expected length and expected root;
+// - ensuring that inclusion proof can be successfully created and verified for each tree leaf;
+//
+// What is not covered / evaluated:
+//
+// - checking that arities' tests work for each base / compound / compound-compound constructor;
+// - checking that arities' tests work for Disk / Mmap / LevelCache storages;
+// - instantiation of compound tree using each base constructor;
+// - instantiation of compound-compound tree using each base and each compound constructor;
+// - instantiation of DiskStore and MmapStore compound trees;
+// - instantiation of DiskStore and MmapStore compound-compound trees;
+// - instantiation of compound tree using 'from_store_configs' with custom configurations
+// - instantiation of compound-compound tree using 'from_sub_tree_store_configs' with custom configurations
+// - instantiation of LevelCacheStore base tree using 'from_tree_slice_with_config' constructor
+// - instantiation of LevelCacheStore compound trees using "regular" compound constructors ('from_slices_with_configs', 'from_store_configs');
 
 /// Implementation of Element abstraction that we use in our integration tests
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Default)]
@@ -172,14 +172,14 @@ impl Algorithm<TestItem> for TestSha256Hasher {
     }
 }
 
-/// Dataset generators
-///
-/// We need to provide 3 different datasets:
-/// - <I: IntoIterator<Item = E>>
-/// - <O: Hashable<A>, I: IntoIterator<Item = O>>
-/// - datasets based on raw serialization to byte-slice;
-///
-/// because various MerkleTree constructors have specific requirements
+// Dataset generators
+//
+// We need to provide 3 different datasets:
+// - <I: IntoIterator<Item = E>>
+// - <O: Hashable<A>, I: IntoIterator<Item = O>>
+// - datasets based on raw serialization to byte-slice;
+//
+// because various MerkleTree constructors have specific requirements
 
 // generate dataset of iterable elements
 pub fn generate_vector_of_elements<E: Element>(leaves: usize) -> Vec<E> {

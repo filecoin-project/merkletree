@@ -198,7 +198,7 @@ impl StoreConfig {
 }
 
 /// Backing store of the merkle tree.
-pub trait Store<E: Element>: std::fmt::Debug + Send + Sync + Sized {
+pub trait Store<E: Element>: fmt::Debug + Send + Sync + Sized {
     /// Creates a new store which can store up to `size` elements.
     fn new_with_config(size: usize, branches: usize, config: StoreConfig) -> Result<Self>;
     fn new(size: usize) -> Result<Self>;

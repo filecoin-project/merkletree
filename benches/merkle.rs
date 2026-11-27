@@ -1,4 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, Criterion};
 
 use merkletree::merkle::{get_merkle_proof_lemma_len, get_merkle_tree_leafs, get_merkle_tree_len};
 
